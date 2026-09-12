@@ -26,10 +26,15 @@ type KnowledgeConfig struct {
 	DocumentManagement bool
 	// DocumentPermissionIDs is immutable host policy shared by upload and
 	// retrieval. It cannot be combined with a dynamic user permission callback.
-	DocumentPermissionIDs                      []string
+	DocumentPermissionIDs []string
+	// AnalysisDocumentIDs is trusted host configuration for complete structured
+	// documents. It is never accepted from model or browser input.
+	AnalysisDocumentIDs                        []string
 	ResponseMapping                            *KnowledgeResponseMapping
 	mappingInvalid                             bool
+	analysisDocumentsInvalid                   bool
 	BaseURL, APIKey, TeamID, KBID, WorkspaceID string
+	RuntimeID                                  string
 	TopK                                       int
 	Client                                     *http.Client
 	Transport                                  connector.Transport
@@ -61,12 +66,15 @@ func KnowledgeConfigFromEnvironment() KnowledgeConfig {
 		c.ResponseMapping, err = knowledgeMappingJSON(raw)
 		c.mappingInvalid = err != nil
 	}
+	if raw := strings.TrimSpace(os.Getenv("AGENT_KNOWLEDGE_ANALYSIS_DOCUMENT_IDS")); raw != "" {
+		c.analysisDocumentsInvalid = json.Unmarshal([]byte(raw), &c.AnalysisDocumentIDs) != nil
+	}
 	return c
 }
 
 func (c KnowledgeConfig) Configured() bool {
 	// A key alone does not enable retrieval.
-	return strings.TrimSpace(c.BaseURL+c.TeamID+c.KBID+c.WorkspaceID) != "" || c.TopK != 0 || c.ResponseMapping != nil || c.mappingInvalid || c.DocumentManagement || c.DocumentPermissionIDs != nil
+	return strings.TrimSpace(c.BaseURL+c.TeamID+c.KBID+c.WorkspaceID) != "" || c.TopK != 0 || c.ResponseMapping != nil || c.mappingInvalid || c.analysisDocumentsInvalid || c.DocumentManagement || c.DocumentPermissionIDs != nil || c.AnalysisDocumentIDs != nil
 }
 
 type Knowledge struct {
@@ -83,6 +91,9 @@ func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
 	if c.mappingInvalid {
 		return nil, fmt.Errorf("invalid knowledge response mapping JSON")
 	}
+	if c.analysisDocumentsInvalid {
+		return nil, fmt.Errorf("invalid knowledge analysis document IDs JSON")
+	}
 	if c.DocumentPermissionIDs != nil {
 		if len(c.DocumentPermissionIDs) == 0 || len(c.DocumentPermissionIDs) > 100 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
 			return nil, fmt.Errorf("fixed document permissions must be nonempty and cannot use dynamic authority policy")
@@ -90,6 +101,22 @@ func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
 		c.DocumentPermissionIDs = slices.Clone(c.DocumentPermissionIDs)
 		slices.Sort(c.DocumentPermissionIDs)
 		c.DocumentPermissionIDs = slices.Compact(c.DocumentPermissionIDs)
+	}
+	if c.AnalysisDocumentIDs != nil {
+		if len(c.AnalysisDocumentIDs) == 0 || len(c.AnalysisDocumentIDs) > 50 {
+			return nil, fmt.Errorf("analysis document IDs must contain between 1 and 50 values")
+		}
+		if strings.TrimSpace(c.RuntimeID) == "" {
+			return nil, fmt.Errorf("Runtime ID is required for analysis documents")
+		}
+		c.AnalysisDocumentIDs = slices.Clone(c.AnalysisDocumentIDs)
+		for _, id := range c.AnalysisDocumentIDs {
+			if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id || len(id) > 256 {
+				return nil, fmt.Errorf("invalid analysis document ID")
+			}
+		}
+		slices.Sort(c.AnalysisDocumentIDs)
+		c.AnalysisDocumentIDs = slices.Compact(c.AnalysisDocumentIDs)
 	}
 	if err := validateKnowledgeMapping(c.ResponseMapping); err != nil {
 		return nil, err
@@ -140,6 +167,9 @@ func (k *Knowledge) connection() connector.Connection {
 	c := connector.Connection{Key: "agent_knowledge", WorkspaceID: k.config.WorkspaceID, ConnectorKey: httpapi.ConnectorKey, ProviderKey: httpapi.ProviderKey, Config: map[string]any{"base_url": k.config.BaseURL, "team_id": k.config.TeamID, "kb_id": k.config.KBID}}
 	if k.config.DocumentPermissionIDs != nil {
 		c.Config["document_permission_ids"] = slices.Clone(k.config.DocumentPermissionIDs)
+	}
+	if k.config.AnalysisDocumentIDs != nil {
+		c.Config["analysis_document_ids"] = slices.Clone(k.config.AnalysisDocumentIDs)
 	}
 	return c
 }

@@ -58,7 +58,12 @@ func (t *HTTP) RoundTripHTTP(ctx context.Context, in connector.HTTPRequest) (con
 	if err != nil || u.Scheme != t.origin.Scheme || !strings.EqualFold(u.Host, t.origin.Host) || u.User != nil || u.Fragment != "" || in.MaxResponseBytes < 1 || in.MaxResponseBytes > 512*1024 || len(in.SecretQuery)+len(in.SecretForm)+len(in.SecretJSON) != 0 {
 		return connector.HTTPResponse{}, errors.New("connector request exceeds host transport policy")
 	}
-	read := in.Method == http.MethodPost && (u.EscapedPath() == "/v1/kb/search" || u.EscapedPath() == "/v1/kb/fetch") && u.RawQuery == "" && !u.ForceQuery && len(in.Body) <= 128*1024
+	readPath := map[string]bool{
+		"/v1/kb/search": true, "/v1/kb/fetch": true,
+		"/v1/kb/analysis/tables/catalog": true,
+		"/v1/kb/analysis/tables/read":    true,
+	}
+	read := in.Method == http.MethodPost && readPath[u.EscapedPath()] && u.RawQuery == "" && !u.ForceQuery && len(in.Body) <= 128*1024
 	write := false
 	if t.documentPath != "" && u.EscapedPath() == t.documentPath {
 		q, queryErr := url.ParseQuery(u.RawQuery)
