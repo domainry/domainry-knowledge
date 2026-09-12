@@ -200,7 +200,15 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 	if err != nil {
 		return nil, err
 	}
-	if err = s.deletePhysicalSubjectData(ctx, a, candidates); err != nil {
+	pending, err := s.prepareExternalCleanup(ctx, a, candidates)
+	if err != nil {
+		return nil, err
+	}
+	if pending {
+		return nil, fmt.Errorf("Knowledge subject external cleanup is pending")
+	}
+	physical, err := s.deletePhysicalSubjectData(ctx, a, candidates)
+	if err != nil {
 		return nil, err
 	}
 	var receipt json.RawMessage
@@ -215,10 +223,8 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 		if eraseErr != nil {
 			return eraseErr
 		}
-		if storage, ok := s.options.ArtifactStorage.(SubjectArtifactStorage); ok {
-			// Physical owner storage was already removed before this transaction.
-			_ = storage
-			changed["artifact_content_objects"] = -1
+		for key, count := range physical {
+			changed[key] += count
 		}
 		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "changed": changed, "personal_copies_removed": len(candidates.documents), "shared_references_anonymized": changed["shared_documents_anonymized"], "completed_at": time.Now().UTC()})
 		statement, args, buildErr := query.NewInsertBuilder(s.store.store.Renderer(), subjectReceiptTable).Columns("owner_key", "request_id", "payload_json").Values(conversationOwner(a), requestID, receipt).Build()
@@ -302,28 +308,81 @@ func (s SubjectLifecycle) erasureCandidates(ctx context.Context, a agentsdk.Conv
 	return result, nil
 }
 
-func (s SubjectLifecycle) deletePhysicalSubjectData(ctx context.Context, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) error {
+func (s SubjectLifecycle) prepareExternalCleanup(ctx context.Context, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (bool, error) {
+	pending := false
+	err := s.store.transaction(ctx, func(tx *sql.Tx) error {
+		for _, record := range candidates.attachments {
+			if record.Attachment.State == "deleted" {
+				continue
+			}
+			managedRemote := record.Index != nil && (record.Index.PutStarted || record.Index.IndexObserved)
+			legacyRemote := record.Source != nil && record.Index == nil
+			if !managedRemote && !legacyRemote {
+				continue
+			}
+			pending = true
+			if record.Attachment.State != "deleting" {
+				expected := record.Attachment.Revision
+				record.Attachment.State, record.Attachment.ErrorCode = "deleting", ""
+				record.Attachment.Revision++
+				record.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
+				if err := s.store.CompatSaveAttachment(ctx, tx, record, expected, a); err != nil {
+					return err
+				}
+			}
+			if err := s.store.CompatQueueAttachmentCleanup(ctx, tx, record.Attachment.ID, a); err != nil {
+				return err
+			}
+			if err := s.store.CompatQueueAttachmentIndexWork(ctx, tx, record); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	for _, record := range candidates.documents {
+		if record.Document.State == "deleted" || !record.PutStarted && !record.IndexObserved {
+			continue
+		}
+		pending = true
+		if record.Document.State != "deleting" {
+			if _, err := s.store.RequestKnowledgeDocumentDeletion(ctx, record.Document.ID, record.Document.Revision, a); err != nil {
+				return false, err
+			}
+		}
+	}
+	return pending, nil
+}
+
+func (s SubjectLifecycle) deletePhysicalSubjectData(ctx context.Context, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (map[string]int64, error) {
+	changed := map[string]int64{}
 	for _, record := range candidates.attachments {
 		if s.options.AttachmentStorage != nil && record.BodyRef != "" {
 			if err := s.options.AttachmentStorage.DeleteAttachmentContent(ctx, record.Attachment.ID, a); err != nil {
-				return err
+				return nil, err
 			}
+			changed["attachment_content_objects"]++
 		}
 	}
 	for _, record := range candidates.documents {
 		if s.options.DocumentStorage != nil && record.BodyRef != "" {
 			scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: record.Document.LibraryID}
 			if err := s.options.DocumentStorage.DeleteKnowledgeDocumentContent(ctx, scope, record.Document.ID); err != nil {
-				return err
+				return nil, err
 			}
+			changed["document_content_objects"]++
 		}
 	}
 	if storage, ok := s.options.ArtifactStorage.(SubjectArtifactStorage); ok {
-		if _, err := storage.DeleteSubjectArtifactContent(ctx, a); err != nil {
-			return err
+		count, err := storage.DeleteSubjectArtifactContent(ctx, a)
+		if err != nil {
+			return nil, err
 		}
+		changed["artifact_content_objects"] += int64(count)
 	}
-	return nil
+	return changed, nil
 }
 
 func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (map[string]int64, error) {

@@ -19,5 +19,10 @@ func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error
 		return nil, err
 	}
 	out = append(out, subjects)
+	references, err := ConversationReferenceLifecycleMigration(d)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, references)
 	return out, nil
 }

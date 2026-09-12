@@ -213,6 +213,9 @@ func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error
 func SubjectLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
 	return store.SubjectLifecycleMigration(d)
 }
+func ConversationReferenceLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
+	return store.ConversationReferenceLifecycleMigration(d)
+}
 func NewSubjectLifecycle(backend Backend, runtimeID string, options Options) lifecyclecontract.SubjectExecutionHandler {
 	return store.NewSubjectLifecycle(store.New(backend, nil), runtimeID, store.SubjectLifecycleOptions{
 		AttachmentStorage: options.AttachmentStorage, ArtifactStorage: options.ArtifactStorage,

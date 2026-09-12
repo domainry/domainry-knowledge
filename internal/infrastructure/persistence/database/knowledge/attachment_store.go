@@ -222,7 +222,10 @@ func (s *Store) TransitionAttachment(ctx context.Context, id string, expected in
 			return err
 		}
 		if in.State == "deleting" {
-			return s.CompatQueueAttachmentCleanup(ctx, tx, id, a)
+			if err := s.CompatQueueAttachmentCleanup(ctx, tx, id, a); err != nil {
+				return err
+			}
+			return s.CompatQueueAttachmentIndexWork(ctx, tx, out)
 		}
 		if in.State == "deleted" {
 			statement, args, err := query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentCleanupTable).Where(CompatAttachmentScope(a, id)).Build()
@@ -272,6 +275,9 @@ func (s *Store) CompatDeleteConversationAttachments(ctx context.Context, tx *sql
 			return err
 		}
 		if err := s.CompatQueueAttachmentCleanup(ctx, tx, record.Attachment.ID, a); err != nil {
+			return err
+		}
+		if err := s.CompatQueueAttachmentIndexWork(ctx, tx, record); err != nil {
 			return err
 		}
 	}
