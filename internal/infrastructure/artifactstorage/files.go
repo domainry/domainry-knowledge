@@ -38,6 +38,20 @@ func NewFiles(directory string) (*Files, error) {
 }
 func (f *Files) Close() error { return f.root.Close() }
 
+func (f *Files) DeleteSubjectArtifactContent(ctx context.Context, a agentsdk.ConversationAuthority) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	key, err := ownerKey(a)
+	if err != nil {
+		return 0, err
+	}
+	if err = f.root.RemoveAll(key); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return 0, storageError("unavailable", "artifact_storage_unavailable")
+	}
+	return 1, nil
+}
+
 func storageError(class, code string) error {
 	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}
 }

@@ -17,6 +17,7 @@ import (
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	recordstore "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/record"
 	provider "github.com/domainry/domainry-knowledge/internal/infrastructure/provider"
+	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 	query "github.com/domainry/domainry-orm/query"
 	"net/http"
 	"time"
@@ -208,6 +209,15 @@ func CompatLibraryPageLimit(after string, limit int, users bool) (int, error) {
 }
 func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	return store.LegacyMigrations(d)
+}
+func SubjectLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
+	return store.SubjectLifecycleMigration(d)
+}
+func NewSubjectLifecycle(backend Backend, runtimeID string, options Options) lifecyclecontract.SubjectExecutionHandler {
+	return store.NewSubjectLifecycle(store.New(backend, nil), runtimeID, store.SubjectLifecycleOptions{
+		AttachmentStorage: options.AttachmentStorage, ArtifactStorage: options.ArtifactStorage,
+		DocumentStorage: options.DocumentStorage,
+	})
 }
 
 type Record = recordstore.Record

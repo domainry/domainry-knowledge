@@ -14,5 +14,10 @@ func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error
 		}
 		out = append(out, m)
 	}
+	subjects, err := SubjectLifecycleMigration(d)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, subjects)
 	return out, nil
 }

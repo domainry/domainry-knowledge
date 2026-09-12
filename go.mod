@@ -6,6 +6,7 @@ require (
 	github.com/domainry/domainry-agent-sdk v0.1.7
 	github.com/domainry/domainry-connector-sdk v0.1.1
 	github.com/domainry/domainry-connectors v0.1.3
+	github.com/domainry/domainry-lifecycle-sdk v0.1.8
 	github.com/domainry/domainry-orm v0.1.30
 	github.com/domainry/domainry-report-sdk v0.1.7
 	github.com/domainry/domainry-tools-sdk v0.1.0
