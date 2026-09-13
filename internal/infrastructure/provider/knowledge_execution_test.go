@@ -66,9 +66,15 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 			if err = k.RevalidateKnowledge(t.Context(), saved, a); err != nil {
 				t.Fatal("unchanged persisted result rejected", err)
 			}
+			if err = agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); err != nil {
+				t.Fatal("independent result read rejected", err)
+			}
 			for _, revoked := range []*atomic.Bool{&permission, &document} {
 				revoked.Store(false)
 				err = k.RevalidateKnowledge(t.Context(), saved, a)
+				if readErr := agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); readErr == nil {
+					t.Fatal("independent read ignored revoked source")
+				}
 				revoked.Store(true)
 				var coded *agentsdk.Error
 				if !errors.As(err, &coded) || coded.Code != "agent.conversation.knowledge_source_changed" {
@@ -91,12 +97,15 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 					copy.LibraryID = "lib_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				}
 				before := calls.Load()
-				if k.RevalidateKnowledge(t.Context(), copy, other) == nil || calls.Load() != before {
+				if k.RevalidateKnowledge(t.Context(), copy, other) == nil || agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, copy, other) == nil || calls.Load() != before {
 					t.Fatal("foreign receipt reached upstream")
 				}
 			}
 			fail.Store(true)
 			err = k.RevalidateKnowledge(t.Context(), saved, a)
+			if readErr := agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); readErr == nil {
+				t.Fatal("independent read hid source outage")
+			}
 			fail.Store(false)
 			if err == nil || strings.Contains(err.Error(), "PRIVATE") {
 				t.Fatal("outage bypassed revalidation or leaked response", err)

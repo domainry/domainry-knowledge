@@ -264,7 +264,16 @@ func (k *LibraryKnowledgeSource) CatalogScope(data []byte, a agentsdk.Conversati
 	return conversationDigest([]any{k.runtimeID, a.WorkspaceID, a.UserID, value})
 }
 func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) error {
+	return k.revalidateKnowledge(ctx, saved, a, false)
+}
+
+func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority, resultRead bool) error {
 	if saved.Operation == "libraries" {
+		if resultRead {
+			if err := k.authorizeResultReadLibrary(ctx, "", "libraries_list", a); err != nil {
+				return err
+			}
+		}
 		var args struct {
 			After string `json:"after"`
 			Limit int    `json:"limit"`
@@ -292,11 +301,17 @@ func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved 
 		// This is a historical catalog snapshot. Renaming a library, adding
 		// unrelated members or restoring a reader must not rewrite that snapshot
 		// or prevent resuming it when every referenced library is readable again.
+		if resultRead {
+			return k.authorizeResultReadLibrary(ctx, "", "libraries_list", a)
+		}
 		return nil
 	}
 	if saved.LibraryID == "" {
 		if k.legacy == nil {
 			return conversationFailure("forbidden", "knowledge_access_denied")
+		}
+		if resultRead {
+			return agentsdk.AuthorizeKnowledgeResultRead(ctx, k.legacy, saved, a)
 		}
 		return k.legacy.(agentsdk.ConversationKnowledgeSource).RevalidateKnowledge(ctx, saved, a)
 	}
@@ -309,6 +324,17 @@ func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved 
 		return err
 	}
 	if managed {
+		if resultRead {
+			// Current original-file read access permits this historical passage
+			// projection, without granting search/extraction execution rights.
+			if err = k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", a); err != nil {
+				return err
+			}
+			if err = k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a); err != nil {
+				return err
+			}
+			return k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", a)
+		}
 		return k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a)
 	}
 	if saved.Provider == ManagedKnowledgeProvider {
@@ -323,7 +349,12 @@ func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved 
 		}
 		inner.Citations[i].LibraryID = ""
 	}
-	if err = Binding.Source.RevalidateKnowledge(ctx, inner, a); err != nil {
+	if resultRead {
+		err = agentsdk.AuthorizeKnowledgeResultRead(ctx, Binding.Source, inner, a)
+	} else {
+		err = Binding.Source.RevalidateKnowledge(ctx, inner, a)
+	}
+	if err != nil {
 		return err
 	}
 	if _, err = k.Access(ctx, saved.LibraryID, a); err != nil {

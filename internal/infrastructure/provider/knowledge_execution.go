@@ -91,3 +91,13 @@ func (k *Knowledge) RevalidateKnowledge(ctx context.Context, saved agentsdk.Conv
 }
 
 var _ agentsdk.ConversationKnowledgeSource = (*Knowledge)(nil)
+
+// The upstream provides no independently signed ACL/version receipt. Verify
+// the complete current source response through the read-only Connector using
+// current workspace and source permission IDs. No Agent execution grant is
+// consulted or manufactured, and a changed response never replaces saved data.
+func (k *Knowledge) AuthorizeKnowledgeResultRead(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) error {
+	return k.RevalidateKnowledge(ctx, saved, a)
+}
+
+var _ agentsdk.ConversationKnowledgeResultReadSource = (*Knowledge)(nil)

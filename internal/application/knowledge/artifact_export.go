@@ -8,6 +8,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	"github.com/domainry/domainry-knowledge/artifact"
+	"github.com/domainry/domainry-knowledge/contract"
 )
 
 func (s *Service) ExportArtifact(ctx context.Context, id string, in agentsdk.ConversationArtifactExportRequest, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactExport, error) {
@@ -32,6 +33,14 @@ func (s *Service) ExportArtifact(ctx context.Context, id string, in agentsdk.Con
 }
 
 func (s *Service) DownloadArtifact(ctx context.Context, exportID string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactDownload, error) {
+	return s.downloadArtifact(ctx, exportID, a, "artifact_export")
+}
+
+func (s *Service) ReadArtifactExport(ctx context.Context, exportID string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactDownload, error) {
+	return s.downloadArtifact(ctx, exportID, a, "artifact_read")
+}
+
+func (s *Service) downloadArtifact(ctx context.Context, exportID string, a agentsdk.ConversationAuthority, action string) (agentsdk.ConversationArtifactDownload, error) {
 	var out agentsdk.ConversationArtifactDownload
 	if err := s.authorize(a); err != nil {
 		return out, err
@@ -44,7 +53,11 @@ func (s *Service) DownloadArtifact(ctx context.Context, exportID string, a agent
 	if err != nil {
 		return out, err
 	}
-	if _, err = s.ArtifactAccess(ctx, a, "artifact_export", map[string]any{"id": metadata.ArtifactID, "version": metadata.Version, "format": metadata.Format}); err != nil {
+	input := map[string]any{"id": metadata.ArtifactID, "version": metadata.Version}
+	if action == "artifact_export" {
+		input["format"] = metadata.Format
+	}
+	if _, err = s.ArtifactAccess(ctx, a, action, input); err != nil {
 		return out, err
 	}
 	version, err := s.Artifact(ctx, metadata.ArtifactID, metadata.Version, a)
@@ -65,3 +78,5 @@ func (s *Service) DownloadArtifact(ctx context.Context, exportID string, a agent
 	}
 	return agentsdk.ConversationArtifactDownload{Export: metadata, Data: data.Data}, nil
 }
+
+var _ contract.ArtifactExportReader = (*Service)(nil)
