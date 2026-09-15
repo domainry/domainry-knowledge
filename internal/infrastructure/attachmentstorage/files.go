@@ -16,7 +16,6 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"golang.org/x/sys/unix"
 )
 
 type Files struct{ root *os.Root }
@@ -98,12 +97,12 @@ func (f *Files) locked(ctx context.Context, id string, a agentsdk.ConversationAu
 		return failure("unavailable", "attachment_storage_unavailable")
 	}
 	for {
-		err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
+		acquired, lockErr := tryAttachmentFileLock(lock)
+		if lockErr != nil {
 			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		if acquired {
+			break
 		}
 		select {
 		case <-ctx.Done():
@@ -111,7 +110,7 @@ func (f *Files) locked(ctx context.Context, id string, a agentsdk.ConversationAu
 		case <-time.After(5 * time.Millisecond):
 		}
 	}
-	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	defer unlockAttachmentFile(lock)
 	if err := ctx.Err(); err != nil {
 		return err
 	}

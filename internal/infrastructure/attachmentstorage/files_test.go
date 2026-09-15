@@ -12,7 +12,6 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"golang.org/x/sys/unix"
 )
 
 func TestPrivateFilesImmutableOwnerIsolationAndDeletionFence(t *testing.T) {
@@ -112,16 +111,18 @@ func TestFilesLockCancellationAndUnsafeStorageRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Close()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+	acquired, err := tryAttachmentFileLock(lock)
+	if err != nil || !acquired {
 		t.Fatal(err)
 	}
+	defer unlockAttachmentFile(lock)
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
 	defer cancel()
 	raw := []byte("bytes")
 	if _, err := files.PutAttachmentContent(ctx, id, hash(raw), raw, a); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("lock ignored cancellation", err)
 	}
-	_ = unix.Flock(int(lock.Fd()), unix.LOCK_UN)
+	_ = unlockAttachmentFile(lock)
 	ref, err := files.PutAttachmentContent(t.Context(), id, hash(raw), raw, a)
 	if err != nil {
 		t.Fatal(err)
