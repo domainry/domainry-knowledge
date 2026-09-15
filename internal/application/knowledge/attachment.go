@@ -1,6 +1,7 @@
 package application
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"strings"
@@ -26,7 +27,22 @@ func (s *Service) AttachmentAccess(ctx context.Context, action string, a agentsd
 }
 
 func AttachmentContentType(filename string) string {
-	return map[string]string{".pdf": "application/pdf", ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".txt": "text/plain", ".md": "text/markdown", ".csv": "text/csv", ".tsv": "text/tab-separated-values", ".json": "application/json"}[strings.ToLower(filepath.Ext(filename))]
+	return map[string]string{".pdf": "application/pdf", ".doc": "application/msword", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".xls": "application/vnd.ms-excel", ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".txt": "text/plain", ".md": "text/markdown", ".csv": "text/csv", ".tsv": "text/tab-separated-values", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[strings.ToLower(filepath.Ext(filename))]
+}
+
+func attachmentImageContentType(data []byte) string {
+	switch {
+	case len(data) >= 8 && bytes.Equal(data[:8], []byte("\x89PNG\r\n\x1a\n")):
+		return "image/png"
+	case len(data) >= 3 && bytes.Equal(data[:3], []byte("\xff\xd8\xff")):
+		return "image/jpeg"
+	case len(data) >= 6 && (bytes.Equal(data[:6], []byte("GIF87a")) || bytes.Equal(data[:6], []byte("GIF89a"))):
+		return "image/gif"
+	case len(data) >= 12 && bytes.Equal(data[:4], []byte("RIFF")) && bytes.Equal(data[8:12], []byte("WEBP")):
+		return "image/webp"
+	default:
+		return ""
+	}
 }
 
 func (s *Service) UploadAttachment(ctx context.Context, conversationID string, in agentsdk.ConversationAttachmentUpload, a agentsdk.ConversationAuthority) (agentsdk.ConversationAttachment, error) {
@@ -40,6 +56,11 @@ func (s *Service) UploadAttachment(ctx context.Context, conversationID string, i
 	}
 	contentType := AttachmentContentType(in.Filename)
 	if contentType == "" {
+		return zero, conversationFailure("bad_request", "attachment_type_unsupported")
+	}
+	// Image inputs are sent to model providers as their declared media type.
+	// Refuse extension spoofing before reserving storage metadata.
+	if strings.HasPrefix(contentType, "image/") && attachmentImageContentType(in.Data) != contentType {
 		return zero, conversationFailure("bad_request", "attachment_type_unsupported")
 	}
 	conversation, err := s.contextReader().Get(ctx, conversationID, a)

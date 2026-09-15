@@ -218,28 +218,15 @@ type knowledgeGateway struct {
 
 func (g knowledgeGateway) Call(ctx context.Context, request connector.CallRequest) (connector.CallResult, error) {
 	k, a := g.knowledge, g.authority
-	if !a.Known || strings.TrimSpace(a.RuntimeID) == "" || strings.TrimSpace(a.UserID) == "" || strings.TrimSpace(a.WorkspaceID) == "" {
-		return connector.CallResult{}, connector.PermanentError("knowledge_api.access_denied", nil)
-	}
-	if k.config.AuthorizeWorkspace != nil {
-		if err := k.config.AuthorizeWorkspace(ctx, a); err != nil {
-			return connector.CallResult{}, connector.PermanentError("knowledge_api.access_denied", nil)
-		}
-	} else if a.WorkspaceID != k.config.WorkspaceID {
-		return connector.CallResult{}, connector.PermanentError("knowledge_api.access_denied", nil)
+	ids, err := k.knowledgeAccessPolicy(ctx, a)
+	if err != nil {
+		return connector.CallResult{}, err
 	}
 	request.Connection = k.connection()
 	request.Connection.WorkspaceID = a.WorkspaceID
 	request.Principal = connector.Principal{IsAuthenticated: true, UserID: a.UserID, WorkspaceID: a.WorkspaceID}
 	request.Secrets = map[string]string{"api_key": k.config.APIKey}
-	if k.config.DocumentPermissionIDs != nil {
-		request.Connection.Config["permission_ids_by_user"] = map[string][]string{a.UserID: slices.Clone(k.config.DocumentPermissionIDs)}
-	}
-	if k.config.PermissionIDs != nil {
-		ids, err := k.config.PermissionIDs(ctx, a)
-		if err != nil {
-			return connector.CallResult{}, connector.PermanentError("knowledge_api.access_denied", nil)
-		}
+	if k.config.DocumentPermissionIDs != nil || k.config.PermissionIDs != nil {
 		request.Connection.Config["permission_ids_by_user"] = map[string][]string{a.UserID: ids}
 	}
 	return k.adapter.Call(ctx, request)
