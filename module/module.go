@@ -105,7 +105,6 @@ func CompatArtifactRequestKey(digest string, fallback any) (any, error) {
 	return store.CompatArtifactRequestKey(digest, fallback)
 }
 
-const CompatAttachmentKnowledgeSourceTable = store.CompatAttachmentKnowledgeSourceTable
 const CompatAttachmentIndexJobTable = store.CompatAttachmentIndexJobTable
 
 func CompatAttachmentIndexMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
@@ -142,18 +141,13 @@ func CompatValidAttachmentOrigin(origin persistence.KnowledgeAttachmentOrigin) b
 	return store.CompatValidAttachmentOrigin(origin)
 }
 
-const CompatKnowledgeDatasourceTable = store.CompatKnowledgeDatasourceTable
-
-func CompatKnowledgeDatasourceMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatKnowledgeDatasourceMigration(d)
-}
 func CompatDocumentScopeForLibrary(id string, a agentsdk.ConversationAuthority) agentsdk.KnowledgeDocumentStorageScope {
 	return store.CompatDocumentScopeForLibrary(id, a)
 }
 
 const CompatKnowledgeDocumentTable = store.CompatKnowledgeDocumentTable
 const CompatKnowledgeDocumentJobTable = store.CompatKnowledgeDocumentJobTable
-const CompatKnowledgeDocumentSourceTable = store.CompatKnowledgeDocumentSourceTable
+const CompatKnowledgeSourceTable = store.CompatKnowledgeSourceTable
 
 func CompatKnowledgeDocumentMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
 	return store.CompatKnowledgeDocumentMigration(d)

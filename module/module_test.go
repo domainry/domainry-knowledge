@@ -9,6 +9,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
+	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
@@ -71,13 +72,19 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	}
 	for _, table := range []string{
 		"_agent_knowledge_libraries", "_agent_knowledge_library_members",
-		"_agent_knowledge_documents", "_agent_knowledge_document_sources",
-		"_agent_knowledge_document_jobs", "_agent_knowledge_datasource_bindings",
+		"_agent_knowledge_documents", "_agent_knowledge_sources",
+		"_agent_knowledge_document_jobs", "_agent_attachment_index_jobs",
 		sharedsubjectlifecycle.RequestTableName, sharedsubjectlifecycle.StepTableName,
 	} {
 		var count int
 		if err := sharedDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("shared table %s count=%d err=%v", table, count, err)
+		}
+	}
+	for _, retired := range []string{"_agent_knowledge_document_sources", "_agent_knowledge_datasource_bindings", "_agent_attachment_knowledge_sources"} {
+		var count int
+		if err := sharedDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, retired).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("retired table %s count=%d err=%v", retired, count, err)
 		}
 	}
 	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
@@ -100,5 +107,65 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	standalone := NewStore(standaloneBackend, nil, ArtifactPersistence{})
 	if _, readErr := standalone.KnowledgeLibrary(t.Context(), library.ID, authority); readErr == nil {
 		t.Fatal("standalone database leaked the Module database library")
+	}
+}
+
+func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
+	database, dialect := openDatabase(t, "knowledge-source-registry")
+	backend := SQLBackend{DB: database, Dialect: dialect}
+	if err := EnsureSchema(t.Context(), backend, &registrar{database: database}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(backend, nil, ArtifactPersistence{})
+	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	documentLibrary, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "document", Kind: "shared", Name: "Document source"}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	documentSource := strings.Repeat("a", 64)
+	if err = store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: documentLibrary.ID}, documentSource); err != nil {
+		t.Fatal(err)
+	}
+	if _, found, readErr := store.KnowledgeDatasourceBinding(t.Context(), agentsdk.KnowledgeDocumentStorageScope{RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: documentLibrary.ID}); readErr != nil || found {
+		t.Fatalf("direct source exposed a datasource binding: found=%v err=%v", found, readErr)
+	}
+
+	datasourceLibrary, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "datasource", Kind: "shared", Name: "Datasource"}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	datasourceSource := strings.Repeat("b", 64)
+	if _, err = store.BindKnowledgeDatasource(t.Context(), datasourceLibrary.ID, persistence.KnowledgeDatasourceAssignment{DatasourceKey: "approved", SourceID: datasourceSource, AccessPolicySHA256: strings.Repeat("c", 64), ExpectedRevision: datasourceLibrary.Revision}, authority); err != nil {
+		t.Fatal(err)
+	}
+	attachmentSource := strings.Repeat("d", 64)
+	if err = store.ActivateAttachmentKnowledgeSource(t.Context(), authority.RuntimeID, authority.WorkspaceID, attachmentSource); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := database.QueryContext(t.Context(), `SELECT source_kind, source_key FROM _agent_knowledge_sources ORDER BY source_kind`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var kind, source string
+		if err = rows.Scan(&kind, &source); err != nil {
+			t.Fatal(err)
+		}
+		got[kind] = source
+	}
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"document": documentSource, "datasource": datasourceSource, "attachment": attachmentSource}
+	if len(got) != len(want) {
+		t.Fatalf("source registry rows=%v", got)
+	}
+	for kind, source := range want {
+		if got[kind] != source {
+			t.Fatalf("source registry kind=%s source=%q want=%q", kind, got[kind], source)
+		}
 	}
 }

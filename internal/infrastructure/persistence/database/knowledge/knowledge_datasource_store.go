@@ -15,7 +15,7 @@ func (s *Store) KnowledgeDatasourceBinding(ctx context.Context, scope agentsdk.K
 	if conversationAuthority(a) != nil || !CompatValidLibraryID(scope.LibraryID) {
 		return out, false, conversationError("bad_request", "document_source_invalid")
 	}
-	found, err = s.executionRead(ctx, s.store.Database(), CompatKnowledgeDatasourceTable, CompatLibraryPredicate(a, scope.LibraryID), &out)
+	found, err = s.executionRead(ctx, s.store.Database(), CompatKnowledgeSourceTable, query.And(compatKnowledgeSourcePredicate(a, scope.LibraryID), query.Equal("source_kind", compatKnowledgeDatasourceSourceKind)), &out)
 	return
 }
 func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persistence.KnowledgeDatasourceAssignment, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
@@ -35,7 +35,7 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 			return conversationError("conflict", "library_archived")
 		}
 		var prior persistence.KnowledgeDatasourceBinding
-		found, e := s.executionRead(ctx, tx, CompatKnowledgeDatasourceTable, CompatLibraryPredicate(a, id), &prior)
+		found, e := s.executionRead(ctx, tx, CompatKnowledgeSourceTable, query.And(compatKnowledgeSourcePredicate(a, id), query.Equal("source_kind", compatKnowledgeDatasourceSourceKind)), &prior)
 		if e != nil {
 			return e
 		}
@@ -55,11 +55,15 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 		if registered != "" {
 			return conversationError("conflict", "datasource_already_bound")
 		}
-		if e = s.CompatActivateDocumentSource(ctx, tx, CompatDocumentScopeForLibrary(id, a), in.SourceID); e != nil {
+		claimed, e := s.compatKnowledgeSourceClaimed(ctx, tx, in.SourceID)
+		if e != nil {
 			return e
 		}
+		if claimed {
+			return conversationError("conflict", "document_source_already_bound")
+		}
 		binding := persistence.KnowledgeDatasourceBinding{LibraryID: id, DatasourceKey: in.DatasourceKey, SourceID: in.SourceID, AccessPolicySHA256: in.AccessPolicySHA256, CreatedBy: a.UserID, CreatedAt: time.Now().UTC().Truncate(time.Millisecond)}
-		q, args, e := query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeDatasourceTable).Columns("scope_key", "library_id", "source_key", "payload_json").Values(CompatLibraryScope(a), id, in.SourceID, conversationJSON(binding)).Build()
+		q, args, e := query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(CompatLibraryScope(a), id, compatKnowledgeDatasourceSourceKind, in.SourceID, conversationJSON(binding)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return e
 		}

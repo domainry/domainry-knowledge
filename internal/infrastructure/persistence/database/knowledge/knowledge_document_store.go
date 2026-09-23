@@ -16,6 +16,18 @@ import (
 func CompatDocumentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("document_id", id))
 }
+func compatKnowledgeSourcePredicate(a agentsdk.ConversationAuthority, binding string) query.Predicate {
+	return query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("binding_key", binding))
+}
+func (s *Store) compatKnowledgeSourceClaimed(ctx context.Context, db conversationDB, source string) (bool, error) {
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Projections(query.Project(query.CountAll())).Where(query.Equal("source_key", source)).Build()
+	if err != nil {
+		return false, err
+	}
+	var count int
+	err = db.QueryRowContext(ctx, q, args...).Scan(&count)
+	return count > 0, err
+}
 func CompatValidKnowledgeDocumentID(id string) bool {
 	return strings.HasPrefix(id, "kdoc_") && len(id) == 37 && personalMemoryKey(id)
 }
@@ -39,13 +51,6 @@ func (s *Store) ActivateKnowledgeDocumentSource(ctx context.Context, scope agent
 }
 func (s *Store) CompatActivateDocumentSource(ctx context.Context, tx *sql.Tx, scope agentsdk.KnowledgeDocumentStorageScope, source string) error {
 	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
-	attachmentOwner, err := s.CompatAttachmentKnowledgeSourceOwner(ctx, tx, source)
-	if err != nil {
-		return err
-	}
-	if attachmentOwner != "" {
-		return conversationError("conflict", "document_source_already_bound")
-	}
 	var library agentsdk.KnowledgeLibrary
 	found, e := s.executionRead(ctx, tx, CompatLibraryTable, CompatLibraryPredicate(a, scope.LibraryID), &library)
 	if e != nil {
@@ -64,22 +69,18 @@ func (s *Store) CompatActivateDocumentSource(ctx context.Context, tx *sql.Tx, sc
 		}
 		return nil
 	}
-	q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeDocumentSourceTable).Projections(query.Project(query.CountAll())).Where(query.Equal("source_key", source)).Build()
+	claimed, e := s.compatKnowledgeSourceClaimed(ctx, tx, source)
 	if e != nil {
 		return e
 	}
-	var count int
-	if e = tx.QueryRowContext(ctx, q, args...).Scan(&count); e != nil {
-		return e
-	}
-	if count > 0 {
+	if claimed {
 		return conversationError("conflict", "document_source_already_bound")
 	}
-	q, args, e = query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeDocumentSourceTable).Columns("scope_key", "library_id", "source_key").Values(CompatLibraryScope(a), scope.LibraryID, source).Build()
+	q, args, e := query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(CompatLibraryScope(a), scope.LibraryID, compatKnowledgeDocumentSourceKind, source, "{}").Build()
 	return conversationExec(ctx, tx, q, args, e)
 }
 func (s *Store) CompatDocumentLibrarySource(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (string, error) {
-	q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeDocumentSourceTable).Columns("source_key").Where(CompatLibraryPredicate(a, id)).Build()
+	q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("source_key").Where(compatKnowledgeSourcePredicate(a, id)).Build()
 	if e != nil {
 		return "", e
 	}
@@ -100,17 +101,7 @@ func (s *Store) KnowledgeSourceManaged(ctx context.Context, source string) (bool
 	if !CompatArtifactSHA(source) {
 		return false, conversationError("bad_request", "document_source_invalid")
 	}
-	q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeDocumentSourceTable).Projections(query.Project(query.CountAll())).Where(query.Equal("source_key", source)).Build()
-	if e != nil {
-		return false, e
-	}
-	var count int
-	e = s.store.Database().QueryRowContext(ctx, q, args...).Scan(&count)
-	if e != nil || count > 0 {
-		return count > 0, e
-	}
-	owner, e := s.CompatAttachmentKnowledgeSourceOwner(ctx, s.store.Database(), source)
-	return owner != "", e
+	return s.compatKnowledgeSourceClaimed(ctx, s.store.Database(), source)
 }
 func (s *Store) CompatDocument(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if !CompatValidKnowledgeDocumentID(id) {

@@ -497,8 +497,17 @@ func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.
 	}
 	for _, libraryID := range candidates.libraries {
 		predicate := query.And(query.Equal("scope_key", scope), query.Equal("library_id", libraryID))
-		for key, table := range map[string]string{"document_jobs": CompatKnowledgeDocumentJobTable, "documents": CompatKnowledgeDocumentTable, "document_sources": CompatKnowledgeDocumentSourceTable, "datasource_bindings": CompatKnowledgeDatasourceTable, "library_members": CompatLibraryMemberTable, "libraries": CompatLibraryTable} {
-			n, err := s.deleteWhere(ctx, tx, table, predicate)
+		for key, target := range map[string]struct {
+			table     string
+			predicate query.Predicate
+		}{
+			"document_jobs":     {CompatKnowledgeDocumentJobTable, predicate},
+			"documents":         {CompatKnowledgeDocumentTable, predicate},
+			"knowledge_sources": {CompatKnowledgeSourceTable, compatKnowledgeSourcePredicate(a, libraryID)},
+			"library_members":   {CompatLibraryMemberTable, predicate},
+			"libraries":         {CompatLibraryTable, predicate},
+		} {
+			n, err := s.deleteWhere(ctx, tx, target.table, target.predicate)
 			if err != nil {
 				return nil, err
 			}

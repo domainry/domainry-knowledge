@@ -42,7 +42,7 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 // database rather than receiving a Store from another module.
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	out := []modulehost.SchemaMigration{}
-	for _, build := range []func(modulehost.Dialect) (modulehost.SchemaMigration, error){CompatConversationArtifactMigration, CompatKnowledgeLibraryMigration, CompatKnowledgeDocumentMigration, CompatKnowledgeDatasourceMigration, CompatAttachmentIndexMigration} {
+	for _, build := range []func(modulehost.Dialect) (modulehost.SchemaMigration, error){CompatConversationArtifactMigration, CompatKnowledgeLibraryMigration, CompatKnowledgeDocumentMigration, CompatAttachmentIndexMigration} {
 		m, err := build(d)
 		if err != nil {
 			return nil, err

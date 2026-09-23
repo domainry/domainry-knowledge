@@ -10,7 +10,7 @@ import (
 )
 
 func (s *Store) CompatAttachmentKnowledgeSourceOwner(ctx context.Context, db conversationDB, source string) (string, error) {
-	q, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentKnowledgeSourceTable).Columns("scope_key").Where(query.Equal("source_key", source)).Build()
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("scope_key").Where(query.And(query.Equal("source_key", source), query.Equal("source_kind", compatKnowledgeAttachmentSourceKind))).Build()
 	if err != nil {
 		return "", err
 	}
@@ -28,18 +28,8 @@ func (s *Store) ActivateAttachmentKnowledgeSource(ctx context.Context, runtime, 
 		return conversationError("bad_request", "attachment_source_invalid")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		q, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeDocumentSourceTable).Projections(query.Project(query.CountAll())).Where(query.Equal("source_key", source)).Build()
-		if err != nil {
-			return err
-		}
-		var count int
-		if err = tx.QueryRowContext(ctx, q, args...).Scan(&count); err != nil {
-			return err
-		}
-		if count != 0 {
-			return conversationError("conflict", "attachment_source_already_bound")
-		}
-		q, args, err = query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentKnowledgeSourceTable).Columns("scope_key", "source_key").Where(query.Or(query.Equal("source_key", source), query.Equal("scope_key", CompatLibraryScope(a)))).Build()
+		binding := compatKnowledgeSourcePredicate(a, compatKnowledgeAttachmentBindingKey)
+		q, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key").Where(query.Or(query.Equal("source_key", source), binding)).Build()
 		if err != nil {
 			return err
 		}
@@ -49,12 +39,12 @@ func (s *Store) ActivateAttachmentKnowledgeSource(ctx context.Context, runtime, 
 		}
 		found := false
 		for rows.Next() {
-			var scope, physical string
-			if err = rows.Scan(&scope, &physical); err != nil {
+			var scope, key, kind, physical string
+			if err = rows.Scan(&scope, &key, &kind, &physical); err != nil {
 				rows.Close()
 				return err
 			}
-			if scope != CompatLibraryScope(a) || physical != source {
+			if scope != CompatLibraryScope(a) || key != compatKnowledgeAttachmentBindingKey || kind != compatKnowledgeAttachmentSourceKind || physical != source {
 				rows.Close()
 				return conversationError("conflict", "attachment_source_already_bound")
 			}
@@ -68,7 +58,7 @@ func (s *Store) ActivateAttachmentKnowledgeSource(ctx context.Context, runtime, 
 		if found {
 			return nil
 		}
-		q, args, err = query.NewInsertBuilder(s.store.Renderer(), CompatAttachmentKnowledgeSourceTable).Columns("scope_key", "source_key").Values(CompatLibraryScope(a), source).Build()
+		q, args, err = query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(CompatLibraryScope(a), compatKnowledgeAttachmentBindingKey, compatKnowledgeAttachmentSourceKind, source, "{}").Build()
 		return conversationExec(ctx, tx, q, args, err)
 	})
 }
