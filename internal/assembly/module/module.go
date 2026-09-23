@@ -3,6 +3,7 @@ package module
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -46,7 +47,7 @@ type Factory struct{}
 
 func NewFactory() knowledgemodulehost.Factory { return Factory{} }
 
-func (Factory) OpenModule(ctx context.Context, ref contract.ApplicationRef, host knowledgemodulehost.Host) (contract.ModuleBinding, error) {
+func (Factory) OpenModule(ctx context.Context, ref contract.ApplicationRef, host knowledgemodulehost.Host) (knowledgemodulehost.ModuleBinding, error) {
 	if err := ref.Validate(); err != nil {
 		return nil, err
 	}
@@ -72,12 +73,29 @@ type Binding struct {
 }
 
 func (binding *Binding) Runtime() contract.Runtime { return binding.runtime }
+func (binding *Binding) ArtifactTransactions() knowledgemodulehost.ArtifactTransactions {
+	return artifactTransactions{repository: binding.repository}
+}
 func (binding *Binding) SubjectLifecycle(options contract.Options) lifecyclecontract.SubjectExecutionHandler {
 	return store.NewSubjectLifecycle(binding.repository, binding.runtimeID, store.SubjectLifecycleOptions{
 		ArtifactStorage: options.ArtifactStorage, DocumentStorage: options.DocumentStorage,
 	})
 }
 func (*Binding) Close(context.Context) error { return nil }
+
+type artifactTransactions struct{ repository *store.Store }
+
+func (transactions artifactTransactions) ArtifactRecordInTransaction(ctx context.Context, tx *sql.Tx, id string, version int64, authority agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
+	return transactions.repository.CompatArtifactRecord(ctx, tx, id, version, authority)
+}
+
+func (transactions artifactTransactions) SaveArtifactInTransaction(ctx context.Context, tx *sql.Tx, input persistence.ConversationArtifactWrite, authority agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
+	return transactions.repository.CompatSaveArtifact(ctx, tx, input, authority)
+}
+
+func (transactions artifactTransactions) SaveArtifactExportInTransaction(ctx context.Context, tx *sql.Tx, input persistence.ConversationArtifactExportWrite, authority agentsdk.ConversationAuthority) (any, error) {
+	return transactions.repository.CompatSaveArtifactExport(ctx, tx, input, authority)
+}
 
 func NewSubjectLifecycle(backend store.Backend, runtimeID string, options application.Options) lifecyclecontract.SubjectExecutionHandler {
 	artifacts := store.ArtifactPersistence{}

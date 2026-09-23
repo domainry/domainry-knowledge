@@ -8,7 +8,6 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 
 type ConversationKnowledge interface {
@@ -55,10 +54,4 @@ func (ref ApplicationRef) Validate() error {
 		return fmt.Errorf("Knowledge Runtime identity is required")
 	}
 	return nil
-}
-
-type ModuleBinding interface {
-	Runtime() Runtime
-	SubjectLifecycle(Options) lifecyclecontract.SubjectExecutionHandler
-	Close(context.Context) error
 }

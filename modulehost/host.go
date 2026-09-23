@@ -8,8 +8,10 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	agentmodulehost "github.com/domainry/domainry-agent-sdk/modulehost"
+	agentpersistence "github.com/domainry/domainry-agent-sdk/persistence"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	knowledgecontract "github.com/domainry/domainry-knowledge/contract"
+	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 
@@ -38,6 +40,22 @@ type ArtifactHost interface {
 	ArtifactContentWriter() sharedartifact.ContentWriter
 }
 
+// ArtifactTransactions is the narrow cross-module capability needed to keep
+// an Agent execution receipt and a Knowledge-owned artifact mutation atomic.
+// It exposes no Knowledge Store and no connection lifecycle.
+type ArtifactTransactions interface {
+	ArtifactRecordInTransaction(context.Context, *sql.Tx, string, int64, agentsdk.ConversationAuthority) (agentpersistence.ConversationArtifactRecord, error)
+	SaveArtifactInTransaction(context.Context, *sql.Tx, agentpersistence.ConversationArtifactWrite, agentsdk.ConversationAuthority) (agentpersistence.ConversationArtifactRecord, error)
+	SaveArtifactExportInTransaction(context.Context, *sql.Tx, agentpersistence.ConversationArtifactExportWrite, agentsdk.ConversationAuthority) (any, error)
+}
+
+type ModuleBinding interface {
+	Runtime() knowledgecontract.Runtime
+	ArtifactTransactions() ArtifactTransactions
+	SubjectLifecycle(knowledgecontract.Options) lifecyclecontract.SubjectExecutionHandler
+	Close(context.Context) error
+}
+
 type Factory interface {
-	OpenModule(context.Context, knowledgecontract.ApplicationRef, Host) (knowledgecontract.ModuleBinding, error)
+	OpenModule(context.Context, knowledgecontract.ApplicationRef, Host) (ModuleBinding, error)
 }
