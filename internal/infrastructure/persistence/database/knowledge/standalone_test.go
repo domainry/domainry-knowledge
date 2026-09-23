@@ -28,7 +28,7 @@ func TestKnowledgeRunsWithoutAgentTables(t *testing.T) {
 			}
 		}
 	}
-	s := New(SQLBackend{DB: db, Dialect: d.WithSchema("")}, nil)
+	s := New(SQLBackend{DB: db, Dialect: d.WithSchema("")}, nil, ArtifactPersistence{})
 	a := sdk.ConversationAuthority{Known: true, RuntimeID: "knowledge-host", WorkspaceID: "one", UserID: "a"}
 	library, err := s.CreateKnowledgeLibrary(t.Context(), sdk.KnowledgeLibraryCreate{ClientID: "library", Kind: "personal", Name: "Independent Knowledge"}, a)
 	if err != nil {

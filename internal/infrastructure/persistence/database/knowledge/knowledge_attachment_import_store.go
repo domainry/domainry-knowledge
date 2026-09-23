@@ -55,7 +55,7 @@ func (s *Store) CompatCheckDocumentAttachmentOrigin(ctx context.Context, tx *sql
 	if err != nil {
 		return err
 	}
-	if source.Attachment.ConversationID != origin.ConversationID || CompatAttachmentDeleted(source.Attachment.State) || source.BodyRef == "" {
+	if source.Attachment.ConversationID != origin.ConversationID || CompatAttachmentDeleted(source.Attachment.State) {
 		return conversationError("not_found", "attachment_not_found")
 	}
 	if source.Attachment.Revision != origin.Revision {

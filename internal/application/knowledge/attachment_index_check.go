@@ -52,7 +52,7 @@ func (s *Service) AttachmentIndexView(ctx context.Context, r persistence.Convers
 			v.Reason = "attachment_size_invalid"
 			return out
 		}
-		v.CanStart = r.Attachment.State == "stored" && r.BodyRef != "" && r.Source == nil
+		v.CanStart = r.Attachment.State == "stored" && r.Source == nil
 		return out
 	}
 	if _, ok := s.repo.(persistence.ConversationAttachmentIndexCheckRepository); ok {

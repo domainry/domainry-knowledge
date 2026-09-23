@@ -20,7 +20,6 @@ type Options struct {
 	LibraryKnowledge     []LibraryKnowledgeBinding
 	KnowledgeDatasources agentsdk.KnowledgeDatasourceCatalog
 	LibraryAuthorizer    agentsdk.KnowledgeLibraryAuthorizer
-	AttachmentStorage    agentsdk.ConversationAttachmentStorage
 	AttachmentAuthorizer agentsdk.ConversationAttachmentAuthorizer
 	AttachmentKnowledge  []agentsdk.ConversationAttachmentKnowledgeBinding
 	ArtifactStorage      agentsdk.ConversationArtifactStorage

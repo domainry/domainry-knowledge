@@ -272,4 +272,4 @@ func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agents
 	})
 }
 
-var _ agentsdk.ConversationAttachmentStorage = (*Files)(nil)
+var _ agentsdk.TaskAttachmentStorage = (*Files)(nil)

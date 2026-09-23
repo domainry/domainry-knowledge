@@ -41,14 +41,17 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 	}
 	deleting := r.Attachment.State == "deleting"
 	removeOriginal := func() {
-		if s.options.AttachmentStorage.DeleteAttachmentContent(ctx, r.Attachment.ID, r.Index.Actor) != nil {
+		if repo.DeleteAttachmentContent(ctx, r.Attachment.ID, lease.Authority) != nil {
 			progress.ErrorCode = "attachment_cleanup_failed"
 			return
 		}
 		progress.Event = "deleted"
 	}
-	if deleting && !r.Index.PutStarted {
+	if deleting && (r.Index == nil || !r.Index.PutStarted) {
 		removeOriginal()
+		return
+	}
+	if r.Index == nil || r.Source == nil {
 		return
 	}
 	scope, err := s.AttachmentKnowledgeBinding(ctx, r.Attachment.ConversationID, r.Index.Actor)
@@ -76,7 +79,7 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 			progress.ErrorCode = "attachment_index_access_denied"
 			return
 		}
-		raw, err := s.options.AttachmentStorage.ReadAttachmentContent(ctx, r.Attachment.ID, r.BodyRef, r.Index.Actor)
+		raw, err := repo.AttachmentContent(ctx, r.Attachment.ID, r.Index.Actor)
 		if err != nil || int64(len(raw)) != r.Attachment.Bytes || artifact.Hash(raw) != r.Attachment.SHA256 {
 			progress.ErrorCode = "attachment_content_mismatch"
 			return

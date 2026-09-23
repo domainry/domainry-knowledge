@@ -4,17 +4,38 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"io"
 	"mime"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	knowledgeartifact "github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-orm/query"
 )
 
+const attachmentArtifactKind = "attachment"
+
+type attachmentArtifactMetadata struct {
+	RequestSHA256 string                                    `json:"request_sha256"`
+	Visibility    string                                    `json:"visibility"`
+	State         string                                    `json:"state"`
+	Revision      int64                                     `json:"revision"`
+	IndexStatus   string                                    `json:"index_status,omitempty"`
+	ErrorCode     string                                    `json:"error_code,omitempty"`
+	Source        *persistence.ConversationAttachmentSource `json:"source,omitempty"`
+	Index         *persistence.ConversationAttachmentIndex  `json:"index,omitempty"`
+}
+
+// CompatAttachmentScope remains the exact owner/job predicate used by the
+// retained index-work table. Core attachment metadata no longer has an
+// Agent-private SQL table.
 func CompatAttachmentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
 	return query.And(query.Equal("owner_key", conversationOwner(a)), query.Equal("attachment_id", id))
 }
@@ -25,16 +46,109 @@ func CompatAttachmentDeleted(state string) bool { return state == "deleting" || 
 // Callers must classify failures before persisting them.
 var CompatAttachmentErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_.]{0,127}$`)
 
-func (s *Store) CompatAttachment(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
-	var out persistence.ConversationAttachmentRecord
+func attachmentArtifactStatus(state string) (sharedartifact.Status, bool) {
+	switch state {
+	case "stored", "indexing", "ready", "failed", "needs_reconcile":
+		return sharedartifact.StatusAvailable, true
+	case "deleting":
+		return sharedartifact.StatusExpired, true
+	case "deleted":
+		return sharedartifact.StatusDeleted, true
+	default:
+		return "", false
+	}
+}
+
+func decodeAttachmentArtifact(value sharedartifact.Artifact, conversationID string) (persistence.ConversationAttachmentRecord, error) {
+	var metadata attachmentArtifactMetadata
+	if err := json.Unmarshal(value.Metadata, &metadata); err != nil || !CompatArtifactSHA(metadata.RequestSHA256) || metadata.Visibility != "conversation_private" || metadata.Revision < 1 {
+		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
+	}
+	expectedStatus, valid := attachmentArtifactStatus(metadata.State)
+	if !valid || value.Status != expectedStatus || value.ScanStatus != sharedartifact.ScanNotRequired || !personalMemoryKey(conversationID) || value.SizeBytes < 1 || value.SizeBytes > agentsdk.ConversationAttachmentMaxBytes || !CompatArtifactSHA(value.ContentSHA256) {
+		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
+	}
+	if (metadata.Source == nil) != (metadata.Index == nil) {
+		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
+	}
+	if metadata.ErrorCode != "" && !CompatAttachmentErrorCodePattern.MatchString(metadata.ErrorCode) || metadata.State == "failed" && metadata.ErrorCode == "" || metadata.State != "failed" && metadata.State != "needs_reconcile" && metadata.State != "deleting" && metadata.ErrorCode != "" {
+		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
+	}
+	return persistence.ConversationAttachmentRecord{
+		Attachment: agentsdk.ConversationAttachment{
+			ID: value.ID, ConversationID: conversationID, Filename: value.Filename,
+			ContentType: value.MediaType, Bytes: value.SizeBytes, SHA256: value.ContentSHA256,
+			Visibility: metadata.Visibility, State: metadata.State, Revision: metadata.Revision,
+			IndexStatus: metadata.IndexStatus, ErrorCode: metadata.ErrorCode, CreatedAt: value.CreatedAt, UpdatedAt: value.UpdatedAt,
+		},
+		RequestSHA256: metadata.RequestSHA256, Source: metadata.Source, Index: metadata.Index,
+	}, nil
+}
+
+func attachmentMetadata(record persistence.ConversationAttachmentRecord) ([]byte, error) {
+	return json.Marshal(attachmentArtifactMetadata{
+		RequestSHA256: record.RequestSHA256, Visibility: record.Attachment.Visibility,
+		State: record.Attachment.State, Revision: record.Attachment.Revision,
+		IndexStatus: record.Attachment.IndexStatus, ErrorCode: record.Attachment.ErrorCode, Source: record.Source, Index: record.Index,
+	})
+}
+
+func attachmentArtifactOwnedBy(value sharedartifact.Artifact, a agentsdk.ConversationAuthority) bool {
+	return value.WorkspaceID == a.WorkspaceID && value.Owner == sharedartifact.OwnerAgent && value.Kind == attachmentArtifactKind && value.CreatedBy == a.UserID && value.AuthorizationScopeSHA256 == conversationOwner(a)
+}
+
+func (s *Store) attachmentConversationBinding(ctx context.Context, db conversationDB, value sharedartifact.Artifact, a agentsdk.ConversationAuthority) (string, error) {
+	bindings, err := s.artifacts.Store.Bindings(sharedartifact.WithExecutor(ctx, db), value.WorkspaceID, value.ID)
+	if err != nil {
+		return "", err
+	}
+	subject, conversation := false, ""
+	for _, binding := range bindings {
+		if binding.Owner != sharedartifact.OwnerAgent || binding.ArtifactID != value.ID {
+			continue
+		}
+		switch {
+		case binding.Kind == sharedartifact.BindingSubject && binding.ResourceType == "agent_user" && binding.ResourceID == a.UserID:
+			subject = true
+		case binding.Kind == sharedartifact.BindingConversation && binding.ResourceType == "agent_conversation":
+			if conversation != "" && conversation != binding.ResourceID {
+				return "", conversationError("unavailable", "attachment_metadata_invalid")
+			}
+			conversation = binding.ResourceID
+		}
+	}
+	if !subject || !personalMemoryKey(conversation) {
+		return "", conversationError("not_found", "attachment_not_found")
+	}
+	return conversation, nil
+}
+
+func (s *Store) attachmentArtifact(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (sharedartifact.Artifact, persistence.ConversationAttachmentRecord, error) {
 	if !personalMemoryKey(id) {
-		return out, conversationError("bad_request", "attachment_invalid")
+		return sharedartifact.Artifact{}, persistence.ConversationAttachmentRecord{}, conversationError("bad_request", "attachment_invalid")
 	}
-	found, err := s.executionRead(ctx, db, CompatAttachmentTable, CompatAttachmentScope(a, id), &out)
-	if err == nil && !found {
-		err = conversationError("not_found", "attachment_not_found")
+	if err := s.sharedArtifactsReady(); err != nil {
+		return sharedartifact.Artifact{}, persistence.ConversationAttachmentRecord{}, err
 	}
-	return out, err
+	artifactContext := sharedartifact.WithExecutor(ctx, db)
+	value, found, err := s.artifacts.Store.ByID(artifactContext, a.WorkspaceID, id)
+	if err != nil {
+		return value, persistence.ConversationAttachmentRecord{}, err
+	}
+	if !found || !attachmentArtifactOwnedBy(value, a) {
+		return value, persistence.ConversationAttachmentRecord{}, conversationError("not_found", "attachment_not_found")
+	}
+	conversationID, err := s.attachmentConversationBinding(ctx, db, value, a)
+	if err != nil {
+		return value, persistence.ConversationAttachmentRecord{}, err
+	}
+	record, err := decodeAttachmentArtifact(value, conversationID)
+	return value, record, err
+}
+
+func (s *Store) CompatAttachment(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
+	_, record, err := s.attachmentArtifact(ctx, db, id, a)
+	return record, err
 }
 
 func (s *Store) AttachmentRecord(ctx context.Context, id string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
@@ -44,6 +158,11 @@ func (s *Store) AttachmentRecord(ctx context.Context, id string, a agentsdk.Conv
 	return s.CompatAttachment(ctx, s.store.Database(), id, a)
 }
 
+func attachmentNotFound(err error) bool {
+	var coded *agentsdk.Error
+	return errors.As(err, &coded) && coded.Code == "agent.conversation.attachment_not_found"
+}
+
 func CompatValidAttachmentReserve(in persistence.ConversationAttachmentReserve) bool {
 	mediaType, params, err := mime.ParseMediaType(in.ContentType)
 	return personalMemoryKey(in.ClientID) && personalMemoryKey(in.ConversationID) && CompatArtifactSHA(in.SHA256) && in.Bytes > 0 && in.Bytes <= agentsdk.ConversationAttachmentMaxBytes &&
@@ -51,71 +170,146 @@ func CompatValidAttachmentReserve(in persistence.ConversationAttachmentReserve) 
 		err == nil && len(params) == 0 && len(in.ContentType) <= 128 && strings.Contains(mediaType, "/") && in.ContentType == mediaType
 }
 
-func (s *Store) ReserveAttachment(ctx context.Context, in persistence.ConversationAttachmentReserve, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
-	var out persistence.ConversationAttachmentRecord
-	if err := conversationAuthority(a); err != nil {
+func (s *Store) attachmentArtifactsForConversation(ctx context.Context, db conversationDB, conversationID string, a agentsdk.ConversationAuthority) ([]sharedartifact.Artifact, error) {
+	items, err := s.artifacts.Store.List(sharedartifact.WithExecutor(ctx, db), a.WorkspaceID, sharedartifact.Query{
+		Owner: sharedartifact.OwnerAgent, Kind: attachmentArtifactKind,
+		Binding: &sharedartifact.BindingQuery{Owner: sharedartifact.OwnerAgent, Kind: sharedartifact.BindingConversation, ResourceType: "agent_conversation", ResourceID: conversationID},
+		Limit:   1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sharedartifact.Artifact, 0, len(items))
+	for _, item := range items {
+		if attachmentArtifactOwnedBy(item, a) {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) enforceAttachmentQuota(ctx context.Context, tx *sql.Tx, conversationID string, incoming int64, a agentsdk.ConversationAuthority) error {
+	artifactContext := sharedartifact.WithExecutor(ctx, tx)
+	items, err := s.artifacts.Store.List(artifactContext, a.WorkspaceID, sharedartifact.Query{Owner: sharedartifact.OwnerAgent, Kind: attachmentArtifactKind, CreatedBy: []string{a.UserID}, Limit: 1000})
+	if err != nil {
+		return err
+	}
+	count := 0
+	var total int64
+	for _, item := range items {
+		if !attachmentArtifactOwnedBy(item, a) {
+			continue
+		}
+		count++
+		if item.Status != sharedartifact.StatusDeleted {
+			total += item.SizeBytes
+		}
+	}
+	conversationItems, err := s.attachmentArtifactsForConversation(ctx, tx, conversationID, a)
+	if err != nil {
+		return err
+	}
+	conversationCount := 0
+	for _, item := range conversationItems {
+		if item.Status != sharedartifact.StatusDeleted {
+			conversationCount++
+		}
+	}
+	if count >= 1000 || conversationCount >= 50 || total+incoming > 256<<20 {
+		return conversationError("conflict", "attachment_limit")
+	}
+	return nil
+}
+
+func (s *Store) ReserveAttachment(ctx context.Context, in persistence.ConversationAttachmentReserve, a agentsdk.ConversationAuthority) (out persistence.ConversationAttachmentRecord, err error) {
+	if err = conversationAuthority(a); err != nil {
 		return out, err
 	}
-	if !CompatValidAttachmentReserve(in) {
+	if !CompatValidAttachmentReserve(in) || int64(len(in.Content)) != in.Bytes || knowledgeartifact.Hash(in.Content) != in.SHA256 {
 		return out, conversationError("bad_request", "attachment_invalid")
+	}
+	if err = s.sharedArtifactsReady(); err != nil {
+		return out, err
 	}
 	id := "att_" + conversationHash([]string{conversationOwner(a), in.ConversationID, in.ClientID})[:32]
 	digest := conversationHash(in)
-	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		if _, err := s.get(ctx, tx, in.ConversationID, a); err != nil {
-			return err
+	if current, readErr := s.CompatAttachment(ctx, s.store.Database(), id, a); readErr == nil {
+		if current.RequestSHA256 != digest || current.Attachment.ConversationID != in.ConversationID {
+			return out, conversationError("conflict", "idempotency_conflict")
 		}
-		var prior persistence.ConversationAttachmentRecord
-		found, err := s.executionRead(ctx, tx, CompatAttachmentTable, CompatAttachmentScope(a, id), &prior)
-		if err != nil {
-			return err
+		return current, nil
+	} else if !attachmentNotFound(readErr) {
+		return out, readErr
+	}
+	info, err := s.artifacts.Writer.PutImmutable(ctx, a.WorkspaceID, "agent-attachment:"+id, in.Content)
+	if err != nil {
+		return out, err
+	}
+	defer func() {
+		if err == nil {
+			return
 		}
-		if found {
-			if prior.RequestSHA256 != digest {
+		current, found, readErr := s.artifacts.Store.ByID(context.WithoutCancel(ctx), a.WorkspaceID, id)
+		if readErr == nil && (!found || current.StorageReference != info.Reference) {
+			_ = s.artifacts.Content.Delete(context.WithoutCancel(ctx), a.WorkspaceID, info.Reference)
+		}
+	}()
+	if strings.TrimSpace(info.Reference) == "" || !strings.EqualFold(info.SHA256, in.SHA256) || info.Size != in.Bytes {
+		return out, conversationError("unavailable", "attachment_content_mismatch")
+	}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		if _, txErr := s.get(ctx, tx, in.ConversationID, a); txErr != nil {
+			return txErr
+		}
+		if current, txErr := s.CompatAttachment(ctx, tx, id, a); txErr == nil {
+			if current.RequestSHA256 != digest || current.Attachment.ConversationID != in.ConversationID {
 				return conversationError("conflict", "idempotency_conflict")
 			}
-			out = prior
+			out = current
 			return nil
+		} else if !attachmentNotFound(txErr) {
+			return txErr
 		}
-		// Include pending deletion in quotas until physical cleanup succeeds.
-		// Serializable transactions cover concurrent upload reservations.
-		statement, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentTable).Columns("conversation_id", "bytes", "state").Where(query.Equal("owner_key", conversationOwner(a))).Build()
-		if err != nil {
-			return err
-		}
-		rows, err := tx.QueryContext(ctx, statement, args...)
-		if err != nil {
-			return err
-		}
-		count, conversationCount := 0, 0
-		var total int64
-		for rows.Next() {
-			var conversation, state string
-			var size int64
-			if err := rows.Scan(&conversation, &size, &state); err != nil {
-				rows.Close()
-				return err
-			}
-			count++ // Tombstones also have a bounded metadata budget.
-			if state != "deleted" {
-				total += size
-				if conversation == in.ConversationID {
-					conversationCount++
-				}
-			}
-		}
-		err = rows.Err()
-		rows.Close()
-		if err != nil {
-			return err
-		}
-		if count >= 1000 || conversationCount >= 50 || total+in.Bytes > 256<<20 {
-			return conversationError("conflict", "attachment_limit")
+		if quotaErr := s.enforceAttachmentQuota(ctx, tx, in.ConversationID, in.Bytes, a); quotaErr != nil {
+			return quotaErr
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
-		out = persistence.ConversationAttachmentRecord{RequestSHA256: digest, Attachment: agentsdk.ConversationAttachment{ID: id, ConversationID: in.ConversationID, Filename: in.Filename, ContentType: in.ContentType, SHA256: in.SHA256, Bytes: in.Bytes, Visibility: "conversation_private", State: "uploading", Revision: 1, CreatedAt: now, UpdatedAt: now}}
-		statement, args, err = query.NewInsertBuilder(s.store.Renderer(), CompatAttachmentTable).Columns("owner_key", "attachment_id", "conversation_id", "state", "revision", "bytes", "updated_at", "payload_json").Values(conversationOwner(a), id, in.ConversationID, "uploading", 1, in.Bytes, now.UnixMilli(), conversationJSON(out)).Build()
-		return conversationExec(ctx, tx, statement, args, err)
+		metadata, marshalErr := json.Marshal(attachmentArtifactMetadata{RequestSHA256: digest, Visibility: "conversation_private", State: "stored", Revision: 1})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		artifactContext := sharedartifact.WithExecutor(ctx, tx)
+		value := sharedartifact.Artifact{
+			ID: id, WorkspaceID: a.WorkspaceID, Owner: sharedartifact.OwnerAgent, Kind: attachmentArtifactKind,
+			IdempotencyKey: conversationHash([]string{"agent-attachment", conversationOwner(a), in.ConversationID, in.ClientID}), CreatedBy: a.UserID,
+			Filename: in.Filename, MediaType: in.ContentType, ContentSHA256: in.SHA256, SizeBytes: in.Bytes, StorageReference: info.Reference,
+			Status: sharedartifact.StatusAvailable, ScanStatus: sharedartifact.ScanNotRequired,
+			AuthorizationScopeSHA256: conversationOwner(a), Metadata: metadata, CreatedAt: now, UpdatedAt: now,
+		}
+		registered, _, registerErr := s.artifacts.Store.Register(artifactContext, value)
+		if registerErr != nil {
+			registered, _, registerErr = s.artifacts.Store.ByID(artifactContext, a.WorkspaceID, id)
+		}
+		if registerErr != nil || !attachmentArtifactOwnedBy(registered, a) || registered.Filename != in.Filename || registered.MediaType != in.ContentType || registered.ContentSHA256 != in.SHA256 || registered.SizeBytes != in.Bytes || registered.StorageReference != info.Reference {
+			if registerErr != nil {
+				return registerErr
+			}
+			return conversationError("conflict", "idempotency_conflict")
+		}
+		for _, binding := range []sharedartifact.Binding{
+			{ID: id + ":subject", WorkspaceID: a.WorkspaceID, ArtifactID: id, Owner: sharedartifact.OwnerAgent, Kind: sharedartifact.BindingSubject, ResourceType: "agent_user", ResourceID: a.UserID, CreatedAt: now},
+			{ID: id + ":conversation", WorkspaceID: a.WorkspaceID, ArtifactID: id, Owner: sharedartifact.OwnerAgent, Kind: sharedartifact.BindingConversation, ResourceType: "agent_conversation", ResourceID: in.ConversationID, CreatedAt: now},
+		} {
+			if _, _, bindErr := s.artifacts.Store.Bind(artifactContext, binding); bindErr != nil {
+				return bindErr
+			}
+		}
+		var loadErr error
+		_, out, loadErr = s.attachmentArtifact(ctx, tx, id, a)
+		if loadErr == nil && out.RequestSHA256 != digest {
+			loadErr = conversationError("conflict", "idempotency_conflict")
+		}
+		return loadErr
 	})
 	return out, err
 }
@@ -131,51 +325,72 @@ func (s *Store) Attachments(ctx context.Context, conversationID, after string, l
 	if limit < 1 || limit > 50 || after != "" && !personalMemoryKey(after) {
 		return out, conversationError("bad_request", "attachment_query_invalid")
 	}
-	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentTable).Columns("payload_json").Where(query.And(conversationScope(a, conversationID), query.GreaterThan("attachment_id", after), query.NotEqual("state", "deleting"), query.NotEqual("state", "deleted"))).OrderBy(query.Ascending("attachment_id")).Limit(limit + 1).Build()
+	items, err := s.attachmentArtifactsForConversation(ctx, s.store.Database(), conversationID, a)
 	if err != nil {
 		return out, err
 	}
-	rows, err := s.store.Database().QueryContext(ctx, statement, args...)
-	if err != nil {
-		return out, err
-	}
-	defer rows.Close()
-	for rows.Next() {
+	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	for _, item := range items {
+		if item.ID <= after || item.Status == sharedartifact.StatusDeleted || item.Status == sharedartifact.StatusExpired {
+			continue
+		}
+		record, decodeErr := decodeAttachmentArtifact(item, conversationID)
+		if decodeErr != nil {
+			return out, decodeErr
+		}
 		if len(out.Items) == limit {
 			out.Complete = false
 			out.NextAfter = out.Items[len(out.Items)-1].ID
 			break
 		}
-		var raw []byte
-		var record persistence.ConversationAttachmentRecord
-		if err = rows.Scan(&raw); err != nil {
-			return out, err
-		}
-		if err = json.Unmarshal(raw, &record); err != nil {
-			return out, err
-		}
 		out.Items = append(out.Items, record.Attachment)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *Store) CompatSaveAttachment(ctx context.Context, tx *sql.Tx, record persistence.ConversationAttachmentRecord, expected int64, a agentsdk.ConversationAuthority) error {
-	statement, args, err := query.NewUpdateBuilder(s.store.Renderer(), CompatAttachmentTable).Set("state", record.Attachment.State).Set("revision", record.Attachment.Revision).Set("updated_at", record.Attachment.UpdatedAt.UnixMilli()).Set("payload_json", conversationJSON(record)).Where(query.And(CompatAttachmentScope(a, record.Attachment.ID), query.Equal("revision", expected))).Build()
-	if err = conversationCAS(ctx, tx, statement, args, err); err != nil {
+	value, current, err := s.attachmentArtifact(ctx, tx, record.Attachment.ID, a)
+	if err != nil {
 		return err
+	}
+	if current.Attachment.Revision != expected || record.Attachment.Revision != expected+1 || current.Attachment.ConversationID != record.Attachment.ConversationID || current.RequestSHA256 != record.RequestSHA256 || current.Attachment.Filename != record.Attachment.Filename || current.Attachment.ContentType != record.Attachment.ContentType || current.Attachment.Bytes != record.Attachment.Bytes || current.Attachment.SHA256 != record.Attachment.SHA256 || current.Attachment.CreatedAt != record.Attachment.CreatedAt {
+		return conversationError("conflict", "revision_conflict")
+	}
+	status, valid := attachmentArtifactStatus(record.Attachment.State)
+	if !valid {
+		return conversationError("conflict", "attachment_transition_invalid")
+	}
+	metadata, err := attachmentMetadata(record)
+	if err != nil {
+		return err
+	}
+	updatedAt := record.Attachment.UpdatedAt.UTC()
+	if !updatedAt.After(value.UpdatedAt) {
+		updatedAt = value.UpdatedAt.Add(time.Nanosecond)
+	}
+	changed, err := s.artifacts.Store.Update(sharedartifact.WithExecutor(ctx, tx), sharedartifact.Mutation{
+		WorkspaceID: value.WorkspaceID, ID: value.ID, Owner: value.Owner, Kind: value.Kind,
+		ExpectedStatus: value.Status, ExpectedScanStatus: value.ScanStatus, ExpectedUpdatedAt: value.UpdatedAt,
+		Status: status, ScanStatus: sharedartifact.ScanNotRequired, ExpiresAt: value.ExpiresAt,
+		Metadata: metadata, UpdatedAt: updatedAt,
+	})
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return conversationError("conflict", "revision_conflict")
 	}
 	return nil
 }
 
-func (s *Store) TransitionAttachment(ctx context.Context, id string, expected int64, in persistence.ConversationAttachmentTransition, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
-	var out persistence.ConversationAttachmentRecord
-	if err := conversationAuthority(a); err != nil {
+func (s *Store) TransitionAttachment(ctx context.Context, id string, expected int64, in persistence.ConversationAttachmentTransition, a agentsdk.ConversationAuthority) (out persistence.ConversationAttachmentRecord, err error) {
+	if err = conversationAuthority(a); err != nil {
 		return out, err
 	}
-	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		previous, err := s.CompatAttachment(ctx, tx, id, a)
-		if err != nil {
-			return err
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		previous, txErr := s.CompatAttachment(ctx, tx, id, a)
+		if txErr != nil {
+			return txErr
 		}
 		if expected < 1 || previous.Attachment.Revision != expected {
 			return conversationError("conflict", "revision_conflict")
@@ -184,104 +399,114 @@ func (s *Store) TransitionAttachment(ctx context.Context, id string, expected in
 		if previous.Index != nil && in.State != "deleting" {
 			return conversationError("conflict", "attachment_index_managed")
 		}
-		allowed := in.State == "deleting" && !CompatAttachmentDeleted(from) ||
-			from == "uploading" && (in.State == "stored" || in.State == "failed") ||
-			from == "stored" && in.State == "indexing" ||
-			from == "indexing" && (in.State == "ready" || in.State == "failed") ||
-			from == "failed" && (previous.BodyRef == "" && in.State == "uploading" || previous.Source == nil && previous.BodyRef != "" && in.State == "stored" || previous.Source != nil && in.State == "indexing") ||
-			from == "deleting" && in.State == "deleted"
+		allowed := in.State == "deleting" && !CompatAttachmentDeleted(from) || from == "deleting" && in.State == "deleted"
 		if !allowed || in.ErrorCode != "" && !CompatAttachmentErrorCodePattern.MatchString(in.ErrorCode) || (in.State == "failed") != (in.ErrorCode != "") {
 			return conversationError("conflict", "attachment_transition_invalid")
 		}
 		if !CompatAttachmentDeleted(in.State) {
-			if _, err := s.get(ctx, tx, previous.Attachment.ConversationID, a); err != nil {
-				return err
+			if _, txErr = s.get(ctx, tx, previous.Attachment.ConversationID, a); txErr != nil {
+				return txErr
 			}
-		}
-		if in.BodyRef != "" {
-			if from != "uploading" || in.State != "stored" || previous.BodyRef != "" || !executionText(in.BodyRef, 1024, true) {
-				return conversationError("bad_request", "attachment_reference_invalid")
-			}
-			previous.BodyRef = in.BodyRef
-		}
-		if in.Source != nil {
-			if from != "stored" || in.State != "indexing" || previous.Source != nil || !executionText(in.Source.Identity, 256, true) || !executionText(in.Source.DocID, 256, true) || !executionText(in.Source.PermissionID, 256, true) {
-				return conversationError("bad_request", "attachment_source_invalid")
-			}
-			source := *in.Source
-			previous.Source = &source
-		}
-		if (in.State == "stored" || in.State == "indexing" || in.State == "ready") && previous.BodyRef == "" || (in.State == "indexing" || in.State == "ready") && previous.Source == nil {
-			return conversationError("conflict", "attachment_not_ready")
 		}
 		previous.Attachment.State, previous.Attachment.ErrorCode = in.State, in.ErrorCode
 		previous.Attachment.Revision++
 		previous.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
 		out = previous
-		if err := s.CompatSaveAttachment(ctx, tx, out, expected, a); err != nil {
-			return err
+		if txErr = s.CompatSaveAttachment(ctx, tx, out, expected, a); txErr != nil {
+			return txErr
 		}
 		if in.State == "deleting" {
-			if err := s.CompatQueueAttachmentCleanup(ctx, tx, id, a); err != nil {
-				return err
-			}
-			return s.CompatQueueAttachmentIndexWork(ctx, tx, out)
+			return s.CompatQueueAttachmentIndexWork(ctx, tx, out, a)
 		}
 		if in.State == "deleted" {
-			statement, args, err := query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentCleanupTable).Where(CompatAttachmentScope(a, id)).Build()
-			return conversationExec(ctx, tx, statement, args, err)
+			statement, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Where(CompatAttachmentScope(a, id)).Build()
+			return conversationExec(ctx, tx, statement, args, buildErr)
 		}
 		return nil
 	})
 	return out, err
 }
 
-// Called in the parent deletion transaction. Never discard cleanup references
-// or permit a late upload/index worker to restore access after conversation deletion.
-func (s *Store) CompatDeleteConversationAttachments(ctx context.Context, tx *sql.Tx, conversationID string, a agentsdk.ConversationAuthority) error {
-	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentTable).Columns("payload_json").Where(query.And(conversationScope(a, conversationID), query.NotEqual("state", "deleted"), query.NotEqual("state", "deleting"))).Build()
+func (s *Store) AttachmentContent(ctx context.Context, id string, a agentsdk.ConversationAuthority) ([]byte, error) {
+	if err := conversationAuthority(a); err != nil {
+		return nil, err
+	}
+	value, record, err := s.attachmentArtifact(ctx, s.store.Database(), id, a)
+	if err != nil {
+		return nil, err
+	}
+	if record.Attachment.State == "deleting" || record.Attachment.State == "deleted" || value.Status != sharedartifact.StatusAvailable {
+		return nil, conversationError("not_found", "attachment_content_not_found")
+	}
+	reader, err := s.artifacts.Content.Open(ctx, value.WorkspaceID, value.StorageReference)
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	raw, err := io.ReadAll(io.LimitReader(reader, value.SizeBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) != value.SizeBytes || knowledgeartifact.Hash(raw) != value.ContentSHA256 {
+		return nil, conversationError("unavailable", "attachment_content_mismatch")
+	}
+	current, found, err := s.artifacts.Store.ByID(ctx, value.WorkspaceID, value.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !found || current.StorageReference != value.StorageReference || current.Status != sharedartifact.StatusAvailable || !attachmentArtifactOwnedBy(current, a) {
+		return nil, conversationError("not_found", "attachment_not_found")
+	}
+	return raw, nil
+}
+
+func (s *Store) DeleteAttachmentContent(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
+	if err := conversationAuthority(a); err != nil {
+		return err
+	}
+	value, record, err := s.attachmentArtifact(ctx, s.store.Database(), id, a)
 	if err != nil {
 		return err
 	}
-	rows, err := tx.QueryContext(ctx, statement, args...)
-	if err != nil {
-		return err
+	if record.Attachment.State != "deleting" && record.Attachment.State != "deleted" {
+		return conversationError("conflict", "attachment_cleanup_invalid")
 	}
-	var records []persistence.ConversationAttachmentRecord
-	for rows.Next() {
-		var raw []byte
-		var record persistence.ConversationAttachmentRecord
-		if err := rows.Scan(&raw); err != nil {
-			rows.Close()
-			return err
+	err = s.artifacts.Content.Delete(ctx, value.WorkspaceID, value.StorageReference)
+	if errors.Is(err, sharedartifact.ErrContentNotFound) {
+		return nil
+	}
+	return err
+}
+
+// Called in the parent deletion transaction. The Artifact metadata transition
+// and durable cleanup/index job commit with the conversation deletion receipt.
+func (s *Store) CompatDeleteConversationAttachments(ctx context.Context, tx *sql.Tx, conversationID string, a agentsdk.ConversationAuthority) (int64, error) {
+	items, err := s.attachmentArtifactsForConversation(ctx, tx, conversationID, a)
+	if err != nil {
+		return 0, err
+	}
+	var queued int64
+	for _, item := range items {
+		record, decodeErr := decodeAttachmentArtifact(item, conversationID)
+		if decodeErr != nil {
+			return queued, decodeErr
 		}
-		if err := json.Unmarshal(raw, &record); err != nil {
-			rows.Close()
-			return err
+		if CompatAttachmentDeleted(record.Attachment.State) {
+			continue
 		}
-		records = append(records, record)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
 		expected := record.Attachment.Revision
 		record.Attachment.State, record.Attachment.ErrorCode = "deleting", ""
 		record.Attachment.Revision++
 		record.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
-		if err := s.CompatSaveAttachment(ctx, tx, record, expected, a); err != nil {
-			return err
+		if err = s.CompatSaveAttachment(ctx, tx, record, expected, a); err != nil {
+			return queued, err
 		}
-		if err := s.CompatQueueAttachmentCleanup(ctx, tx, record.Attachment.ID, a); err != nil {
-			return err
+		if err = s.CompatQueueAttachmentIndexWork(ctx, tx, record, a); err != nil {
+			return queued, err
 		}
-		if err := s.CompatQueueAttachmentIndexWork(ctx, tx, record); err != nil {
-			return err
-		}
+		queued++
 	}
-	return nil
+	return queued, nil
 }
 
 var _ persistence.ConversationAttachmentRepository = (*Store)(nil)

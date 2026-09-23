@@ -15,6 +15,7 @@ type artifactExportReadStore struct {
 	authority sdk.ConversationAuthority
 	record    persistence.ConversationArtifactRecord
 	export    sdk.ConversationArtifactExport
+	content   []byte
 	downloads int
 }
 
@@ -29,6 +30,12 @@ func (s *artifactExportReadStore) ArtifactExport(ctx context.Context, id string,
 		return sdk.ConversationArtifactExport{}, conversationFailure("not_found", "artifact_export_not_found")
 	}
 	return s.export, ctx.Err()
+}
+func (s *artifactExportReadStore) ArtifactExportContent(ctx context.Context, id string, a sdk.ConversationAuthority) ([]byte, error) {
+	if _, err := s.ArtifactExport(ctx, id, a); err != nil {
+		return nil, err
+	}
+	return append([]byte(nil), s.content...), ctx.Err()
 }
 func (s *artifactExportReadStore) RecordArtifactDownload(ctx context.Context, id string, a sdk.ConversationAuthority) (sdk.ConversationArtifactExport, error) {
 	out, err := s.ArtifactExport(ctx, id, a)
@@ -67,6 +74,7 @@ func TestExistingArtifactExportReadRequiresOnlyCurrentReadableVersion(t *testing
 			}
 			repo := &artifactExportReadStore{authority: a, record: persistence.ConversationArtifactRecord{Artifact: sdk.ConversationArtifact{ID: "art_original", Version: 2, Kind: content.Kind, Bytes: len(body), SHA256: hash}, Body: body, Sources: &sdk.ConversationSources{Version: 1}}}
 			repo.export = sdk.ConversationArtifactExport{ID: "export_original", ArtifactID: repo.record.Artifact.ID, Version: 2, Format: format, Filename: fmt.Sprintf("%s-v2%s", repo.record.Artifact.ID, data.Extension), ContentType: data.ContentType, SHA256: artifact.Hash(data.Data), Bytes: len(data.Data), FormulaGuarded: data.FormulaGuarded}
+			repo.content = append([]byte(nil), data.Data...)
 			policy := &artifactExportReadPolicy{}
 			service := NewService(repo, a.RuntimeID, Options{PersonalAuthorizer: policy})
 			if _, err := service.DownloadArtifact(t.Context(), repo.export.ID, a); err == nil || repo.downloads != 0 {

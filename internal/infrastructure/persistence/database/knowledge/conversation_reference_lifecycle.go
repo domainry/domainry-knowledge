@@ -32,16 +32,10 @@ func (s *Store) DeleteConversationReferencesForRequest(ctx context.Context, requ
 		} else if !errors.Is(scanErr, sql.ErrNoRows) {
 			return scanErr
 		}
-		statement, args, buildErr = query.NewSelectBuilder(s.store.Renderer(), CompatAttachmentTable).Projections(query.Project(query.CountAll())).Where(query.And(conversationScope(a, conversationID), query.NotEqual("state", "deleted"), query.NotEqual("state", "deleting"))).Build()
+		var queued int64
+		queued, buildErr = s.CompatDeleteConversationAttachments(ctx, tx, conversationID, a)
 		if buildErr != nil {
 			return buildErr
-		}
-		var queued int64
-		if scanErr := tx.QueryRowContext(ctx, statement, args...).Scan(&queued); scanErr != nil {
-			return scanErr
-		}
-		if deleteErr := s.CompatDeleteConversationAttachments(ctx, tx, conversationID, a); deleteErr != nil {
-			return deleteErr
 		}
 		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "conversation_id": conversationID, "attachments_queued": queued, "completed_at": time.Now().UTC()})
 		statement, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), conversationReferenceReceiptTable).Columns("owner_key", "request_id", "payload_json").Values(owner, requestID, receipt).Build()

@@ -89,10 +89,6 @@ func GuardManagedKnowledge(base ConversationKnowledge, source agentsdk.ManagedKn
 
 type ContextReader = application.ContextReader
 
-func CompatArtifactExportScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return store.CompatArtifactExportScope(a, id)
-}
-
 type CompatArtifactCursor = store.CompatArtifactCursor
 
 func CompatConversationArtifactMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
@@ -116,15 +112,6 @@ func CompatAttachmentIndexMigration(d modulehost.Dialect) (modulehost.SchemaMigr
 	return store.CompatAttachmentIndexMigration(d)
 }
 
-const CompatAttachmentTable = store.CompatAttachmentTable
-const CompatAttachmentCleanupTable = store.CompatAttachmentCleanupTable
-
-func CompatConversationAttachmentMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatConversationAttachmentMigration(d)
-}
-func CompatConversationAttachmentCleanupMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatConversationAttachmentCleanupMigration(d)
-}
 func CompatAttachmentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
 	return store.CompatAttachmentScope(a, id)
 }
@@ -140,9 +127,10 @@ type Backend = store.Backend
 type DB = store.DB
 type Sources = store.Sources
 type Store = store.Store
+type ArtifactPersistence = store.ArtifactPersistence
 
-func NewStore(backend Backend, sources Sources) *Store {
-	return store.New(backend, sources)
+func NewStore(backend Backend, sources Sources, artifacts ArtifactPersistence) *Store {
+	return store.New(backend, sources, artifacts)
 }
 
 type SQLBackend = store.SQLBackend
@@ -210,17 +198,11 @@ func CompatLibraryPageLimit(after string, limit int, users bool) (int, error) {
 func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	return store.LegacyMigrations(d)
 }
-func SubjectLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.SubjectLifecycleMigration(d)
-}
 func ConversationReferenceLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
 	return store.ConversationReferenceLifecycleMigration(d)
 }
 func NewSubjectLifecycle(backend Backend, runtimeID string, options Options) lifecyclecontract.SubjectExecutionHandler {
-	return store.NewSubjectLifecycle(store.New(backend, nil), runtimeID, store.SubjectLifecycleOptions{
-		AttachmentStorage: options.AttachmentStorage, ArtifactStorage: options.ArtifactStorage,
-		DocumentStorage: options.DocumentStorage,
-	})
+	return assembly.NewSubjectLifecycle(backend, runtimeID, options)
 }
 
 type Record = recordstore.Record

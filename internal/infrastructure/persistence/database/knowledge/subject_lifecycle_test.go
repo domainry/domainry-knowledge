@@ -34,7 +34,10 @@ func openSubjectKnowledgeStore(t *testing.T) (*Store, *sql.DB) {
 			}
 		}
 	}
-	return New(SQLBackend{DB: db, Dialect: dialect.WithSchema(""), Engine: ormsqlite.NewProfile()}, nil), db
+	if _, err = db.ExecContext(t.Context(), `CREATE TABLE _subject_steps (workspace_id TEXT NOT NULL, request_id TEXT NOT NULL, owner TEXT NOT NULL, operation TEXT NOT NULL, payload_json TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY(workspace_id,request_id,owner,operation))`); err != nil {
+		t.Fatal(err)
+	}
+	return New(SQLBackend{DB: db, Dialect: dialect.WithSchema(""), Engine: ormsqlite.NewProfile()}, nil, ArtifactPersistence{}), db
 }
 
 func mustKnowledgeMigrations(t *testing.T, dialect modulehost.Dialect) []modulehost.SchemaMigration {
@@ -70,7 +73,7 @@ func reserveSubjectDocument(t *testing.T, store *Store, storage agentsdk.Knowled
 }
 
 func TestSubjectLifecycleRemovesPersonalCopiesAndAnonymizesSharedReferences(t *testing.T) {
-	store, _ := openSubjectKnowledgeStore(t)
+	store, db := openSubjectKnowledgeStore(t)
 	documents, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
 	if err != nil {
 		t.Fatal(err)
@@ -121,6 +124,10 @@ func TestSubjectLifecycleRemovesPersonalCopiesAndAnonymizesSharedReferences(t *t
 	replayed, err := lifecycle.EraseSubjectForRequest(t.Context(), "erase-alice", a.WorkspaceID, a.UserID, nil)
 	if err != nil || !bytes.Equal(receipt, replayed) {
 		t.Fatalf("receipt replay=%s err=%v", replayed, err)
+	}
+	var steps int
+	if err = db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM _subject_steps WHERE workspace_id=? AND request_id=? AND owner='knowledge' AND operation='erase'`, a.WorkspaceID, "erase-alice").Scan(&steps); err != nil || steps != 1 {
+		t.Fatalf("shared Knowledge subject steps=%d err=%v", steps, err)
 	}
 	if _, err = store.KnowledgeLibrary(t.Context(), aliceLibrary.ID, a); err == nil {
 		t.Fatal("personal library survived")
@@ -176,7 +183,7 @@ func TestSubjectLifecycleKeepsRemoteDeletionEvidenceUntilAcknowledged(t *testing
 	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _agent_knowledge_document_jobs WHERE scope_key=? AND document_id=?`, CompatLibraryScope(a), record.Document.ID).Scan(&jobs); err != nil || jobs != 1 {
 		t.Fatalf("jobs=%d err=%v", jobs, err)
 	}
-	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _knowledge_subject_erasure_receipts`).Scan(&receipts); err != nil || receipts != 0 {
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _subject_steps WHERE owner='knowledge'`).Scan(&receipts); err != nil || receipts != 0 {
 		t.Fatalf("receipts=%d err=%v", receipts, err)
 	}
 }

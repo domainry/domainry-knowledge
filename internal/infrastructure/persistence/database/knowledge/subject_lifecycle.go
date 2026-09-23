@@ -11,6 +11,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 	lifecyclemodel "github.com/domainry/domainry-lifecycle-sdk/model"
 	"github.com/domainry/domainry-orm/query"
@@ -21,9 +22,8 @@ type SubjectArtifactStorage interface {
 }
 
 type SubjectLifecycleOptions struct {
-	AttachmentStorage agentsdk.ConversationAttachmentStorage
-	ArtifactStorage   agentsdk.ConversationArtifactStorage
-	DocumentStorage   agentsdk.KnowledgeDocumentStorage
+	ArtifactStorage agentsdk.ConversationArtifactStorage
+	DocumentStorage agentsdk.KnowledgeDocumentStorage
 }
 
 type SubjectLifecycle struct {
@@ -31,6 +31,8 @@ type SubjectLifecycle struct {
 	runtimeID string
 	options   SubjectLifecycleOptions
 }
+
+const sharedSubjectStepsTable = "_subject_steps"
 
 func NewSubjectLifecycle(store *Store, runtimeID string, options SubjectLifecycleOptions) SubjectLifecycle {
 	return SubjectLifecycle{store: store, runtimeID: strings.TrimSpace(runtimeID), options: options}
@@ -53,13 +55,16 @@ func (s SubjectLifecycle) PreviewSubject(ctx context.Context, workspaceID, subje
 	}
 	counts := map[string]int64{}
 	owner := conversationOwner(a)
-	for key, table := range map[string]string{
-		"artifacts": "_agent_artifacts", "attachments": CompatAttachmentTable,
-	} {
+	for key, table := range map[string]string{"artifacts": "_agent_artifacts"} {
 		if counts[key], err = s.count(ctx, table, query.Equal("owner_key", owner)); err != nil {
 			return nil, err
 		}
 	}
+	attachments, err := s.subjectAttachmentArtifacts(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	counts["attachments"] = int64(len(attachments))
 	scope := CompatLibraryScope(a)
 	if counts["library_memberships"], err = s.count(ctx, CompatLibraryMemberTable, query.And(query.Equal("scope_key", scope), query.Equal("user_id", a.UserID))); err != nil {
 		return nil, err
@@ -98,7 +103,6 @@ func (s SubjectLifecycle) ExportSubjectForRequest(ctx context.Context, _ string,
 	export := map[string]any{}
 	for key, tableColumn := range map[string][2]string{
 		"artifacts": {"_agent_artifacts", "owner_key"}, "artifact_versions": {"_agent_artifact_versions", "owner_key"},
-		"attachments": {CompatAttachmentTable, "owner_key"},
 	} {
 		items, readErr := s.payloads(ctx, tableColumn[0], query.Equal(tableColumn[1], owner))
 		if readErr != nil {
@@ -106,6 +110,23 @@ func (s SubjectLifecycle) ExportSubjectForRequest(ctx context.Context, _ string,
 		}
 		export[key] = items
 	}
+	attachmentArtifacts, err := s.subjectAttachmentArtifacts(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	attachments := make([]json.RawMessage, 0, len(attachmentArtifacts))
+	for _, item := range attachmentArtifacts {
+		_, record, readErr := s.store.attachmentArtifact(ctx, s.store.store.Database(), item.ID, a)
+		if readErr != nil {
+			return nil, readErr
+		}
+		raw, marshalErr := json.Marshal(record)
+		if marshalErr != nil {
+			return nil, marshalErr
+		}
+		attachments = append(attachments, raw)
+	}
+	export["attachments"] = attachments
 	personal, err := s.personalLibraries(ctx, s.store.store.Database(), a)
 	if err != nil {
 		return nil, err
@@ -184,6 +205,30 @@ type knowledgeSubjectCandidates struct {
 	libraries   []string
 }
 
+func (s SubjectLifecycle) subjectAttachmentArtifacts(ctx context.Context, a agentsdk.ConversationAuthority) ([]sharedartifact.Artifact, error) {
+	if s.store == nil || s.store.artifacts.Store == nil {
+		return []sharedartifact.Artifact{}, nil
+	}
+	if err := s.store.sharedArtifactsReady(); err != nil {
+		return nil, err
+	}
+	items, err := s.store.artifacts.Store.List(ctx, a.WorkspaceID, sharedartifact.Query{
+		Owner: sharedartifact.OwnerAgent, Kind: attachmentArtifactKind,
+		Binding: &sharedartifact.BindingQuery{Owner: sharedartifact.OwnerAgent, Kind: sharedartifact.BindingSubject, ResourceType: "agent_user", ResourceID: a.UserID},
+		Limit:   1000,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]sharedartifact.Artifact, 0, len(items))
+	for _, item := range items {
+		if attachmentArtifactOwnedBy(item, a) {
+			out = append(out, item)
+		}
+	}
+	return out, nil
+}
+
 func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID, workspaceID, subjectID string, holds []lifecyclemodel.LegalHold) (json.RawMessage, error) {
 	if len(holds) > 0 {
 		return nil, fmt.Errorf("knowledge subject erasure blocked by legal hold")
@@ -193,7 +238,7 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 	if err != nil || requestID == "" || len(requestID) > 96 {
 		return nil, fmt.Errorf("knowledge subject erasure request is required")
 	}
-	if receipt, found, readErr := s.receipt(ctx, s.store.store.Database(), conversationOwner(a), requestID); readErr != nil || found {
+	if receipt, found, readErr := s.receipt(ctx, s.store.store.Database(), a.WorkspaceID, requestID); readErr != nil || found {
 		return receipt, readErr
 	}
 	candidates, err := s.erasureCandidates(ctx, a)
@@ -213,7 +258,7 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 	}
 	var receipt json.RawMessage
 	err = s.store.transaction(ctx, func(tx *sql.Tx) error {
-		if previous, found, readErr := s.receipt(ctx, tx, conversationOwner(a), requestID); readErr != nil {
+		if previous, found, readErr := s.receipt(ctx, tx, a.WorkspaceID, requestID); readErr != nil {
 			return readErr
 		} else if found {
 			receipt = previous
@@ -226,8 +271,15 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 		for key, count := range physical {
 			changed[key] += count
 		}
-		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "changed": changed, "personal_copies_removed": len(candidates.documents), "shared_references_anonymized": changed["shared_documents_anonymized"], "completed_at": time.Now().UTC()})
-		statement, args, buildErr := query.NewInsertBuilder(s.store.store.Renderer(), subjectReceiptTable).Columns("owner_key", "request_id", "payload_json").Values(conversationOwner(a), requestID, receipt).Build()
+		completedAt := time.Now().UTC()
+		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "changed": changed, "personal_copies_removed": len(candidates.documents), "shared_references_anonymized": changed["shared_documents_anonymized"], "completed_at": completedAt})
+		step, marshalErr := json.Marshal(lifecyclemodel.SubjectExecutionStep{WorkspaceID: a.WorkspaceID, RequestID: requestID, Owner: "knowledge", Operation: "erase", Payload: append(json.RawMessage(nil), receipt...), CompletedAt: completedAt})
+		if marshalErr != nil {
+			return marshalErr
+		}
+		statement, args, buildErr := query.NewWorkspaceInsertBuilder(s.store.store.Renderer(), sharedSubjectStepsTable, a.WorkspaceID).
+			Columns("request_id", "owner", "operation", "payload_json", "completed_at").
+			Values(requestID, "knowledge", "erase", string(step), completedAt.Format(time.RFC3339Nano)).Build()
 		if buildErr != nil {
 			return buildErr
 		}
@@ -237,55 +289,51 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 	return receipt, err
 }
 
-func (s SubjectLifecycle) receipt(ctx context.Context, db conversationDB, owner, requestID string) (json.RawMessage, bool, error) {
-	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), subjectReceiptTable).Columns("payload_json").Where(query.And(query.Equal("owner_key", owner), query.Equal("request_id", requestID))).Build()
+func (s SubjectLifecycle) receipt(ctx context.Context, db conversationDB, workspaceID, requestID string) (json.RawMessage, bool, error) {
+	statement, args, err := query.NewWorkspaceSelectBuilder(s.store.store.Renderer(), sharedSubjectStepsTable, workspaceID).
+		Columns("payload_json").
+		Where(query.And(query.Equal("request_id", requestID), query.Equal("owner", "knowledge"), query.Equal("operation", "erase"))).Build()
 	if err != nil {
 		return nil, false, err
 	}
-	var raw json.RawMessage
+	var raw string
 	err = db.QueryRowContext(ctx, statement, args...).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
-	return raw, err == nil, err
+	if err != nil {
+		return nil, false, err
+	}
+	var step lifecyclemodel.SubjectExecutionStep
+	if json.Unmarshal([]byte(raw), &step) != nil || step.WorkspaceID != workspaceID || step.RequestID != requestID || step.Owner != "knowledge" || step.Operation != "erase" || !json.Valid(step.Payload) {
+		return nil, false, fmt.Errorf("Knowledge shared subject execution step is invalid")
+	}
+	return append(json.RawMessage(nil), step.Payload...), true, nil
 }
 
 func (s SubjectLifecycle) erasureCandidates(ctx context.Context, a agentsdk.ConversationAuthority) (knowledgeSubjectCandidates, error) {
 	result := knowledgeSubjectCandidates{}
-	owner := conversationOwner(a)
-	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), CompatAttachmentTable).Columns("payload_json").Where(query.Equal("owner_key", owner)).Build()
+	items, err := s.subjectAttachmentArtifacts(ctx, a)
 	if err != nil {
 		return result, err
 	}
-	rows, err := s.store.store.Database().QueryContext(ctx, statement, args...)
-	if err != nil {
-		return result, err
-	}
-	for rows.Next() {
-		var raw []byte
-		var record persistence.ConversationAttachmentRecord
-		if err = rows.Scan(&raw); err == nil {
-			err = json.Unmarshal(raw, &record)
-		}
-		if err != nil {
-			rows.Close()
-			return result, err
+	for _, item := range items {
+		_, record, readErr := s.store.attachmentArtifact(ctx, s.store.store.Database(), item.ID, a)
+		if readErr != nil {
+			return result, readErr
 		}
 		result.attachments = append(result.attachments, record)
-	}
-	if err = rows.Close(); err != nil {
-		return result, err
 	}
 	result.libraries, err = s.personalLibraries(ctx, s.store.store.Database(), a)
 	if err != nil {
 		return result, err
 	}
 	for _, libraryID := range result.libraries {
-		statement, args, err = query.NewSelectBuilder(s.store.store.Renderer(), CompatKnowledgeDocumentTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("library_id", libraryID))).Build()
+		statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), CompatKnowledgeDocumentTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("library_id", libraryID))).Build()
 		if err != nil {
 			return result, err
 		}
-		rows, err = s.store.store.Database().QueryContext(ctx, statement, args...)
+		rows, err := s.store.store.Database().QueryContext(ctx, statement, args...)
 		if err != nil {
 			return result, err
 		}
@@ -315,11 +363,6 @@ func (s SubjectLifecycle) prepareExternalCleanup(ctx context.Context, a agentsdk
 			if record.Attachment.State == "deleted" {
 				continue
 			}
-			managedRemote := record.Index != nil && (record.Index.PutStarted || record.Index.IndexObserved)
-			legacyRemote := record.Source != nil && record.Index == nil
-			if !managedRemote && !legacyRemote {
-				continue
-			}
 			pending = true
 			if record.Attachment.State != "deleting" {
 				expected := record.Attachment.Revision
@@ -330,10 +373,7 @@ func (s SubjectLifecycle) prepareExternalCleanup(ctx context.Context, a agentsdk
 					return err
 				}
 			}
-			if err := s.store.CompatQueueAttachmentCleanup(ctx, tx, record.Attachment.ID, a); err != nil {
-				return err
-			}
-			if err := s.store.CompatQueueAttachmentIndexWork(ctx, tx, record); err != nil {
+			if err := s.store.CompatQueueAttachmentIndexWork(ctx, tx, record, a); err != nil {
 				return err
 			}
 		}
@@ -358,14 +398,6 @@ func (s SubjectLifecycle) prepareExternalCleanup(ctx context.Context, a agentsdk
 
 func (s SubjectLifecycle) deletePhysicalSubjectData(ctx context.Context, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (map[string]int64, error) {
 	changed := map[string]int64{}
-	for _, record := range candidates.attachments {
-		if s.options.AttachmentStorage != nil && record.BodyRef != "" {
-			if err := s.options.AttachmentStorage.DeleteAttachmentContent(ctx, record.Attachment.ID, a); err != nil {
-				return nil, err
-			}
-			changed["attachment_content_objects"]++
-		}
-	}
 	for _, record := range candidates.documents {
 		if s.options.DocumentStorage != nil && record.BodyRef != "" {
 			scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: record.Document.LibraryID}
@@ -382,15 +414,80 @@ func (s SubjectLifecycle) deletePhysicalSubjectData(ctx context.Context, a agent
 		}
 		changed["artifact_content_objects"] += int64(count)
 	}
+	if s.store.artifacts.Store != nil && s.store.artifacts.Content != nil {
+		items, err := s.store.artifacts.Store.List(ctx, a.WorkspaceID, sharedartifact.Query{
+			Owner: sharedartifact.OwnerAgent, Kind: generatedArtifactKind,
+			Binding: &sharedartifact.BindingQuery{Owner: sharedartifact.OwnerAgent, Kind: sharedartifact.BindingSubject, ResourceType: "agent_user", ResourceID: a.UserID},
+			Limit:   1000,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			deleted, deleteErr := s.deleteGeneratedArtifactContent(ctx, item)
+			if deleteErr != nil {
+				return nil, deleteErr
+			}
+			if deleted {
+				changed["generated_artifact_content_objects"]++
+			}
+		}
+	}
 	return changed, nil
+}
+
+func (s SubjectLifecycle) deleteGeneratedArtifactContent(ctx context.Context, item sharedartifact.Artifact) (bool, error) {
+	if item.Status == sharedartifact.StatusDeleted {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	if item.Status != sharedartifact.StatusExpired && item.Status != sharedartifact.StatusRejected {
+		changed, err := s.store.artifacts.Store.Transition(ctx, item.WorkspaceID, item.ID, item.Status, sharedartifact.StatusExpired, item.ScanStatus, now)
+		if err != nil {
+			return false, err
+		}
+		if changed {
+			item.Status = sharedartifact.StatusExpired
+		} else {
+			current, found, readErr := s.store.artifacts.Store.ByID(ctx, item.WorkspaceID, item.ID)
+			if readErr != nil {
+				return false, readErr
+			}
+			if !found {
+				return false, nil
+			}
+			if current.Status == sharedartifact.StatusDeleted {
+				return false, nil
+			}
+			if current.Status != sharedartifact.StatusExpired && current.Status != sharedartifact.StatusRejected {
+				return false, fmt.Errorf("generated Artifact state changed before content deletion")
+			}
+			item = current
+		}
+	}
+	if err := s.store.artifacts.Content.Delete(ctx, item.WorkspaceID, item.StorageReference); err != nil && !errors.Is(err, sharedartifact.ErrContentNotFound) {
+		return false, err
+	}
+	changed, err := s.store.artifacts.Store.Transition(ctx, item.WorkspaceID, item.ID, item.Status, sharedartifact.StatusDeleted, item.ScanStatus, now)
+	if err != nil || changed {
+		return changed, err
+	}
+	current, found, err := s.store.artifacts.Store.ByID(ctx, item.WorkspaceID, item.ID)
+	if err != nil {
+		return false, err
+	}
+	if found && current.Status != sharedartifact.StatusDeleted {
+		return false, fmt.Errorf("generated Artifact state changed while deleting terminal content")
+	}
+	return false, nil
 }
 
 func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (map[string]int64, error) {
 	changed := map[string]int64{}
 	owner, scope := conversationOwner(a), CompatLibraryScope(a)
 	for key, table := range map[string]string{
-		"artifact_exports": "_agent_artifact_exports", "artifact_mutations": "_agent_artifact_mutations", "artifact_versions": "_agent_artifact_versions", "artifacts": "_agent_artifacts",
-		"attachment_index_jobs": CompatAttachmentIndexJobTable, "attachment_cleanup": CompatAttachmentCleanupTable, "attachments": CompatAttachmentTable,
+		"artifact_mutations": "_agent_artifact_mutations", "artifact_versions": "_agent_artifact_versions", "artifacts": "_agent_artifacts",
+		"attachment_index_jobs": CompatAttachmentIndexJobTable,
 	} {
 		n, err := s.deleteWhere(ctx, tx, table, query.Equal("owner_key", owner))
 		if err != nil {

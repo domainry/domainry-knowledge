@@ -19,11 +19,19 @@ func (s *Store) CompatSaveAttachmentIndex(ctx context.Context, tx *sql.Tx, r *pe
 	return s.CompatSaveAttachment(ctx, tx, *r, previous, a)
 }
 
-func (s *Store) CompatQueueAttachmentIndexWork(ctx context.Context, tx *sql.Tx, r persistence.ConversationAttachmentRecord) error {
-	if r.Index == nil || r.Source == nil {
+func (s *Store) CompatQueueAttachmentIndexWork(ctx context.Context, tx *sql.Tx, r persistence.ConversationAttachmentRecord, a agentsdk.ConversationAuthority) error {
+	if r.Attachment.State != "deleting" && (r.Index == nil || r.Source == nil) {
 		return nil
 	}
-	l := persistence.ConversationAttachmentIndexLease{Authority: r.Index.Actor, ConversationID: r.Attachment.ConversationID, AttachmentID: r.Attachment.ID}
+	if r.Index != nil {
+		a = r.Index.Actor
+	}
+	// Cleanup jobs retain only the stable owner namespace. An index job keeps
+	// its original actor because the remote private ACL is rechecked with it.
+	if r.Index == nil {
+		a = agentsdk.ConversationAuthority{Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: a.UserID}
+	}
+	l := persistence.ConversationAttachmentIndexLease{Authority: a, ConversationID: r.Attachment.ConversationID, AttachmentID: r.Attachment.ID}
 	b := query.NewInsertBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Columns("owner_key", "attachment_id", "runtime_id", "not_before", "lease_until", "fence", "payload_json").Values(conversationOwner(l.Authority), l.AttachmentID, l.Authority.RuntimeID, 0, 0, 0, conversationJSON(l))
 	// Deletion wakes existing work without invalidating an in-flight write's fence.
 	b, err := s.store.Profile().ApplyUpsert(b, []string{"owner_key", "attachment_id"}, query.AssignExpression("not_before", query.InsertedValue("not_before")))
@@ -70,7 +78,7 @@ func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected in
 		if out.Attachment.Revision != expected {
 			return conversationError("conflict", "revision_conflict")
 		}
-		if out.Attachment.State != "stored" || out.BodyRef == "" || out.Source != nil {
+		if out.Attachment.State != "stored" || out.Source != nil {
 			return conversationError("conflict", "attachment_not_ready")
 		}
 		frozen := source
@@ -82,7 +90,7 @@ func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected in
 		if e = s.CompatSaveAttachmentIndex(ctx, tx, &out, a); e != nil {
 			return e
 		}
-		return s.CompatQueueAttachmentIndexWork(ctx, tx, out)
+		return s.CompatQueueAttachmentIndexWork(ctx, tx, out, a)
 	})
 	return
 }
@@ -142,7 +150,16 @@ func (s *Store) CompatAttachmentIndexWork(ctx context.Context, db conversationDB
 	if err != nil {
 		return r, err
 	}
-	if r.Index == nil || r.Source == nil || r.Source.RequestID == "" || r.Index.Actor != lease.Authority || r.Attachment.ConversationID != lease.ConversationID {
+	if r.Attachment.ConversationID != lease.ConversationID {
+		return r, conversationError("unavailable", "attachment_index_lease_invalid")
+	}
+	if r.Index == nil || r.Source == nil {
+		if r.Attachment.State != "deleting" || r.Index != nil || r.Source != nil {
+			return r, conversationError("unavailable", "attachment_index_lease_invalid")
+		}
+		return r, nil
+	}
+	if r.Source.RequestID == "" || r.Index.Actor != lease.Authority {
 		return r, conversationError("unavailable", "attachment_index_lease_invalid")
 	}
 	return r, nil
@@ -169,7 +186,7 @@ func (s *Store) StartAttachmentIndexPut(ctx context.Context, lease persistence.C
 		if c.Archived {
 			return conversationError("conflict", "attachment_conversation_archived")
 		}
-		if out.BodyRef == "" || out.Attachment.State != "indexing" && out.Attachment.State != "failed" {
+		if out.Attachment.State != "indexing" && out.Attachment.State != "failed" {
 			return conversationError("conflict", "attachment_not_ready")
 		}
 		out.Index.PutStarted = true
@@ -244,10 +261,10 @@ func (s *Store) ApplyAttachmentIndexProgress(ctx context.Context, lease persiste
 			}
 			r.Index.DeleteAcknowledged = true
 		case "deleted":
-			if r.Attachment.State != "deleting" || r.Index.PutStarted && (!r.Index.IndexObserved || !r.Index.DeleteStarted || !r.Index.DeleteAcknowledged) {
+			if r.Attachment.State != "deleting" || r.Index != nil && r.Index.PutStarted && (!r.Index.IndexObserved || !r.Index.DeleteStarted || !r.Index.DeleteAcknowledged) {
 				return conversationError("conflict", "attachment_cleanup_unconfirmed")
 			}
-			r.Attachment.State, r.Attachment.ErrorCode, r.BodyRef = "deleted", "", ""
+			r.Attachment.State, r.Attachment.ErrorCode = "deleted", ""
 			done = true
 		default:
 			return conversationError("bad_request", "attachment_index_progress_invalid")
@@ -260,14 +277,7 @@ func (s *Store) ApplyAttachmentIndexProgress(ctx context.Context, lease persiste
 		predicate := query.And(CompatAttachmentScope(lease.Authority, lease.AttachmentID), query.Equal("fence", lease.Token))
 		if done && r.Attachment.State == "deleted" {
 			q, args, e := query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Where(predicate).Build()
-			if e = conversationExec(ctx, tx, q, args, e); e != nil {
-				return e
-			}
-			if r.Attachment.State == "deleted" {
-				q, args, e = query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentCleanupTable).Where(CompatAttachmentScope(lease.Authority, lease.AttachmentID)).Build()
-				return conversationExec(ctx, tx, q, args, e)
-			}
-			return nil
+			return conversationExec(ctx, tx, q, args, e)
 		}
 		lease.ExpiresAt = time.Time{}
 		notBefore := in.RetryAt.UnixMilli()

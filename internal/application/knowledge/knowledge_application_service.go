@@ -19,13 +19,13 @@ type ConversationKnowledge = contract.ConversationKnowledge
 type SourcePolicy = contract.SourcePolicy
 type Options = contract.Options
 type Service struct {
-	repo                                              any
-	options                                           Options
-	runtimeID, owner                                  string
-	attachmentWake, attachmentIndexWake, documentWake chan struct{}
-	wg                                                sync.WaitGroup
-	cancel                                            context.CancelFunc
-	start                                             sync.Once
+	repo                              any
+	options                           Options
+	runtimeID, owner                  string
+	attachmentIndexWake, documentWake chan struct{}
+	wg                                sync.WaitGroup
+	cancel                            context.CancelFunc
+	start                             sync.Once
 }
 
 func NewService(repo any, runtimeID string, options Options) *Service {
@@ -39,7 +39,7 @@ func NewService(repo any, runtimeID string, options Options) *Service {
 	if options.ArtifactExportTTL == 0 {
 		options.ArtifactExportTTL = time.Hour
 	}
-	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, attachmentWake: make(chan struct{}, 1), attachmentIndexWake: make(chan struct{}, 1), documentWake: make(chan struct{}, 1)}
+	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, attachmentIndexWake: make(chan struct{}, 1), documentWake: make(chan struct{}, 1)}
 }
 func (s *Service) Start(parent context.Context) {
 	s.start.Do(func() {
@@ -49,13 +49,15 @@ func (s *Service) Start(parent context.Context) {
 			s.wg.Add(1)
 			go s.KnowledgeDocumentWorker(ctx, s.repo.(persistence.KnowledgeDocumentRepository))
 		}
-		if s.options.AttachmentStorage != nil {
-			s.wg.Add(1)
-			go s.CleanupAttachments(ctx, s.repo.(persistence.ConversationAttachmentRepository))
+		if s.options.AttachmentAuthorizer != nil {
 			if repo, ok := s.repo.(persistence.ConversationAttachmentIndexRepository); ok {
 				s.wg.Add(1)
 				go s.AttachmentIndexWorker(ctx, repo)
 			}
+		}
+		if repo, ok := s.repo.(generatedArtifactCleanupRepository); ok && repo.GeneratedArtifactCleanupEnabled() {
+			s.wg.Add(1)
+			go s.GeneratedArtifactCleanupWorker(ctx, repo)
 		}
 	})
 }

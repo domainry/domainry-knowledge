@@ -29,7 +29,7 @@ func (s *Service) ExportArtifact(ctx context.Context, id string, in agentsdk.Con
 		return out, err
 	}
 	out = agentsdk.ConversationArtifactExport{ArtifactID: id, Version: in.Version, Format: in.Format, Filename: fmt.Sprintf("%s-v%d%s", id, in.Version, data.Extension), ContentType: data.ContentType, SHA256: artifact.Hash(data.Data), Bytes: len(data.Data), FormulaGuarded: data.FormulaGuarded}
-	return repo.SaveArtifactExport(ctx, persistence.ConversationArtifactExportWrite{ClientID: in.ClientID, RequestSHA256: conversationDigest([]any{"export", id, in}), TTLSeconds: int64(s.options.ArtifactExportTTL / time.Second), Export: out}, a)
+	return repo.SaveArtifactExport(ctx, persistence.ConversationArtifactExportWrite{ClientID: in.ClientID, RequestSHA256: conversationDigest([]any{"export", id, in}), TTLSeconds: int64(s.options.ArtifactExportTTL / time.Second), Export: out, Content: data.Data}, a)
 }
 
 func (s *Service) DownloadArtifact(ctx context.Context, exportID string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactDownload, error) {
@@ -64,11 +64,15 @@ func (s *Service) downloadArtifact(ctx context.Context, exportID string, a agent
 	if err != nil {
 		return out, err
 	}
-	data, err := artifact.Export(version.Content, metadata.Format)
+	expected, err := artifact.Export(version.Content, metadata.Format)
 	if err != nil {
 		return out, err
 	}
-	if artifact.Hash(data.Data) != metadata.SHA256 || len(data.Data) != metadata.Bytes || data.ContentType != metadata.ContentType || data.FormulaGuarded != metadata.FormulaGuarded || metadata.Filename != fmt.Sprintf("%s-v%d%s", metadata.ArtifactID, metadata.Version, data.Extension) {
+	data, err := repo.ArtifactExportContent(ctx, exportID, a)
+	if err != nil {
+		return out, err
+	}
+	if artifact.Hash(data) != metadata.SHA256 || len(data) != metadata.Bytes || expected.ContentType != metadata.ContentType || expected.FormulaGuarded != metadata.FormulaGuarded || metadata.Filename != fmt.Sprintf("%s-v%d%s", metadata.ArtifactID, metadata.Version, expected.Extension) || string(data) != string(expected.Data) {
 		return out, conversationFailure("unavailable", "artifact_export_mismatch")
 	}
 	// No download receipt is counted when policy, provenance or content fails.
@@ -76,7 +80,7 @@ func (s *Service) downloadArtifact(ctx context.Context, exportID string, a agent
 	if err != nil {
 		return out, err
 	}
-	return agentsdk.ConversationArtifactDownload{Export: metadata, Data: data.Data}, nil
+	return agentsdk.ConversationArtifactDownload{Export: metadata, Data: data}, nil
 }
 
 var _ contract.ArtifactExportReader = (*Service)(nil)

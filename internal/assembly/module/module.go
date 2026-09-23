@@ -5,8 +5,11 @@ import (
 	"fmt"
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	"github.com/domainry/domainry-knowledge/contract"
 	application "github.com/domainry/domainry-knowledge/internal/application/knowledge"
+	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
+	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 
 type Factory struct{}
@@ -34,4 +37,18 @@ func (Factory) Prepare(repo any, runtime string, options contract.Options) (cont
 		return application.NewLibraryKnowledgeSource(repo, runtime, options.LibraryAuthorizer, options.LibraryKnowledge, options.Knowledge, options.KnowledgeDatasources)
 	}
 	return options.Knowledge, nil
+}
+
+func NewSubjectLifecycle(backend store.Backend, runtimeID string, options application.Options) lifecyclecontract.SubjectExecutionHandler {
+	artifacts := store.ArtifactPersistence{}
+	if host, ok := backend.(interface {
+		ArtifactStore() sharedartifact.ManagedStore
+		ArtifactContentStore() sharedartifact.ContentStore
+		ArtifactContentWriter() sharedartifact.ContentWriter
+	}); ok {
+		artifacts = store.ArtifactPersistence{Store: host.ArtifactStore(), Content: host.ArtifactContentStore(), Writer: host.ArtifactContentWriter()}
+	}
+	return store.NewSubjectLifecycle(store.New(backend, nil, artifacts), runtimeID, store.SubjectLifecycleOptions{
+		ArtifactStorage: options.ArtifactStorage, DocumentStorage: options.DocumentStorage,
+	})
 }

@@ -14,9 +14,6 @@ func ValidateAttachmentKnowledge(repo any, options *Options) error {
 	if len(options.AttachmentKnowledge) == 0 {
 		return nil
 	}
-	if options.AttachmentStorage == nil {
-		return fmt.Errorf("attachment knowledge requires private original storage")
-	}
 	if _, ok := repo.(persistence.ConversationAttachmentIndexRepository); !ok {
 		return fmt.Errorf("attachment knowledge requires durable index persistence")
 	}

@@ -43,7 +43,7 @@ func (s *Service) AttachmentKnowledgeAccess(ctx context.Context, conversation st
 	}
 	out := map[string]persistence.ConversationAttachmentRecord{}
 	for _, r := range records {
-		if r.Attachment.ConversationID != conversation || r.Attachment.State != "ready" || r.BodyRef == "" || r.Source == nil || r.Index == nil || !r.Index.IndexObserved || r.Index.DeleteStarted ||
+		if r.Attachment.ConversationID != conversation || r.Attachment.State != "ready" || r.Source == nil || r.Index == nil || !r.Index.IndexObserved || r.Index.DeleteStarted ||
 			r.Index.Actor.RuntimeID != a.RuntimeID || r.Index.Actor.WorkspaceID != a.WorkspaceID || r.Index.Actor.UserID != a.UserID ||
 			r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || r.Source.PermissionID != scope.PermissionID || r.Source.DocID == "" {
 			continue

@@ -17,7 +17,7 @@ func (s *Service) AttachmentAccess(ctx context.Context, action string, a agentsd
 		return nil, err
 	}
 	repo, ok := s.repo.(persistence.ConversationAttachmentRepository)
-	if !ok || s.options.AttachmentStorage == nil || s.options.AttachmentAuthorizer == nil {
+	if !ok || s.options.AttachmentAuthorizer == nil {
 		return nil, conversationFailure("unavailable", "attachments_unavailable")
 	}
 	if err := s.options.AttachmentAuthorizer.AuthorizeConversationAttachment(ctx, action, a); err != nil {
@@ -71,50 +71,21 @@ func (s *Service) UploadAttachment(ctx context.Context, conversationID string, i
 		return zero, conversationFailure("conflict", "attachment_conversation_archived")
 	}
 	hash := artifact.Hash(in.Data)
-	record, err := repo.ReserveAttachment(ctx, persistence.ConversationAttachmentReserve{ClientID: in.ClientID, ConversationID: conversationID, Filename: in.Filename, ContentType: contentType, SHA256: hash, Bytes: int64(len(in.Data))}, a)
+	record, err := repo.ReserveAttachment(ctx, persistence.ConversationAttachmentReserve{ClientID: in.ClientID, ConversationID: conversationID, Filename: in.Filename, ContentType: contentType, SHA256: hash, Bytes: int64(len(in.Data)), Content: in.Data}, a)
 	if err != nil {
 		return zero, err
 	}
 	if record.Attachment.State == "deleting" || record.Attachment.State == "deleted" {
 		return zero, conversationFailure("not_found", "attachment_not_found")
 	}
-	if record.BodyRef != "" {
-		return s.AttachmentIndexView(ctx, record, a), nil
-	}
-	if record.Attachment.State == "failed" {
-		record, err = repo.TransitionAttachment(ctx, record.Attachment.ID, record.Attachment.Revision, persistence.ConversationAttachmentTransition{State: "uploading"}, a)
-		if err != nil {
-			return zero, err
-		}
-	}
-	reference, err := s.options.AttachmentStorage.PutAttachmentContent(ctx, record.Attachment.ID, hash, in.Data, a)
-	if err != nil {
-		// A cancelled upload remains retryable; a concrete storage failure has a
-		// stable public code. Neither can silently mark the attachment indexed.
-		if ctx.Err() == nil {
-			_, _ = repo.TransitionAttachment(ctx, record.Attachment.ID, record.Attachment.Revision, persistence.ConversationAttachmentTransition{State: "failed", ErrorCode: "upload_failed"}, a)
-		}
-		return zero, err
-	}
 	if _, err := s.AttachmentAccess(ctx, "attachments_upload", a); err != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_, _ = repo.TransitionAttachment(cleanupCtx, record.Attachment.ID, record.Attachment.Revision, persistence.ConversationAttachmentTransition{State: "deleting"}, a)
-		s.WakeAttachmentCleanup()
+		s.WakeAttachmentIndex()
 		return zero, err
 	}
-	stored, err := repo.TransitionAttachment(ctx, record.Attachment.ID, record.Attachment.Revision, persistence.ConversationAttachmentTransition{State: "stored", BodyRef: reference}, a)
-	if err != nil {
-		// Concurrent identical uploads may have finalized the same immutable
-		// object. A deletion or a different reference must never be overwritten.
-		current, readErr := repo.AttachmentRecord(ctx, record.Attachment.ID, a)
-		if readErr == nil && current.BodyRef == reference && current.Attachment.State != "deleting" && current.Attachment.State != "deleted" {
-			return s.AttachmentIndexView(ctx, current, a), nil
-		}
-		s.WakeAttachmentCleanup()
-		return zero, err
-	}
-	return s.AttachmentIndexView(ctx, stored, a), nil
+	return s.AttachmentIndexView(ctx, record, a), nil
 }
 
 func (s *Service) AttachmentView(item agentsdk.ConversationAttachment) agentsdk.ConversationAttachment {
@@ -170,10 +141,10 @@ func (s *Service) DownloadAttachment(ctx context.Context, conversationID, id str
 	if err != nil {
 		return out, err
 	}
-	if record.BodyRef == "" || record.Attachment.State == "deleting" || record.Attachment.State == "deleted" {
+	if record.Attachment.State == "deleting" || record.Attachment.State == "deleted" {
 		return out, conversationFailure("not_found", "attachment_content_not_found")
 	}
-	raw, err := s.options.AttachmentStorage.ReadAttachmentContent(ctx, id, record.BodyRef, a)
+	raw, err := repo.AttachmentContent(ctx, id, a)
 	if err != nil {
 		return out, err
 	}
@@ -187,7 +158,7 @@ func (s *Service) DownloadAttachment(ctx context.Context, conversationID, id str
 	if err != nil {
 		return out, err
 	}
-	if current.Attachment.State == "deleting" || current.Attachment.State == "deleted" || current.BodyRef != record.BodyRef {
+	if current.Attachment.State == "deleting" || current.Attachment.State == "deleted" || current.Attachment.SHA256 != record.Attachment.SHA256 {
 		return out, conversationFailure("not_found", "attachment_not_found")
 	}
 	return agentsdk.ConversationAttachmentDownload{Attachment: s.AttachmentView(current.Attachment), Data: raw}, nil
@@ -215,69 +186,10 @@ func (s *Service) DeleteAttachment(ctx context.Context, conversationID, id strin
 			return zero, err
 		}
 	}
-	s.WakeAttachmentCleanup()
+	s.WakeAttachmentIndex()
 	// The durable worker owns physical cleanup. The immediate result confirms
 	// revoked Access and honestly reports that cleanup is still pending.
 	return s.AttachmentIndexView(ctx, record, a), nil
-}
-
-func (s *Service) WakeAttachmentCleanup() {
-	select {
-	case s.attachmentWake <- struct{}{}:
-	default:
-	}
-}
-
-func (s *Service) CleanAttachment(ctx context.Context, repo persistence.ConversationAttachmentRepository, work persistence.ConversationAttachmentCleanup) error {
-	record, err := repo.AttachmentRecord(ctx, work.AttachmentID, work.Authority)
-	if err != nil {
-		return err
-	}
-	if record.Attachment.State != "deleting" {
-		return nil
-	}
-	if record.Index != nil {
-		s.WakeAttachmentIndex()
-		return conversationFailure("unavailable", "attachment_index_cleanup_pending")
-	}
-	// Legacy sources have no durable remote write receipts. Never adopt them
-	// into the new worker or infer a successful remote deletion.
-	if record.Source != nil {
-		return conversationFailure("unavailable", "attachment_remote_cleanup_unavailable")
-	}
-	if err := s.options.AttachmentStorage.DeleteAttachmentContent(ctx, work.AttachmentID, work.Authority); err != nil {
-		return err
-	}
-	_, err = repo.TransitionAttachment(ctx, work.AttachmentID, record.Attachment.Revision, persistence.ConversationAttachmentTransition{State: "deleted"}, work.Authority)
-	return err
-}
-
-func (s *Service) CleanupAttachments(ctx context.Context, repo persistence.ConversationAttachmentRepository) {
-	defer s.wg.Done()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		work, err := repo.AttachmentCleanupCandidates(ctx, s.runtimeID, time.Now().UTC(), 20)
-		if err == nil {
-			for _, item := range work {
-				attempt, cancel := context.WithTimeout(ctx, 10*time.Second)
-				err := s.CleanAttachment(attempt, repo, item)
-				cancel()
-				if err != nil {
-					_ = repo.DeferAttachmentCleanup(ctx, item.AttachmentID, time.Now().UTC().Add(30*time.Second), item.Authority)
-				}
-				if ctx.Err() != nil {
-					return
-				}
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.attachmentWake:
-		case <-ticker.C:
-		}
-	}
 }
 
 var _ agentsdk.ConversationAttachmentService = (*Service)(nil)

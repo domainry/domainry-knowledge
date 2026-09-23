@@ -12,9 +12,9 @@ func ValidateOptions(repo any, options *Options) error {
 			return fmt.Errorf("knowledge library authorization requires library persistence")
 		}
 	}
-	if options.AttachmentStorage != nil {
-		if _, ok := repo.(persistence.ConversationAttachmentRepository); !ok || options.AttachmentAuthorizer == nil {
-			return fmt.Errorf("attachment storage requires attachment persistence and current authorization")
+	if options.AttachmentAuthorizer != nil {
+		if _, ok := repo.(persistence.ConversationAttachmentRepository); !ok {
+			return fmt.Errorf("attachment authorization requires shared Artifact persistence")
 		}
 	}
 	if options.DocumentStorage != nil {

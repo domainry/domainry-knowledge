@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+
 	sdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
+	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 
@@ -28,11 +30,23 @@ type Sources interface {
 	Run(context.Context, DB, string, string, sdk.ConversationAuthority) (sdk.ConversationRun, error)
 }
 type Store struct {
-	store   Backend
-	sources Sources
+	store     Backend
+	sources   Sources
+	artifacts ArtifactPersistence
 }
 
-func New(backend Backend, sources Sources) *Store { return &Store{store: backend, sources: sources} }
+// ArtifactPersistence is supplied by the deployment host. Knowledge owns the
+// Agent business mapping but never owns a second artifact metadata schema or a
+// private blob store contract.
+type ArtifactPersistence struct {
+	Store   sharedartifact.ManagedStore
+	Content sharedartifact.ContentStore
+	Writer  sharedartifact.ContentWriter
+}
+
+func New(backend Backend, sources Sources, artifacts ArtifactPersistence) *Store {
+	return &Store{store: backend, sources: sources, artifacts: artifacts}
+}
 func (s *Store) get(ctx context.Context, db DB, id string, a sdk.ConversationAuthority) (sdk.Conversation, error) {
 	if s.sources == nil {
 		return sdk.Conversation{}, conversationError("unavailable", "source_access_unavailable")
