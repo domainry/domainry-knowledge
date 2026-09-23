@@ -10,6 +10,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
@@ -66,7 +67,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	if err := EnsureSchema(t.Context(), backend, sharedRegistrar); err != nil {
 		t.Fatal(err)
 	}
-	wantOwners := sharedsubjectlifecycle.MigrationOwner + "," + MigrationOwner
+	wantOwners := sharedoperation.MigrationOwner + "," + sharedsubjectlifecycle.MigrationOwner + "," + MigrationOwner
 	if strings.Join(sharedRegistrar.owners, ",") != wantOwners+","+wantOwners {
 		t.Fatalf("migration owner calls=%v", sharedRegistrar.owners)
 	}
@@ -74,6 +75,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 		"_agent_knowledge_libraries", "_agent_knowledge_library_members",
 		"_agent_knowledge_documents", "_agent_knowledge_sources",
 		"_agent_knowledge_document_jobs", "_agent_attachment_index_jobs",
+		sharedoperation.TableName,
 		sharedsubjectlifecycle.RequestTableName, sharedsubjectlifecycle.StepTableName,
 	} {
 		var count int
@@ -81,7 +83,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 			t.Fatalf("shared table %s count=%d err=%v", table, count, err)
 		}
 	}
-	for _, retired := range []string{"_agent_knowledge_document_sources", "_agent_knowledge_datasource_bindings", "_agent_attachment_knowledge_sources"} {
+	for _, retired := range []string{"_agent_knowledge_document_sources", "_agent_knowledge_datasource_bindings", "_agent_attachment_knowledge_sources", "_agent_artifact_mutations", "_knowledge_owner_operation_receipts"} {
 		var count int
 		if err := sharedDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, retired).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("retired table %s count=%d err=%v", retired, count, err)
@@ -97,6 +99,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	if loaded, readErr := second.KnowledgeLibrary(t.Context(), library.ID, authority); readErr != nil || loaded.ID != library.ID {
 		t.Fatalf("shared module row=%+v err=%v", loaded, readErr)
 	}
+	var operationReceipts int
 
 	standaloneDB, standaloneDialect := openDatabase(t, "knowledge-standalone")
 	standaloneBackend := SQLBackend{DB: standaloneDB, Dialect: standaloneDialect}
@@ -107,6 +110,9 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	standalone := NewStore(standaloneBackend, nil, ArtifactPersistence{})
 	if _, readErr := standalone.KnowledgeLibrary(t.Context(), library.ID, authority); readErr == nil {
 		t.Fatal("standalone database leaked the Module database library")
+	}
+	if err = standaloneDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM _operations WHERE owner='knowledge'`).Scan(&operationReceipts); err != nil || operationReceipts != 0 {
+		t.Fatalf("standalone database leaked Knowledge operation receipts=%d err=%v", operationReceipts, err)
 	}
 }
 

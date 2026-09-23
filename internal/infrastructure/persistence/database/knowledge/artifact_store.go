@@ -10,6 +10,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	"github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-orm/query"
 )
@@ -65,18 +66,14 @@ func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation 
 		return conversationError("bad_request", "artifact_client_id_required")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {
-		var receipt struct {
-			Hash   string
-			Result json.RawMessage
-		}
-		hash := conversationHash([]any{operation, input})
-		found, err := s.executionRead(ctx, tx, "_agent_artifact_mutations", query.And(query.Equal("owner_key", conversationOwner(a)), query.Equal("client_key", conversationHash(clientID))), &receipt)
-		if err != nil {
+		command := knowledgeOperationCommand("knowledge.artifact_mutation", operation, clientID, input, a)
+		receipt, claimed, err := s.operations.Claim(sharedoperation.WithExecutor(ctx, tx), command)
+		if err = knowledgeOperationError(err); err != nil {
 			return err
 		}
-		if found {
-			if receipt.Hash != hash {
-				return conversationError("conflict", "idempotency_conflict")
+		if !claimed {
+			if receipt.Status != sharedoperation.StatusSucceeded {
+				return conversationError("conflict", "mutation_in_progress")
 			}
 			return json.Unmarshal(receipt.Result, out)
 		}
@@ -84,12 +81,11 @@ func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation 
 		if err != nil {
 			return err
 		}
-		receipt.Hash, receipt.Result = hash, conversationJSON(value)
-		statement, args, err := query.NewInsertBuilder(s.store.Renderer(), "_agent_artifact_mutations").Columns("owner_key", "client_key", "created_at", "payload_json").Values(conversationOwner(a), conversationHash(clientID), time.Now().UnixMilli(), conversationJSON(receipt)).Build()
-		if err = conversationExec(ctx, tx, statement, args, err); err != nil {
+		result := json.RawMessage(conversationJSON(value))
+		if err = s.operations.Complete(sharedoperation.WithExecutor(ctx, tx), sharedoperation.Completion{ID: command.ID, Scope: command.Scope, Owner: command.Owner, Kind: command.Kind, IdempotencyKey: command.IdempotencyKey, RequestFingerprint: command.RequestFingerprint, Result: result, CompletedAt: time.Now().UTC()}); err != nil {
 			return err
 		}
-		return json.Unmarshal(receipt.Result, out)
+		return json.Unmarshal(result, out)
 	})
 }
 

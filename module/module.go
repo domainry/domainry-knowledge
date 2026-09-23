@@ -200,9 +200,6 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	return store.SchemaMigrations(d)
 }
-func ConversationReferenceLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.ConversationReferenceLifecycleMigration(d)
-}
 func NewSubjectLifecycle(backend Backend, runtimeID string, options Options) lifecyclecontract.SubjectExecutionHandler {
 	return assembly.NewSubjectLifecycle(backend, runtimeID, options)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/domainry/domainry-agent-sdk/modulehost"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 )
 
@@ -14,11 +15,15 @@ type MigrationRegistrar interface {
 	ApplyOwnedMigrations(context.Context, string, []modulehost.SchemaMigration) error
 }
 
-// EnsureSchema installs Foundation's canonical Subject Lifecycle tables and
-// Knowledge-owned tables through the deployment's one migration ledger.
+// EnsureSchema installs Foundation's canonical Operations and Subject
+// Lifecycle tables plus Knowledge-owned tables through the deployment's one
+// migration ledger.
 func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegistrar) error {
 	if backend == nil || backend.Database() == nil || backend.Renderer() == nil || migrations == nil {
 		return fmt.Errorf("Knowledge persistence host is incomplete")
+	}
+	if _, err := sharedoperation.Open(ctx, backend.Database(), sharedoperation.AdaptDialect(backend.Renderer()), migrations); err != nil {
+		return err
 	}
 	sharedDialect, ok := backend.Renderer().(sharedsubjectlifecycle.Dialect)
 	if !ok {
@@ -49,10 +54,5 @@ func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error
 		}
 		out = append(out, m)
 	}
-	references, err := ConversationReferenceLifecycleMigration(d)
-	if err != nil {
-		return nil, err
-	}
-	out = append(out, references)
 	return out, nil
 }

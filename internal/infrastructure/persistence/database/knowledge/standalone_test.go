@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	sdk "github.com/domainry/domainry-agent-sdk"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	"github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
 	"path/filepath"
@@ -17,11 +18,15 @@ func TestKnowledgeRunsWithoutAgentTables(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	d, _ := dialect.New(dialect.SQLite)
+	operations, err := sharedoperation.SchemaMigrationsForDialect(sharedoperation.AdaptDialect(d.WithSchema("")))
+	if err != nil {
+		t.Fatal(err)
+	}
 	migrations, err := SchemaMigrations(d.WithSchema(""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range migrations {
+	for _, m := range append(operations, migrations...) {
 		for _, q := range m.Statements {
 			if _, err = db.Exec(q); err != nil {
 				t.Fatal(err)

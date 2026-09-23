@@ -12,6 +12,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 	lifecyclemodel "github.com/domainry/domainry-lifecycle-sdk/model"
 	"github.com/domainry/domainry-orm/query"
@@ -486,7 +487,7 @@ func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.
 	changed := map[string]int64{}
 	owner, scope := conversationOwner(a), CompatLibraryScope(a)
 	for key, table := range map[string]string{
-		"artifact_mutations": "_agent_artifact_mutations", "artifact_versions": "_agent_artifact_versions", "artifacts": "_agent_artifacts",
+		"artifact_versions": "_agent_artifact_versions", "artifacts": "_agent_artifacts",
 		"attachment_index_jobs": CompatAttachmentIndexJobTable,
 	} {
 		n, err := s.deleteWhere(ctx, tx, table, query.Equal("owner_key", owner))
@@ -521,6 +522,10 @@ func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.
 	changed["shared_memberships"] = n
 	anonymized, err := s.anonymizeSharedDocumentReferences(ctx, tx, a, candidates.libraries)
 	changed["shared_documents_anonymized"] = anonymized
+	if err != nil {
+		return nil, err
+	}
+	changed["operation_receipts"], err = s.store.operations.DeleteRecords(sharedoperation.WithExecutor(ctx, tx), sharedoperation.RecordFilter{WorkspaceID: a.WorkspaceID, Owner: "knowledge", RequestedBy: a.UserID})
 	return changed, err
 }
 

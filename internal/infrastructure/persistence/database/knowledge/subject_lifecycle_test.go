@@ -10,6 +10,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 	"github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
@@ -28,6 +29,17 @@ func openSubjectKnowledgeStore(t *testing.T) (*Store, *sql.DB) {
 	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
 	dialect, _ := ormdialect.New(ormdialect.SQLite)
+	operations, err := sharedoperation.SchemaMigrationsForDialect(sharedoperation.AdaptDialect(dialect.WithSchema("")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range operations {
+		for _, statement := range migration.Statements {
+			if _, err = db.ExecContext(t.Context(), statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for _, migration := range mustKnowledgeMigrations(t, dialect.WithSchema("")) {
 		for _, statement := range migration.Statements {
 			if _, err = db.ExecContext(t.Context(), statement); err != nil {

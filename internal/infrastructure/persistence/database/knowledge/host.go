@@ -7,6 +7,7 @@ import (
 	sdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 
@@ -30,9 +31,10 @@ type Sources interface {
 	Run(context.Context, DB, string, string, sdk.ConversationAuthority) (sdk.ConversationRun, error)
 }
 type Store struct {
-	store     Backend
-	sources   Sources
-	artifacts ArtifactPersistence
+	store      Backend
+	sources    Sources
+	artifacts  ArtifactPersistence
+	operations *sharedoperation.SQLStore
 }
 
 // ArtifactPersistence is supplied by the deployment host. Knowledge owns the
@@ -45,7 +47,11 @@ type ArtifactPersistence struct {
 }
 
 func New(backend Backend, sources Sources, artifacts ArtifactPersistence) *Store {
-	return &Store{store: backend, sources: sources, artifacts: artifacts}
+	var operations *sharedoperation.SQLStore
+	if backend != nil {
+		operations = sharedoperation.NewSQLStore(backend.Database(), sharedoperation.AdaptDialect(backend.Renderer()))
+	}
+	return &Store{store: backend, sources: sources, artifacts: artifacts, operations: operations}
 }
 func (s *Store) get(ctx context.Context, db DB, id string, a sdk.ConversationAuthority) (sdk.Conversation, error) {
 	if s.sources == nil {

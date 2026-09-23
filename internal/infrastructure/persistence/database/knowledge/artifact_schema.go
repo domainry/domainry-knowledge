@@ -10,7 +10,6 @@ func CompatConversationArtifactMigration(d modulehost.Dialect) (modulehost.Schem
 	tables := []*ormschema.TableBuilder{
 		ormschema.NewTable(d, "_agent_artifacts").IfNotExists().Columns(required("owner_key", ormschema.TextKey(64)), required("artifact_id", ormschema.TextKey(96)), required("version", ormschema.BigInt()), required("created_at", ormschema.BigInt()), required("source_conversation_id", ormschema.TextKey(96)), required("payload_json", ormschema.LongText())).PrimaryKey("owner_key", "artifact_id"),
 		ormschema.NewTable(d, "_agent_artifact_versions").IfNotExists().Columns(required("owner_key", ormschema.TextKey(64)), required("artifact_id", ormschema.TextKey(96)), required("version", ormschema.BigInt()), required("payload_json", ormschema.LongText())).PrimaryKey("owner_key", "artifact_id", "version"),
-		ormschema.NewTable(d, "_agent_artifact_mutations").IfNotExists().Columns(required("owner_key", ormschema.TextKey(64)), required("client_key", ormschema.TextKey(64)), required("created_at", ormschema.BigInt()), required("payload_json", ormschema.LongText())).PrimaryKey("owner_key", "client_key"),
 	}
 	for _, table := range tables {
 		statement, _, err := table.Build()

@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/domainry/domainry-foundation v0.1.26
+	github.com/domainry/domainry-foundation v0.1.27
 	github.com/domainry/domainry-identity-sdk v0.1.14
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0

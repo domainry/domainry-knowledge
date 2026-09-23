@@ -4,13 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-orm/query"
+	sharedoperation "github.com/domainry/domainry-foundation/operation"
 )
 
 // DeleteConversationReferencesForRequest moves Knowledge-owned attachment
@@ -20,30 +19,27 @@ func (s *Store) DeleteConversationReferencesForRequest(ctx context.Context, requ
 	if conversationAuthority(a) != nil || requestID == "" || len(requestID) > 96 || conversationID == "" || len(conversationID) > 96 {
 		return nil, fmt.Errorf("Knowledge conversation deletion scope is required")
 	}
-	owner := conversationOwner(a)
 	var receipt json.RawMessage
 	err := s.transaction(ctx, func(tx *sql.Tx) error {
-		statement, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), conversationReferenceReceiptTable).Columns("payload_json").Where(query.And(query.Equal("owner_key", owner), query.Equal("request_id", requestID))).Build()
-		if buildErr != nil {
-			return buildErr
+		command := knowledgeOperationCommand("knowledge.conversation_reference_delete", "conversation_references.delete", requestID, conversationID, a)
+		claimedReceipt, claimed, claimErr := s.operations.Claim(sharedoperation.WithExecutor(ctx, tx), command)
+		if claimErr = knowledgeOperationError(claimErr); claimErr != nil {
+			return claimErr
 		}
-		if scanErr := tx.QueryRowContext(ctx, statement, args...).Scan(&receipt); scanErr == nil {
+		if !claimed {
+			if claimedReceipt.Status != sharedoperation.StatusSucceeded {
+				return conversationError("conflict", "mutation_in_progress")
+			}
+			receipt = append(json.RawMessage(nil), claimedReceipt.Result...)
 			return nil
-		} else if !errors.Is(scanErr, sql.ErrNoRows) {
-			return scanErr
 		}
 		var queued int64
-		queued, buildErr = s.CompatDeleteConversationAttachments(ctx, tx, conversationID, a)
-		if buildErr != nil {
-			return buildErr
+		queued, claimErr = s.CompatDeleteConversationAttachments(ctx, tx, conversationID, a)
+		if claimErr != nil {
+			return claimErr
 		}
 		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "conversation_id": conversationID, "attachments_queued": queued, "completed_at": time.Now().UTC()})
-		statement, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), conversationReferenceReceiptTable).Columns("owner_key", "request_id", "payload_json").Values(owner, requestID, receipt).Build()
-		if buildErr != nil {
-			return buildErr
-		}
-		_, buildErr = tx.ExecContext(ctx, statement, args...)
-		return buildErr
+		return s.operations.Complete(sharedoperation.WithExecutor(ctx, tx), sharedoperation.Completion{ID: command.ID, Scope: command.Scope, Owner: command.Owner, Kind: command.Kind, IdempotencyKey: command.IdempotencyKey, RequestFingerprint: command.RequestFingerprint, Result: receipt, CompletedAt: time.Now().UTC()})
 	})
 	return receipt, err
 }
