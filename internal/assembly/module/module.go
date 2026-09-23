@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
@@ -23,7 +24,24 @@ func (runtime Runtime) Validate(options *contract.Options) error {
 	return application.ValidateOptions(runtime.repository, options)
 }
 func (runtime Runtime) Activate(runtimeID string, options contract.Options) error {
-	return application.ActivateDocumentSources(runtime.repository, runtimeID, options)
+	if err := application.ActivateDocumentSources(runtime.repository, runtimeID, options); err != nil {
+		return err
+	}
+	if len(options.AttachmentKnowledge) == 0 {
+		return nil
+	}
+	repository, ok := runtime.repository.(persistence.ConversationAttachmentIndexRepository)
+	if !ok {
+		return fmt.Errorf("attachment knowledge requires durable index persistence")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	for _, binding := range options.AttachmentKnowledge {
+		if err := repository.ActivateAttachmentKnowledgeSource(ctx, runtimeID, binding.WorkspaceID, binding.Knowledge.AttachmentKnowledgeSourceIdentity()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 func (runtime Runtime) NewService(runtimeID string, options contract.Options) contract.Service {
 	return application.NewService(runtime.repository, runtimeID, options)
