@@ -3,8 +3,12 @@ package contract
 import (
 	"context"
 	"encoding/json"
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"fmt"
+	"strings"
 	"time"
+
+	agentsdk "github.com/domainry/domainry-agent-sdk"
+	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 
 type ConversationKnowledge interface {
@@ -35,11 +39,26 @@ type LibraryKnowledgeBinding struct {
 	ManageDocuments bool // Trusted host opt-in; never a client supplied grant.
 }
 
-// Factory lets a host connect Knowledge during composition without importing its implementation.
-// Prepare wraps managed sources; Activate validates durable source registration.
-type Factory interface {
-	Validate(any, *Options) error
-	Prepare(any, string, Options) (ConversationKnowledge, error)
-	Activate(any, string, Options) error
-	NewService(any, string, Options) Service
+// Runtime is a process-local Knowledge capability whose private repository was
+// already opened by the Knowledge module. Agent never supplies a Store here.
+type Runtime interface {
+	Validate(*Options) error
+	Prepare(string, Options) (ConversationKnowledge, error)
+	Activate(string, Options) error
+	NewService(string, Options) Service
+}
+
+type ApplicationRef struct{ RuntimeID string }
+
+func (ref ApplicationRef) Validate() error {
+	if strings.TrimSpace(ref.RuntimeID) == "" || len(strings.TrimSpace(ref.RuntimeID)) > 255 {
+		return fmt.Errorf("Knowledge Runtime identity is required")
+	}
+	return nil
+}
+
+type ModuleBinding interface {
+	Runtime() Runtime
+	SubjectLifecycle(Options) lifecyclecontract.SubjectExecutionHandler
+	Close(context.Context) error
 }

@@ -2,12 +2,12 @@ package store
 
 import (
 	"context"
-	"database/sql"
 
 	sdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	knowledgemodulehost "github.com/domainry/domainry-knowledge/modulehost"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 
@@ -17,19 +17,12 @@ type Backend interface {
 	Profile() ormdriver.Profile
 	IsTransientError(error) bool
 }
-type DB interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
-}
+type DB = knowledgemodulehost.DB
 type conversationDB = DB
 
 // Sources validates Agent-owned references within the caller's transaction.
 // Business persistence never owns or mutates conversation execution state.
-type Sources interface {
-	Conversation(context.Context, DB, string, sdk.ConversationAuthority) (sdk.Conversation, error)
-	Run(context.Context, DB, string, string, sdk.ConversationAuthority) (sdk.ConversationRun, error)
-}
+type Sources = knowledgemodulehost.SourceReader
 type Store struct {
 	store      Backend
 	sources    Sources

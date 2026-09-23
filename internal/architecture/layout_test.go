@@ -21,7 +21,7 @@ func TestLayeredLayoutAndPrivateImplementations(t *testing.T) {
 		}
 	}
 	public := map[string]bool{}
-	for _, p := range []string{"module", "contract", "artifact", "extraction"} {
+	for _, p := range []string{"module", "modulehost", "contract", "artifact", "extraction"} {
 		public[p] = true
 	}
 	filename := regexp.MustCompile(`^[a-z][a-z0-9_]*\.go$`)

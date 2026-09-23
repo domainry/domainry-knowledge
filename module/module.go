@@ -18,6 +18,7 @@ import (
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	recordstore "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/record"
 	provider "github.com/domainry/domainry-knowledge/internal/infrastructure/provider"
+	knowledgemodulehost "github.com/domainry/domainry-knowledge/modulehost"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 	query "github.com/domainry/domainry-orm/query"
 	"net/http"
@@ -264,4 +265,8 @@ func NewDocumentFiles(path string) (*DocumentFiles, error) {
 	return documentstorage.NewFiles(path)
 }
 
-func NewFactory() contract.Factory { return assembly.NewFactory() }
+func NewFactory() knowledgemodulehost.Factory { return assembly.NewFactory() }
+
+// NewServiceRuntime is a focused fixture seam for application tests that do
+// not open a full module database.
+func NewServiceRuntime(repository any) contract.Runtime { return assembly.NewRuntime(repository) }
