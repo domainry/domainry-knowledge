@@ -11,6 +11,7 @@ import (
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	"github.com/domainry/domainry-foundation/schemaownership"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
@@ -113,6 +114,41 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	}
 	if err = standaloneDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM _operations WHERE owner='knowledge'`).Scan(&operationReceipts); err != nil || operationReceipts != 0 {
 		t.Fatalf("standalone database leaked Knowledge operation receipts=%d err=%v", operationReceipts, err)
+	}
+}
+
+func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
+	tables := SchemaOwnership()
+	if err := schemaownership.ValidateAll(tables); err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 8 || len(OwnedTables()) != len(tables) {
+		t.Fatalf("Knowledge ownership=%+v names=%v", tables, OwnedTables())
+	}
+	database, dialect := openDatabase(t, "knowledge-ownership")
+	if err := EnsureSchema(t.Context(), SQLBackend{DB: database, Dialect: dialect}, &registrar{database: database}); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range tables {
+		rows, err := database.QueryContext(t.Context(), `SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`, table.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		primaryKey := []string{}
+		for rows.Next() {
+			var column string
+			if err := rows.Scan(&column); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			primaryKey = append(primaryKey, column)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(primaryKey, ",") != strings.Join(table.PrimaryKey, ",") {
+			t.Fatalf("Knowledge table %s physical primary key=%v ownership=%v", table.Name, primaryKey, table.PrimaryKey)
+		}
 	}
 }
 

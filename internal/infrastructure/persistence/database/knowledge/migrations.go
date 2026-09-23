@@ -46,13 +46,13 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 // and standalone SaaS deployments apply this same history to their current
 // database rather than receiving a Store from another module.
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
-	out := []modulehost.SchemaMigration{}
+	final := modulehost.SchemaMigration{Version: 1, Name: "create_knowledge_schema"}
 	for _, build := range []func(modulehost.Dialect) (modulehost.SchemaMigration, error){CompatConversationArtifactMigration, CompatKnowledgeLibraryMigration, CompatKnowledgeDocumentMigration, CompatAttachmentIndexMigration} {
 		m, err := build(d)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, m)
+		final.Statements = append(final.Statements, m.Statements...)
 	}
-	return out, nil
+	return []modulehost.SchemaMigration{final}, nil
 }

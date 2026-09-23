@@ -7,6 +7,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	modulehost "github.com/domainry/domainry-agent-sdk/modulehost"
 	persistence "github.com/domainry/domainry-agent-sdk/persistence"
+	"github.com/domainry/domainry-foundation/schemaownership"
 	"github.com/domainry/domainry-knowledge/contract"
 	application "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	assembly "github.com/domainry/domainry-knowledge/internal/assembly/module"
@@ -200,6 +201,8 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	return store.SchemaMigrations(d)
 }
+func SchemaOwnership() []schemaownership.Table { return store.SchemaOwnership() }
+func OwnedTables() []string                    { return schemaownership.Names(SchemaOwnership()) }
 func NewSubjectLifecycle(backend Backend, runtimeID string, options Options) lifecyclecontract.SubjectExecutionHandler {
 	return assembly.NewSubjectLifecycle(backend, runtimeID, options)
 }
