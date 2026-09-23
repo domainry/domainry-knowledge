@@ -17,7 +17,7 @@ func TestKnowledgeRunsWithoutAgentTables(t *testing.T) {
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 	d, _ := dialect.New(dialect.SQLite)
-	migrations, err := LegacyMigrations(d.WithSchema(""))
+	migrations, err := SchemaMigrations(d.WithSchema(""))
 	if err != nil {
 		t.Fatal(err)
 	}

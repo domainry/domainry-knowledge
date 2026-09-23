@@ -195,8 +195,16 @@ func CompatValidLibraryRole(role string) bool { return store.CompatValidLibraryR
 func CompatLibraryPageLimit(after string, limit int, users bool) (int, error) {
 	return store.CompatLibraryPageLimit(after, limit, users)
 }
-func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
-	return store.LegacyMigrations(d)
+
+const MigrationOwner = store.MigrationOwner
+
+type MigrationRegistrar = store.MigrationRegistrar
+
+func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegistrar) error {
+	return store.EnsureSchema(ctx, backend, migrations)
+}
+func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
+	return store.SchemaMigrations(d)
 }
 func ConversationReferenceLifecycleMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
 	return store.ConversationReferenceLifecycleMigration(d)

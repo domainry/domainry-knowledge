@@ -10,6 +10,7 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
 	"github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 	lifecyclemodel "github.com/domainry/domainry-lifecycle-sdk/model"
@@ -34,15 +35,23 @@ func openSubjectKnowledgeStore(t *testing.T) (*Store, *sql.DB) {
 			}
 		}
 	}
-	if _, err = db.ExecContext(t.Context(), `CREATE TABLE _subject_steps (workspace_id TEXT NOT NULL, request_id TEXT NOT NULL, owner TEXT NOT NULL, operation TEXT NOT NULL, payload_json TEXT NOT NULL, completed_at TEXT NOT NULL, PRIMARY KEY(workspace_id,request_id,owner,operation))`); err != nil {
+	shared, err := sharedsubjectlifecycle.SchemaMigrationsForDialect(dialect.WithSchema(""))
+	if err != nil {
 		t.Fatal(err)
+	}
+	for _, migration := range shared {
+		for _, statement := range migration.Statements {
+			if _, err = db.ExecContext(t.Context(), statement); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	return New(SQLBackend{DB: db, Dialect: dialect.WithSchema(""), Engine: ormsqlite.NewProfile()}, nil, ArtifactPersistence{}), db
 }
 
 func mustKnowledgeMigrations(t *testing.T, dialect modulehost.Dialect) []modulehost.SchemaMigration {
 	t.Helper()
-	migrations, err := LegacyMigrations(dialect)
+	migrations, err := SchemaMigrations(dialect)
 	if err != nil {
 		t.Fatal(err)
 	}

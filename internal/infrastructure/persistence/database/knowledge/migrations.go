@@ -1,11 +1,46 @@
 package store
 
-import "github.com/domainry/domainry-agent-sdk/modulehost"
+import (
+	"context"
+	"fmt"
 
-// LegacyMigrations preserves the deployed SQL text, names and versions. An
-// existing Agent host retains its historical ledger; a new Knowledge host can
-// apply this history under its own registrar without creating Agent tables.
-func LegacyMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
+	"github.com/domainry/domainry-agent-sdk/modulehost"
+	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
+)
+
+const MigrationOwner = "knowledge"
+
+type MigrationRegistrar interface {
+	ApplyOwnedMigrations(context.Context, string, []modulehost.SchemaMigration) error
+}
+
+// EnsureSchema installs Foundation's canonical Subject Lifecycle tables and
+// Knowledge-owned tables through the deployment's one migration ledger.
+func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegistrar) error {
+	if backend == nil || backend.Database() == nil || backend.Renderer() == nil || migrations == nil {
+		return fmt.Errorf("Knowledge persistence host is incomplete")
+	}
+	sharedDialect, ok := backend.Renderer().(sharedsubjectlifecycle.Dialect)
+	if !ok {
+		return fmt.Errorf("Knowledge dialect does not support shared Subject Lifecycle persistence")
+	}
+	if err := sharedsubjectlifecycle.EnsureSchema(ctx, sharedDialect, migrations); err != nil {
+		return err
+	}
+	values, err := SchemaMigrations(backend.Renderer())
+	if err != nil {
+		return err
+	}
+	if err := migrations.ApplyOwnedMigrations(ctx, MigrationOwner, values); err != nil {
+		return fmt.Errorf("apply Knowledge migrations: %w", err)
+	}
+	return nil
+}
+
+// SchemaMigrations is the only source of Knowledge-owned DDL. Embedded Module
+// and standalone SaaS deployments apply this same history to their current
+// database rather than receiving a Store from another module.
+func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	out := []modulehost.SchemaMigration{}
 	for _, build := range []func(modulehost.Dialect) (modulehost.SchemaMigration, error){CompatConversationArtifactMigration, CompatKnowledgeLibraryMigration, CompatKnowledgeDocumentMigration, CompatKnowledgeDatasourceMigration, CompatAttachmentIndexMigration} {
 		m, err := build(d)
