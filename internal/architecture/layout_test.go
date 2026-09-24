@@ -69,7 +69,10 @@ func TestLayeredLayoutAndPrivateImplementations(t *testing.T) {
 		}
 		for _, im := range f.Imports {
 			imported, _ := strconv.Unquote(im.Path.Value)
-			if imported == "github.com/domainry/domainry-connectors" || strings.HasPrefix(imported, "github.com/domainry/domainry-connectors/") {
+			// The standalone executable is a composition root and selects the
+			// official Connector adapter. Knowledge policy, persistence, transport
+			// and assembly packages must continue to depend on the SDK only.
+			if top != "cmd" && (imported == "github.com/domainry/domainry-connectors" || strings.HasPrefix(imported, "github.com/domainry/domainry-connectors/")) {
 				t.Errorf("Knowledge production code imports Connector implementation: %s -> %s", rel, imported)
 			}
 			domain := strings.HasPrefix(rel, "internal/domain/")
