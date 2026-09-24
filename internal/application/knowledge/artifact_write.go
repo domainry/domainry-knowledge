@@ -4,8 +4,8 @@ import (
 	"context"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 // A source is an exact run, not whichever conversation happens to be current

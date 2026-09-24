@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-knowledge/artifact"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 )
 
 type Files struct{ root *os.Root }

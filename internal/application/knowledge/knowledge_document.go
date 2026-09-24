@@ -5,8 +5,8 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 func DocumentStorageScope(library string, a agentsdk.ConversationAuthority) agentsdk.KnowledgeDocumentStorageScope {

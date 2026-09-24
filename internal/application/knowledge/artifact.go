@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 func ArtifactTool(key string) (agentsdk.ConversationToolDefinition, bool) {

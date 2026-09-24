@@ -8,8 +8,8 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 func (s *Service) AttachmentAccess(ctx context.Context, action string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRepository, error) {

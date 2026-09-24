@@ -3,7 +3,7 @@ module github.com/domainry/domainry-knowledge
 go 1.26.0
 
 require (
-	github.com/domainry/domainry-agent-sdk v0.1.22
+	github.com/domainry/domainry-agent-sdk v0.1.23
 	github.com/domainry/domainry-connector-sdk v0.1.2
 	github.com/domainry/domainry-connectors v0.1.4
 	github.com/domainry/domainry-lifecycle-sdk v0.1.16

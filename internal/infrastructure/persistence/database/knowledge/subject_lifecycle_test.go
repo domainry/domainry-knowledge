@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
-	"github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 	lifecyclemodel "github.com/domainry/domainry-lifecycle-sdk/model"
 	ormdialect "github.com/domainry/domainry-orm/dialect"

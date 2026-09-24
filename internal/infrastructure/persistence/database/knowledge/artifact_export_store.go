@@ -11,9 +11,9 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 const generatedArtifactKind = "generated"

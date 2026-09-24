@@ -14,9 +14,9 @@ import (
 	"unicode"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	knowledgeartifact "github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
-	knowledgeartifact "github.com/domainry/domainry-knowledge/artifact"
 	"github.com/domainry/domainry-orm/query"
 )
 

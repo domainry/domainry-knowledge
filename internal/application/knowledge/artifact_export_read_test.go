@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	sdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	"github.com/domainry/domainry-agent-sdk/persistence"
-	"github.com/domainry/domainry-knowledge/artifact"
 )
 
 type artifactExportReadStore struct {
