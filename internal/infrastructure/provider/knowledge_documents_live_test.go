@@ -29,7 +29,7 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 	}
 	config.WorkspaceID = "knowledge-document-acceptance"
 	config.ResponseMapping = nil
-	config.mappingInvalid = false
+	config.InvalidResponseMapping = false
 	config.DocumentManagement = true
 	recoverDelete := os.Getenv("AGENT_KNOWLEDGE_DELETE_RECOVERY_LIVE") == "1"
 	var probe *deleteRecoveryLiveProbe

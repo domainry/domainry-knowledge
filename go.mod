@@ -15,7 +15,7 @@ require (
 require (
 	github.com/domainry/domainry-foundation v0.1.36
 	github.com/domainry/domainry-identity-sdk v0.1.14
-	github.com/domainry/domainry-knowledge-sdk v0.1.0
+	github.com/domainry/domainry-knowledge-sdk v0.1.2
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )

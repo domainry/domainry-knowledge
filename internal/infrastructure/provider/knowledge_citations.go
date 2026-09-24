@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 )
 
 // A host supplies an explicit, verified mapping; absent configuration never
@@ -19,21 +20,8 @@ import (
 // from the chunk array.
 // Items is an RFC 6901 pointer into the response. Field pointers are relative to
 // each selected object. Many distinguishes an array from one document object.
-type KnowledgeCitationMapping struct {
-	// Fetch only: metadata pointers resolve against this response object;
-	// Excerpt still resolves against each item. An empty pointer means root.
-	MetadataObject *string `json:"metadata_object,omitempty"`
-	Items          string  `json:"items"`
-	Many           bool    `json:"many,omitempty"`
-	DocumentID     string  `json:"doc_id,omitempty"`
-	Title          string  `json:"title,omitempty"`
-	URL            string  `json:"url,omitempty"`
-	Excerpt        string  `json:"excerpt,omitempty"`
-}
-type KnowledgeResponseMapping struct {
-	Search *KnowledgeCitationMapping `json:"search,omitempty"`
-	Fetch  *KnowledgeCitationMapping `json:"fetch,omitempty"`
-}
+type KnowledgeCitationMapping = knowledgeprovider.CitationMapping
+type KnowledgeResponseMapping = knowledgeprovider.ResponseMapping
 
 func knowledgeMappingJSON(raw string) (*KnowledgeResponseMapping, error) {
 	var mapping KnowledgeResponseMapping

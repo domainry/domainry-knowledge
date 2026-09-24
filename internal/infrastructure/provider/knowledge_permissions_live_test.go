@@ -164,7 +164,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 	config.Transport = probe
 	config.DocumentManagement = false
 	config.ResponseMapping = nil
-	config.mappingInvalid = false
+	config.InvalidResponseMapping = false
 	config.TopK = 20
 	ids := []string(nil)
 	config.PermissionIDs = func(_ context.Context, a agentsdk.ConversationAuthority) ([]string, error) {

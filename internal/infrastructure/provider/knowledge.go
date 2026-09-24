@@ -5,77 +5,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"os"
 	"slices"
-	"strconv"
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
 	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
 
 // KnowledgeConfig binds one Agent workspace to one remote team/knowledge base.
 // PermissionIDs, when provided, must derive access from the authenticated
 // authority. Browser input and model output must never supply permissions.
-type KnowledgeConfig struct {
-	// DocumentManagement grants this host port document writes for its fixed KB.
-	// It is not derived from model input or enabled by retrieval configuration.
-	DocumentManagement bool
-	// DocumentPermissionIDs is immutable host policy shared by upload and
-	// retrieval. It cannot be combined with a dynamic user permission callback.
-	DocumentPermissionIDs []string
-	// AnalysisDocumentIDs is trusted host configuration for complete structured
-	// documents. It is never accepted from model or browser input.
-	AnalysisDocumentIDs                        []string
-	ResponseMapping                            *KnowledgeResponseMapping
-	mappingInvalid                             bool
-	analysisDocumentsInvalid                   bool
-	BaseURL, APIKey, TeamID, KBID, WorkspaceID string
-	RuntimeID                                  string
-	TopK                                       int
-	Client                                     *http.Client
-	Transport                                  connector.Transport
-	PermissionIDs                              func(context.Context, agentsdk.ConversationAuthority) ([]string, error)
-	// AuthorizeWorkspace is supplied only by a trusted multi-Workspace host.
-	// It must validate the current user/Workspace ownership on every request.
-	// Without it, this connection remains restricted to WorkspaceID.
-	AuthorizeWorkspace func(context.Context, agentsdk.ConversationAuthority) error
-}
+type KnowledgeConfig = knowledgeprovider.Config
 
-func KnowledgeConfigFromEnvironment() KnowledgeConfig {
-	c := KnowledgeConfig{
-		BaseURL: os.Getenv("AGENT_KNOWLEDGE_BASE_URL"), APIKey: os.Getenv("AGENT_KNOWLEDGE_API_KEY"),
-		TeamID: os.Getenv("AGENT_KNOWLEDGE_TEAM_ID"), KBID: os.Getenv("AGENT_KNOWLEDGE_KB_ID"),
-		WorkspaceID: os.Getenv("AGENT_KNOWLEDGE_WORKSPACE_ID"),
-	}
-	if strings.TrimSpace(c.APIKey) == "" {
-		c.APIKey = os.Getenv("AGENT_PROVIDER_API_KEY")
-	}
-	if raw := strings.TrimSpace(os.Getenv("AGENT_KNOWLEDGE_TOP_K")); raw != "" {
-		value, err := strconv.Atoi(raw)
-		if err != nil || value < 1 {
-			value = -1 // Preserve invalid configuration for startup validation.
-		}
-		c.TopK = value
-	}
-	if raw := strings.TrimSpace(os.Getenv("AGENT_KNOWLEDGE_RESPONSE_MAPPING")); raw != "" {
-		var err error
-		c.ResponseMapping, err = knowledgeMappingJSON(raw)
-		c.mappingInvalid = err != nil
-	}
-	if raw := strings.TrimSpace(os.Getenv("AGENT_KNOWLEDGE_ANALYSIS_DOCUMENT_IDS")); raw != "" {
-		c.analysisDocumentsInvalid = json.Unmarshal([]byte(raw), &c.AnalysisDocumentIDs) != nil
-	}
-	return c
-}
-
-func (c KnowledgeConfig) Configured() bool {
-	// A key alone does not enable retrieval.
-	return strings.TrimSpace(c.BaseURL+c.TeamID+c.KBID+c.WorkspaceID) != "" || c.TopK != 0 || c.ResponseMapping != nil || c.mappingInvalid || c.analysisDocumentsInvalid || c.DocumentManagement || c.DocumentPermissionIDs != nil || c.AnalysisDocumentIDs != nil
-}
+var KnowledgeConfigFromEnvironment = knowledgeprovider.ConfigFromEnvironment
 
 type Knowledge struct {
 	config  KnowledgeConfig
@@ -88,10 +33,10 @@ func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
 	if !c.Configured() {
 		return nil, nil
 	}
-	if c.mappingInvalid {
+	if c.InvalidResponseMapping {
 		return nil, fmt.Errorf("invalid knowledge response mapping JSON")
 	}
-	if c.analysisDocumentsInvalid {
+	if c.InvalidAnalysisDocumentIDs {
 		return nil, fmt.Errorf("invalid knowledge analysis document IDs JSON")
 	}
 	if c.DocumentPermissionIDs != nil {
