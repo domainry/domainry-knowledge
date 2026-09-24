@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 )
 
 func (k *Knowledge) knowledgeScope(a agentsdk.ConversationAuthority) string {

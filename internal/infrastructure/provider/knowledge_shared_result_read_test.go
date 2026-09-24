@@ -57,7 +57,7 @@ func TestSharedKnowledgeProviderUsesActualReaderACLAndPreservesOriginalEvidence(
 				}
 			}))
 			defer server.Close()
-			k, err := NewKnowledge(KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: reader.WorkspaceID, RuntimeID: reader.RuntimeID, Client: server.Client(), ResponseMapping: &KnowledgeResponseMapping{Search: &KnowledgeCitationMapping{Items: "/hits", Many: true, DocumentID: "/doc_id", Title: "/title", Excerpt: "/body"}, Fetch: &KnowledgeCitationMapping{Items: "/data", DocumentID: "/doc_id", Title: "/title", Excerpt: "/body"}},
+			k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: reader.WorkspaceID, RuntimeID: reader.RuntimeID, Client: server.Client(), ResponseMapping: &KnowledgeResponseMapping{Search: &KnowledgeCitationMapping{Items: "/hits", Many: true, DocumentID: "/doc_id", Title: "/title", Excerpt: "/body"}, Fetch: &KnowledgeCitationMapping{Items: "/data", DocumentID: "/doc_id", Title: "/title", Excerpt: "/body"}},
 				AuthorizeWorkspace: func(_ context.Context, a sdk.ConversationAuthority) error {
 					mu.Lock()
 					defer mu.Unlock()

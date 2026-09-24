@@ -11,7 +11,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
-	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 )
 
 func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.KnowledgeDocumentContent, a agentsdk.ConversationAuthority) error {

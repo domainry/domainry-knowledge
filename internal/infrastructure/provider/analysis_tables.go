@@ -8,7 +8,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
-	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 	reportsdk "github.com/domainry/domainry-report-sdk"
 	reportmodel "github.com/domainry/domainry-report-sdk/model"
 	"github.com/domainry/domainry-report-sdk/modulehost"

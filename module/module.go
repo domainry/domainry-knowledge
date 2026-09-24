@@ -221,8 +221,8 @@ func NewRecordStore(ctx context.Context, backend Backend, migrations modulehost.
 
 type AttachmentKnowledge = provider.AttachmentKnowledge
 
-func NewAttachmentKnowledge(c KnowledgeConfig, runtime string) (*AttachmentKnowledge, error) {
-	return provider.NewAttachmentKnowledge(c, runtime)
+func NewAttachmentKnowledge(c KnowledgeConfig, runtime string, adapterFactory knowledgeprovider.AdapterFactory) (*AttachmentKnowledge, error) {
+	return provider.NewAttachmentKnowledge(c, runtime, adapterFactory)
 }
 
 type KnowledgeConfig = provider.KnowledgeConfig
@@ -233,8 +233,8 @@ func KnowledgeConfigFromEnvironment() KnowledgeConfig {
 
 type Knowledge = provider.Knowledge
 
-func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
-	return provider.NewKnowledge(c)
+func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFactory) (*Knowledge, error) {
+	return provider.NewKnowledge(c, adapterFactory)
 }
 
 type KnowledgeCitationMapping = provider.KnowledgeCitationMapping
@@ -266,8 +266,10 @@ func NewDocumentFiles(path string) (*DocumentFiles, error) {
 	return documentstorage.NewFiles(path)
 }
 
-func NewFactory() knowledgemodulehost.Factory       { return assembly.NewFactory() }
-func NewProviderFactory() knowledgeprovider.Factory { return assembly.NewProviderFactory() }
+func NewFactory() knowledgemodulehost.Factory { return assembly.NewFactory() }
+func NewProviderFactory(adapterFactory knowledgeprovider.AdapterFactory) knowledgeprovider.Factory {
+	return assembly.NewProviderFactory(adapterFactory)
+}
 
 // NewServiceRuntime is a focused fixture seam for application tests that do
 // not open a full module database.

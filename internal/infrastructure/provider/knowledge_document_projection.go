@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	httpapi "github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	httpapi "github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 )
 
 func (k *Knowledge) KnowledgeDocumentSourceIdentity() string {

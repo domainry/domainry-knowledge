@@ -10,7 +10,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
-	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
@@ -29,9 +29,12 @@ type Knowledge struct {
 
 // NewKnowledge binds the shared official Provider to this host's transport.
 // A nil result means retrieval is disabled, without a typed-nil interface.
-func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
+func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFactory) (*Knowledge, error) {
 	if !c.Configured() {
 		return nil, nil
+	}
+	if adapterFactory == nil {
+		return nil, fmt.Errorf("knowledge provider adapter factory is required")
 	}
 	if c.InvalidResponseMapping {
 		return nil, fmt.Errorf("invalid knowledge response mapping JSON")
@@ -97,12 +100,19 @@ func NewKnowledge(c KnowledgeConfig) (*Knowledge, error) {
 		}
 		c.Transport = transport
 	}
-	adapter, err := httpapi.New(c.Transport)
+	adapter, err := adapterFactory(c.Transport)
 	if err != nil {
 		return nil, err
 	}
+	if adapter == nil {
+		return nil, fmt.Errorf("knowledge provider adapter factory returned nil")
+	}
 	k := &Knowledge{config: c, adapter: adapter}
-	if err = adapter.(connector.ConfigValidator).ValidateConfig(k.connection()); err != nil {
+	validator, ok := adapter.(connector.ConfigValidator)
+	if !ok {
+		return nil, fmt.Errorf("knowledge provider adapter does not validate configuration")
+	}
+	if err = validator.ValidateConfig(k.connection()); err != nil {
 		return nil, fmt.Errorf("invalid knowledge provider configuration")
 	}
 	return k, nil

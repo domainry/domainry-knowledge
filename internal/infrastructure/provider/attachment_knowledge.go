@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 )
 
 // AttachmentKnowledge is a factory for fixed owner/conversation ACLs on a
@@ -16,22 +17,23 @@ import (
 type AttachmentKnowledge struct {
 	config            KnowledgeConfig
 	runtime, identity string
+	adapterFactory    knowledgeprovider.AdapterFactory
 }
 
-func NewAttachmentKnowledge(c KnowledgeConfig, runtime string) (*AttachmentKnowledge, error) {
+func NewAttachmentKnowledge(c KnowledgeConfig, runtime string, adapterFactory knowledgeprovider.AdapterFactory) (*AttachmentKnowledge, error) {
 	if strings.TrimSpace(runtime) == "" || len(runtime) > 255 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil || c.DocumentPermissionIDs != nil {
 		return nil, fmt.Errorf("attachment knowledge owns its private runtime/workspace/user/conversation policy")
 	}
 	c.DocumentManagement = true
 	c.DocumentPermissionIDs = []string{"scope:agent:attachment:configuration"}
-	k, err := NewKnowledge(c)
+	k, err := NewKnowledge(c, adapterFactory)
 	if err != nil || k == nil {
 		return nil, fmt.Errorf("invalid attachment knowledge configuration")
 	}
 	if err = k.KnowledgeDocumentManagementReady(); err != nil {
 		return nil, err
 	}
-	return &AttachmentKnowledge{config: k.config, runtime: runtime, identity: k.KnowledgeDocumentSourceIdentity()}, nil
+	return &AttachmentKnowledge{config: k.config, runtime: runtime, identity: k.KnowledgeDocumentSourceIdentity(), adapterFactory: adapterFactory}, nil
 }
 
 func (k *AttachmentKnowledge) AttachmentKnowledgeSourceIdentity() string { return k.identity }
@@ -50,7 +52,7 @@ func (k *AttachmentKnowledge) ResolveAttachmentKnowledge(ctx context.Context, co
 	permission := fmt.Sprintf("scope:agent:attachment:%x", sha256.Sum256(raw))
 	c := k.config
 	c.DocumentPermissionIDs = []string{permission}
-	base, err := NewKnowledge(c)
+	base, err := NewKnowledge(c, k.adapterFactory)
 	if err != nil {
 		return zero, err
 	}

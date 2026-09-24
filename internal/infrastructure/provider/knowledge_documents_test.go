@@ -59,7 +59,7 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 	}))
 	defer server.Close()
 	config := KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: server.Client()}
-	read, err := NewKnowledge(config)
+	read, err := newKnowledgeWithOfficialAdapter(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 		t.Fatal("disabled writes reached network")
 	}
 	config.DocumentManagement = true
-	source, err := NewKnowledge(config)
+	source, err := newKnowledgeWithOfficialAdapter(config)
 	if err != nil {
 		t.Fatal(err)
 	}

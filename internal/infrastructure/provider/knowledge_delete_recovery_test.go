@@ -26,14 +26,14 @@ func TestKnowledgeDeleteRecoveryPreservesAuthorizationAndTarget(t *testing.T) {
 	defer upstream.Close()
 	a := knowledgeAuthority()
 	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "synthetic", TeamID: "team", KBID: "private", WorkspaceID: a.WorkspaceID, ResponseMapping: &KnowledgeResponseMapping{Search: &KnowledgeCitationMapping{Items: "/hits", Many: true, DocumentID: "/doc_id", Excerpt: "/body"}, Fetch: &KnowledgeCitationMapping{Items: "/data", DocumentID: "/doc_id", Excerpt: "/body"}}}
-	readOnly, err := NewKnowledge(c)
+	readOnly, err := newKnowledgeWithOfficialAdapter(c)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if readOnly.RecoverKnowledgeDocumentDelete(t.Context(), "immutable-document", a) == nil || calls.Load() != 0 {
 		t.Fatal("recovery enabled writes on a retrieval-only connection")
 	}
-	factory, err := NewAttachmentKnowledge(c, a.RuntimeID)
+	factory, err := newTestAttachmentKnowledge(c, a.RuntimeID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,14 +6,18 @@ import (
 	provider "github.com/domainry/domainry-knowledge/internal/infrastructure/provider"
 )
 
-type ProviderFactory struct{}
-
-func NewProviderFactory() knowledgeprovider.Factory { return ProviderFactory{} }
-
-func (ProviderFactory) NewSource(config knowledgeprovider.Config) (knowledgeprovider.Source, error) {
-	return provider.NewKnowledge(config)
+type ProviderFactory struct {
+	adapterFactory knowledgeprovider.AdapterFactory
 }
 
-func (ProviderFactory) NewAttachmentSource(config knowledgeprovider.Config, runtimeID string) (agentsdk.ConversationAttachmentKnowledge, error) {
-	return provider.NewAttachmentKnowledge(config, runtimeID)
+func NewProviderFactory(adapterFactory knowledgeprovider.AdapterFactory) knowledgeprovider.Factory {
+	return ProviderFactory{adapterFactory: adapterFactory}
+}
+
+func (factory ProviderFactory) NewSource(config knowledgeprovider.Config) (knowledgeprovider.Source, error) {
+	return provider.NewKnowledge(config, factory.adapterFactory)
+}
+
+func (factory ProviderFactory) NewAttachmentSource(config knowledgeprovider.Config, runtimeID string) (agentsdk.ConversationAttachmentKnowledge, error) {
+	return provider.NewAttachmentKnowledge(config, runtimeID, factory.adapterFactory)
 }

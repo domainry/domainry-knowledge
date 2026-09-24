@@ -48,7 +48,7 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 		probe = &deleteRecoveryLiveProbe{Transport: transport}
 		config.Transport = probe
 	}
-	source, err := NewKnowledge(config)
+	source, err := newKnowledgeWithOfficialAdapter(config)
 	if err != nil || source == nil {
 		t.Fatal("live source configuration invalid", err)
 	}

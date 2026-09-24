@@ -43,7 +43,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	defer upstream.Close()
 	ids := []string{"z:read", "a:read", "z:read"}
 	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentPermissionIDs: ids}
-	k, err := NewKnowledge(c)
+	k, err := newKnowledgeWithOfficialAdapter(c)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	}{{[]string{"a:read", "z:read"}, true}, {[]string{"other"}, false}, {nil, false}} {
 		c.DocumentPermissionIDs = tc.ids
 		c.APIKey = "rotated"
-		other, err := NewKnowledge(c)
+		other, err := newKnowledgeWithOfficialAdapter(c)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -101,7 +101,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	}
 	c.DocumentPermissionIDs = []string{"private"}
 	c.PermissionIDs = func(context.Context, agentsdk.ConversationAuthority) ([]string, error) { return nil, nil }
-	if _, err := NewKnowledge(c); err == nil {
+	if _, err := newKnowledgeWithOfficialAdapter(c); err == nil {
 		t.Fatal("fixed writes combined with dynamic reads")
 	}
 }

@@ -69,6 +69,9 @@ func TestLayeredLayoutAndPrivateImplementations(t *testing.T) {
 		}
 		for _, im := range f.Imports {
 			imported, _ := strconv.Unquote(im.Path.Value)
+			if imported == "github.com/domainry/domainry-connectors" || strings.HasPrefix(imported, "github.com/domainry/domainry-connectors/") {
+				t.Errorf("Knowledge production code imports Connector implementation: %s -> %s", rel, imported)
+			}
 			domain := strings.HasPrefix(rel, "internal/domain/")
 			application := strings.HasPrefix(rel, "internal/application/")
 			contract := top == "contract"

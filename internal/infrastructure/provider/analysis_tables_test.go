@@ -120,7 +120,7 @@ func TestKnowledgeAnalysisTableStreamsEveryPermissionCheckedPage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	k, err := NewKnowledge(KnowledgeConfig{
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{
 		BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb",
 		WorkspaceID: "workspace", RuntimeID: "runtime", AnalysisDocumentIDs: []string{"doc-1"},
 		Client: server.Client(),
@@ -156,7 +156,7 @@ func TestKnowledgeAnalysisTableFailsClosedBeforeAndDuringRead(t *testing.T) {
 		io.WriteString(w, `{"err_code":409}`)
 	}))
 	defer server.Close()
-	k, err := NewKnowledge(KnowledgeConfig{
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{
 		BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb",
 		WorkspaceID: "workspace", RuntimeID: "runtime", AnalysisDocumentIDs: []string{"doc-1"}, Client: server.Client(),
 	})
@@ -182,7 +182,7 @@ func TestKnowledgeAnalysisConfigurationFromEnvironment(t *testing.T) {
 		t.Fatalf("analysis docs=%v", config.AnalysisDocumentIDs)
 	}
 	t.Setenv("AGENT_KNOWLEDGE_ANALYSIS_DOCUMENT_IDS", `{}`)
-	if _, err := NewKnowledge(KnowledgeConfigFromEnvironment()); err == nil {
+	if _, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment()); err == nil {
 		t.Fatal("invalid analysis document JSON accepted")
 	}
 }

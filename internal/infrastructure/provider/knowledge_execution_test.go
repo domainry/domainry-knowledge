@@ -41,7 +41,7 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 		fmt.Fprint(w, `{"items":[{"doc_id":"finance","title":"费用规则","url":"https://example.com/rule?a=1&b=2","amount":9007199254740993,"content":"许可内容"}]}`)
 	}))
 	defer upstream.Close()
-	k := newTestKnowledge(t, upstream)
+	k := mustTestKnowledge(t, upstream)
 	k.config.PermissionIDs = func(context.Context, agentsdk.ConversationAuthority) ([]string, error) {
 		if permission.Load() {
 			return []string{"finance"}, nil
@@ -128,7 +128,7 @@ func TestKnowledgeBusinessFailureCannotBecomeEvidence(t *testing.T) {
 				fmt.Fprint(w, `{"err_code":0,"data":{"content":"fixture source","number":9007199254740993}}`)
 			}))
 			defer upstream.Close()
-			k := newTestKnowledge(t, upstream)
+			k := mustTestKnowledge(t, upstream)
 			a := knowledgeAuthority()
 			read := func() (agentsdk.ConversationKnowledgeResult, error) {
 				if operation == "search" {

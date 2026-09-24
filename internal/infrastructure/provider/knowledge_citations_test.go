@@ -122,7 +122,7 @@ func TestKnowledgeCitationMappingsAndReceiptsAreRevalidated(t *testing.T) {
 	}))
 	defer upstream.Close()
 	mapping := citationFixtureMapping()
-	k, err := NewKnowledge(KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", ResponseMapping: mapping})
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", ResponseMapping: mapping})
 	if err != nil {
 		t.Fatal(err)
 	}

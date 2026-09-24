@@ -173,7 +173,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 		}
 		return ids, nil
 	}
-	source, e := NewKnowledge(config)
+	source, e := newKnowledgeWithOfficialAdapter(config)
 	if e != nil {
 		return report, e
 	}
