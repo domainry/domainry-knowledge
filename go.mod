@@ -13,7 +13,7 @@ require (
 )
 
 require (
-	github.com/domainry/domainry-foundation v0.1.36
+	github.com/domainry/domainry-foundation v0.1.39
 	github.com/domainry/domainry-identity-sdk v0.1.14
 	github.com/domainry/domainry-knowledge-sdk v0.1.5
 	golang.org/x/sys v0.47.0
@@ -23,7 +23,7 @@ require (
 require (
 	github.com/domainry/domainry-metadata-sdk v0.1.4 // indirect
 	github.com/domainry/domainry-notification-sdk v0.1.3 // indirect
-	github.com/domainry/domainry-todo-sdk v0.1.0 // indirect
+	github.com/domainry/domainry-todo-sdk v0.1.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
