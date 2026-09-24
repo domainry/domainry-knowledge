@@ -7,7 +7,7 @@ import (
 	"github.com/domainry/domainry-agent-sdk/modulehost"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
-	knowledgemodulehost "github.com/domainry/domainry-knowledge/modulehost"
+	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 

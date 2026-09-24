@@ -10,10 +10,10 @@ import (
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
-	"github.com/domainry/domainry-knowledge/contract"
+	"github.com/domainry/domainry-knowledge-sdk/contract"
+	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
 	application "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
-	knowledgemodulehost "github.com/domainry/domainry-knowledge/modulehost"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 

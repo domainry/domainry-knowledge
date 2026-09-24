@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-knowledge/contract"
+	"github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
 type conversationReferenceLifecycleRepository interface {
