@@ -122,7 +122,7 @@ func (s *Store) ClaimAttachmentIndexWork(ctx context.Context, runtime, owner str
 		prior := out.Token
 		out.Token++
 		out.Owner = owner
-		out.ExpiresAt = now.UTC().Add(ttl)
+		out.ExpiresAt = now.UTC().Add(ttl).Truncate(time.Millisecond)
 		q, args, e = query.NewUpdateBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Set("fence", out.Token).Set("lease_until", out.ExpiresAt.UnixMilli()).Set("payload_json", conversationJSON(out)).Where(query.And(CompatAttachmentScope(out.Authority, out.AttachmentID), query.Equal("fence", prior), query.LessThanOrEqual("lease_until", now.UnixMilli()))).Build()
 		if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 			return e

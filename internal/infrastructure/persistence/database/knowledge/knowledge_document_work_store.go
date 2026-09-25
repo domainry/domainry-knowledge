@@ -52,7 +52,7 @@ func (s *Store) ClaimKnowledgeDocumentWork(ctx context.Context, runtime, owner s
 		prior := out.Token
 		out.Token++
 		out.Owner = owner
-		out.ExpiresAt = now.UTC().Add(ttl)
+		out.ExpiresAt = now.UTC().Add(ttl).Truncate(time.Millisecond)
 		q, args, e = query.NewUpdateBuilder(s.store.Renderer(), CompatKnowledgeDocumentJobTable).Set("fence", out.Token).Set("lease_until", out.ExpiresAt.UnixMilli()).Set("payload_json", conversationJSON(out)).Where(query.And(CompatDocumentScope(CompatDocumentLeaseAuthority(out), out.DocumentID), query.Equal("fence", prior), query.LessThanOrEqual("lease_until", now.UnixMilli()))).Build()
 		if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 			return e
