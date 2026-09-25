@@ -23,6 +23,30 @@ type Record = contract.Record
 type Write = contract.Write
 type Page = contract.Page
 type Validator = contract.Validator
+type storedRecord struct {
+	ID        string          `json:"id"`
+	Kind      string          `json:"kind"`
+	Title     string          `json:"title"`
+	Status    string          `json:"status"`
+	Revision  int64           `json:"revision"`
+	Data      json.RawMessage `json:"data"`
+	CreatedAt int64           `json:"created_at"`
+	UpdatedAt int64           `json:"updated_at"`
+}
+
+func marshalRecord(value Record) ([]byte, error) {
+	return json.Marshal(storedRecord{ID: value.ID, Kind: value.Kind, Title: value.Title, Status: value.Status, Revision: value.Revision, Data: value.Data, CreatedAt: value.CreatedAt.UTC().UnixMilli(), UpdatedAt: value.UpdatedAt.UTC().UnixMilli()})
+}
+
+func unmarshalRecord(raw []byte, value *Record) error {
+	var stored storedRecord
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return err
+	}
+	*value = Record{ID: stored.ID, Kind: stored.Kind, Title: stored.Title, Status: stored.Status, Revision: stored.Revision, Data: stored.Data, CreatedAt: time.UnixMilli(stored.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(stored.UpdatedAt).UTC()}
+	return nil
+}
+
 type Store struct {
 	db        sqlhost.Database
 	renderer  query.Renderer
@@ -109,7 +133,7 @@ func (s *Store) Get(ctx context.Context, kind, id string, revision int64, a sdk.
 	if err != nil {
 		return out, err
 	}
-	err = json.Unmarshal(raw, &out)
+	err = unmarshalRecord(raw, &out)
 	return out, err
 }
 func (s *Store) List(ctx context.Context, kind, q, after string, limit int, a sdk.Authority) (Page, error) {
@@ -142,7 +166,7 @@ func (s *Store) List(ctx context.Context, kind, q, after string, limit int, a sd
 		if err = rows.Scan(&raw); err != nil {
 			return out, err
 		}
-		if err = json.Unmarshal(raw, &r); err != nil {
+		if err = unmarshalRecord(raw, &r); err != nil {
 			return out, err
 		}
 		if q != "" && !strings.Contains(strings.ToLower(r.Title+" "+string(r.Data)), strings.ToLower(q)) {
@@ -201,7 +225,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		if digest != hash(in) {
 			return out, failure("conflict", "idempotency_conflict")
 		}
-		err = json.Unmarshal(raw, &out)
+		err = unmarshalRecord(raw, &out)
 		return out, err
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -218,7 +242,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		if err != nil {
 			return out, err
 		}
-		if err = json.Unmarshal(raw, &p); err != nil {
+		if err = unmarshalRecord(raw, &p); err != nil {
 			return out, err
 		}
 		previous = &p
@@ -231,7 +255,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		}
 		id = "rec_" + hash([]string{s.namespace, o, kind, in.ClientID})[:32]
 	}
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Millisecond)
 	out = Record{ID: id, Kind: kind, Title: strings.TrimSpace(in.Title), Status: in.Status, Revision: 1, Data: append(json.RawMessage(nil), in.Data...), CreatedAt: now, UpdatedAt: now}
 	if previous != nil {
 		out.Revision = previous.Revision + 1
@@ -240,7 +264,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 	if err = validate(previous, &out); err != nil {
 		return Record{}, err
 	}
-	raw, err = json.Marshal(out)
+	raw, err = marshalRecord(out)
 	if err != nil {
 		return Record{}, err
 	}
@@ -291,6 +315,6 @@ func (s *Store) Receipt(ctx context.Context, kind string, in Write, a sdk.Author
 	if digest != hash(in) {
 		return out, false, failure("conflict", "idempotency_conflict")
 	}
-	err = json.Unmarshal(raw, &out)
+	err = unmarshalRecord(raw, &out)
 	return out, true, err
 }

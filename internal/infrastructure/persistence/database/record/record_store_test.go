@@ -1,6 +1,7 @@
 package records
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"github.com/domainry/domainry-orm/dialect"
@@ -41,6 +42,13 @@ func TestDocumentIsolationReceiptsAndImmutableVersions(t *testing.T) {
 	r, e := s.Save(t.Context(), "requirements", in, a, validate)
 	if e != nil {
 		t.Fatal(e)
+	}
+	var stored []byte
+	if e = db.QueryRowContext(t.Context(), "SELECT payload FROM knowledge_records WHERE id = ?", r.ID).Scan(&stored); e != nil {
+		t.Fatal(e)
+	}
+	if !bytes.Contains(stored, []byte(`"created_at":`)) || bytes.Contains(stored, []byte(`"created_at":"`)) || bytes.Contains(stored, []byte(`"updated_at":"`)) {
+		t.Fatalf("record times must be numeric UTC milliseconds: %s", stored)
 	}
 	retry, e := s.Save(t.Context(), "requirements", in, a, validate)
 	if e != nil || retry.ID != r.ID || retry.Revision != 1 {
@@ -96,7 +104,7 @@ func TestOriginalSQLiteRecordsSurvivePortableMigration(t *testing.T) {
 	owner, _ := scope(a)
 	in := Write{ClientID: "original", Title: "已有需求", Data: json.RawMessage(`{"notes":"旧资料"}`)}
 	original := Record{ID: "rec_original", Kind: "requirements", Title: in.Title, Revision: 1, Data: in.Data}
-	raw, _ := json.Marshal(original)
+	raw, _ := marshalRecord(original)
 	for _, table := range []string{"knowledge_records", "knowledge_record_versions"} {
 		if _, err = db.ExecContext(t.Context(), "INSERT INTO "+table+"(namespace,owner,kind,id,revision,payload) VALUES(?,?,?,?,?,?)", "pm", owner, original.Kind, original.ID, 1, raw); err != nil {
 			t.Fatal(err)
