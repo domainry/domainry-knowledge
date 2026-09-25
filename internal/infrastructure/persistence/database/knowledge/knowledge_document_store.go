@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -318,7 +317,7 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 			if e = rows.Scan(&raw); e != nil {
 				return e
 			}
-			if e = json.Unmarshal(raw, &r); e != nil {
+			if e = unmarshalDurableJSON(raw, &r); e != nil {
 				return e
 			}
 			out.Items = append(out.Items, r.Document)

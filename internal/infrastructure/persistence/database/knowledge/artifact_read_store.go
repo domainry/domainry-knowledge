@@ -64,7 +64,7 @@ func (s *Store) Artifacts(ctx context.Context, in agentsdk.ConversationArtifactQ
 		if err = rows.Scan(&raw); err != nil {
 			return out, err
 		}
-		if err = json.Unmarshal(raw, &item); err != nil {
+		if err = unmarshalDurableJSON(raw, &item); err != nil {
 			return out, err
 		}
 		scanned++
@@ -120,7 +120,7 @@ func (s *Store) ArtifactVersions(ctx context.Context, id string, before int64, l
 		if err = rows.Scan(&raw); err != nil {
 			return out, err
 		}
-		if err = json.Unmarshal(raw, &item); err != nil {
+		if err = unmarshalDurableJSON(raw, &item); err != nil {
 			return out, err
 		}
 		out.Items = append(out.Items, item.Artifact)

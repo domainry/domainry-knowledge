@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"math"
 	"time"
 
@@ -114,7 +113,7 @@ func (s *Store) ClaimAttachmentIndexWork(ctx context.Context, runtime, owner str
 		if e != nil {
 			return e
 		}
-		if e = json.Unmarshal(raw, &out); e != nil {
+		if e = unmarshalDurableJSON(raw, &out); e != nil {
 			return e
 		}
 		if out.Authority.RuntimeID != runtime || conversationAuthority(out.Authority) != nil || !personalMemoryKey(out.AttachmentID) || !personalMemoryKey(out.ConversationID) {

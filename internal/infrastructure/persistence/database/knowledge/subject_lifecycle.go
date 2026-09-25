@@ -35,6 +35,15 @@ type SubjectLifecycle struct {
 
 const sharedSubjectStepsTable = "_subject_steps"
 
+type persistedSubjectStep struct {
+	WorkspaceID string          `json:"workspace_id"`
+	RequestID   string          `json:"request_id"`
+	Owner       string          `json:"owner"`
+	Operation   string          `json:"operation"`
+	Payload     json.RawMessage `json:"payload"`
+	CompletedAt int64           `json:"completed_at"`
+}
+
 func NewSubjectLifecycle(store *Store, runtimeID string, options SubjectLifecycleOptions) SubjectLifecycle {
 	return SubjectLifecycle{store: store, runtimeID: strings.TrimSpace(runtimeID), options: options}
 }
@@ -190,7 +199,7 @@ func (s SubjectLifecycle) personalLibraries(ctx context.Context, db conversation
 		if err := rows.Scan(&id, &raw); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(raw, &library); err != nil {
+		if err := unmarshalDurableJSON(raw, &library); err != nil {
 			return nil, err
 		}
 		if library.Kind == "personal" && library.OwnerUserID == a.UserID {
@@ -273,14 +282,14 @@ func (s SubjectLifecycle) EraseSubjectForRequest(ctx context.Context, requestID,
 			changed[key] += count
 		}
 		completedAt := time.Now().UTC()
-		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "changed": changed, "personal_copies_removed": len(candidates.documents), "shared_references_anonymized": changed["shared_documents_anonymized"], "completed_at": completedAt})
-		step, marshalErr := json.Marshal(lifecyclemodel.SubjectExecutionStep{WorkspaceID: a.WorkspaceID, RequestID: requestID, Owner: "knowledge", Operation: "erase", Payload: append(json.RawMessage(nil), receipt...), CompletedAt: completedAt})
+		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "changed": changed, "personal_copies_removed": len(candidates.documents), "shared_references_anonymized": changed["shared_documents_anonymized"], "completed_at": completedAt.UnixMilli()})
+		step, marshalErr := json.Marshal(persistedSubjectStep{WorkspaceID: a.WorkspaceID, RequestID: requestID, Owner: "knowledge", Operation: "erase", Payload: append(json.RawMessage(nil), receipt...), CompletedAt: completedAt.UnixMilli()})
 		if marshalErr != nil {
 			return marshalErr
 		}
 		statement, args, buildErr := query.NewWorkspaceInsertBuilder(s.store.store.Renderer(), sharedSubjectStepsTable, a.WorkspaceID).
 			Columns("request_id", "owner", "operation", "payload_json", "completed_at").
-			Values(requestID, "knowledge", "erase", string(step), completedAt.Format(time.RFC3339Nano)).Build()
+			Values(requestID, "knowledge", "erase", string(step), completedAt.UnixMilli()).Build()
 		if buildErr != nil {
 			return buildErr
 		}
@@ -305,7 +314,7 @@ func (s SubjectLifecycle) receipt(ctx context.Context, db conversationDB, worksp
 	if err != nil {
 		return nil, false, err
 	}
-	var step lifecyclemodel.SubjectExecutionStep
+	var step persistedSubjectStep
 	if json.Unmarshal([]byte(raw), &step) != nil || step.WorkspaceID != workspaceID || step.RequestID != requestID || step.Owner != "knowledge" || step.Operation != "erase" || !json.Valid(step.Payload) {
 		return nil, false, fmt.Errorf("Knowledge shared subject execution step is invalid")
 	}
@@ -342,7 +351,7 @@ func (s SubjectLifecycle) erasureCandidates(ctx context.Context, a agentsdk.Conv
 			var raw []byte
 			var record persistence.KnowledgeDocumentRecord
 			if err = rows.Scan(&raw); err == nil {
-				err = json.Unmarshal(raw, &record)
+				err = unmarshalDurableJSON(raw, &record)
 			}
 			if err != nil {
 				rows.Close()
@@ -565,7 +574,7 @@ func (s SubjectLifecycle) anonymizeSharedDocumentReferences(ctx context.Context,
 		var raw []byte
 		var record persistence.KnowledgeDocumentRecord
 		if err = rows.Scan(&id, &raw); err == nil {
-			err = json.Unmarshal(raw, &record)
+			err = unmarshalDurableJSON(raw, &record)
 		}
 		if err != nil {
 			rows.Close()

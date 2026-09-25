@@ -38,8 +38,9 @@ func (s *Store) DeleteConversationReferencesForRequest(ctx context.Context, requ
 		if claimErr != nil {
 			return claimErr
 		}
-		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "conversation_id": conversationID, "attachments_queued": queued, "completed_at": time.Now().UTC()})
-		return s.operations.Complete(sharedoperation.WithExecutor(ctx, tx), sharedoperation.Completion{ID: command.ID, Scope: command.Scope, Owner: command.Owner, Kind: command.Kind, IdempotencyKey: command.IdempotencyKey, RequestFingerprint: command.RequestFingerprint, Result: receipt, CompletedAt: time.Now().UTC()})
+		completedAt := time.Now().UTC().Truncate(time.Millisecond)
+		receipt, _ = json.Marshal(map[string]any{"request_id": requestID, "conversation_id": conversationID, "attachments_queued": queued, "completed_at": completedAt.UnixMilli()})
+		return s.operations.Complete(sharedoperation.WithExecutor(ctx, tx), sharedoperation.Completion{ID: command.ID, Scope: command.Scope, Owner: command.Owner, Kind: command.Kind, IdempotencyKey: command.IdempotencyKey, RequestFingerprint: command.RequestFingerprint, Result: receipt, CompletedAt: completedAt})
 	})
 	return receipt, err
 }

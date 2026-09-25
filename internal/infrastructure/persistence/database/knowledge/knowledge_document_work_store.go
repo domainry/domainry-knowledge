@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -44,7 +43,7 @@ func (s *Store) ClaimKnowledgeDocumentWork(ctx context.Context, runtime, owner s
 		if e != nil {
 			return e
 		}
-		if e = json.Unmarshal(raw, &out); e != nil {
+		if e = unmarshalDurableJSON(raw, &out); e != nil {
 			return e
 		}
 		if out.RuntimeID != runtime || !CompatValidKnowledgeDocumentID(out.DocumentID) || !CompatValidLibraryID(out.LibraryID) || conversationAuthority(CompatDocumentLeaseAuthority(out)) != nil {

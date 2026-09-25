@@ -19,12 +19,12 @@ import (
 const generatedArtifactKind = "generated"
 
 type generatedArtifactMetadata struct {
-	ArtifactID       string     `json:"artifact_id"`
-	Version          int64      `json:"version"`
-	Format           string     `json:"format"`
-	FormulaGuarded   bool       `json:"formula_guarded,omitempty"`
-	Downloads        int64      `json:"downloads"`
-	LastDownloadedAt *time.Time `json:"last_downloaded_at,omitempty"`
+	ArtifactID       string `json:"artifact_id"`
+	Version          int64  `json:"version"`
+	Format           string `json:"format"`
+	FormulaGuarded   bool   `json:"formula_guarded,omitempty"`
+	Downloads        int64  `json:"downloads"`
+	LastDownloadedAt int64  `json:"last_downloaded_at,omitempty"`
 }
 
 func (s *Store) sharedArtifactsReady() error {
@@ -247,7 +247,7 @@ func (s *Store) RecordArtifactDownload(ctx context.Context, id string, a agentsd
 				return err
 			}
 			metadata.Downloads++
-			metadata.LastDownloadedAt = &now
+			metadata.LastDownloadedAt = now.UnixMilli()
 			raw, err := json.Marshal(metadata)
 			if err != nil {
 				return err
@@ -301,11 +301,16 @@ func generatedArtifactExport(value sharedartifact.Artifact) (agentsdk.Conversati
 	if err != nil {
 		return agentsdk.ConversationArtifactExport{}, err
 	}
+	var lastDownloadedAt *time.Time
+	if metadata.LastDownloadedAt != 0 {
+		value := time.UnixMilli(metadata.LastDownloadedAt).UTC()
+		lastDownloadedAt = &value
+	}
 	return agentsdk.ConversationArtifactExport{
 		ID: value.ID, ArtifactID: metadata.ArtifactID, Version: metadata.Version, Format: metadata.Format,
 		Filename: value.Filename, ContentType: value.MediaType, SHA256: value.ContentSHA256, Bytes: int(value.SizeBytes),
 		FormulaGuarded: metadata.FormulaGuarded, CreatedAt: value.CreatedAt, ExpiresAt: value.ExpiresAt,
-		Downloads: metadata.Downloads, LastDownloadedAt: metadata.LastDownloadedAt,
+		Downloads: metadata.Downloads, LastDownloadedAt: lastDownloadedAt,
 	}, nil
 }
 

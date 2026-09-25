@@ -28,7 +28,7 @@ func (s *Store) executionRead(ctx context.Context, db conversationDB, table stri
 	if err != nil {
 		return false, err
 	}
-	return true, json.Unmarshal(raw, out)
+	return true, unmarshalDurableJSON(raw, out)
 }
 
 func executionText(value string, limit int, required bool) bool {
@@ -53,7 +53,7 @@ func conversationHash(v any) string {
 	return hex.EncodeToString(h[:])
 }
 
-func conversationJSON(v any) []byte { b, _ := json.Marshal(v); return b }
+func conversationJSON(v any) []byte { b, _ := marshalDurableJSON(v); return b }
 
 func conversationError(class, code string) error {
 	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}

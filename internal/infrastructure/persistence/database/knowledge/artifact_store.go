@@ -75,7 +75,7 @@ func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation 
 			if receipt.Status != sharedoperation.StatusSucceeded {
 				return conversationError("conflict", "mutation_in_progress")
 			}
-			return json.Unmarshal(receipt.Result, out)
+			return unmarshalDurableJSON(receipt.Result, out)
 		}
 		value, err := apply(tx)
 		if err != nil {
@@ -85,7 +85,7 @@ func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation 
 		if err = s.operations.Complete(sharedoperation.WithExecutor(ctx, tx), sharedoperation.Completion{ID: command.ID, Scope: command.Scope, Owner: command.Owner, Kind: command.Kind, IdempotencyKey: command.IdempotencyKey, RequestFingerprint: command.RequestFingerprint, Result: result, CompletedAt: time.Now().UTC()}); err != nil {
 			return err
 		}
-		return json.Unmarshal(result, out)
+		return unmarshalDurableJSON(result, out)
 	})
 }
 
