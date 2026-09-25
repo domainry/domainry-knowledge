@@ -10,6 +10,7 @@ import (
 )
 
 var durableJSONTimeType = reflect.TypeOf(time.Time{})
+var durableJSONRawMessageType = reflect.TypeOf(json.RawMessage{})
 
 // marshalDurableJSON preserves the domain model while encoding every time.Time
 // as an integer UTC Unix-millisecond value in durable JSON.
@@ -32,15 +33,7 @@ func unmarshalDurableJSON(raw []byte, destination any) error {
 	if destination == nil || reflect.TypeOf(destination).Kind() != reflect.Pointer {
 		return fmt.Errorf("durable JSON destination must be a pointer")
 	}
-	document, err := decodeDurableJSONDocument(raw)
-	if err != nil {
-		return err
-	}
-	document, err = decodeDurableJSONTimes(reflect.TypeOf(destination).Elem(), document)
-	if err != nil {
-		return err
-	}
-	normalized, err := json.Marshal(document)
+	normalized, err := normalizeDurableJSONRaw(reflect.TypeOf(destination).Elem(), json.RawMessage(raw))
 	if err != nil {
 		return err
 	}
@@ -66,6 +59,9 @@ func encodeDurableJSONTimes(value reflect.Value, document any) any {
 	}
 	if !value.IsValid() {
 		return document
+	}
+	if value.Type() == durableJSONRawMessageType {
+		return value.Interface().(json.RawMessage)
 	}
 	if value.Type() == durableJSONTimeType {
 		instant := value.Interface().(time.Time)
@@ -131,15 +127,24 @@ func encodeDurableJSONTimes(value reflect.Value, document any) any {
 	}
 }
 
-func decodeDurableJSONTimes(target reflect.Type, document any) (any, error) {
+func normalizeDurableJSONRaw(target reflect.Type, raw json.RawMessage) (json.RawMessage, error) {
 	for target.Kind() == reflect.Pointer {
-		if document == nil {
-			return nil, nil
+		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			return raw, nil
 		}
 		target = target.Elem()
 	}
+	if target == durableJSONRawMessageType {
+		return raw, nil
+	}
 	if target == durableJSONTimeType {
-		number, ok := document.(json.Number)
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var value any
+		if err := decoder.Decode(&value); err != nil {
+			return nil, err
+		}
+		number, ok := value.(json.Number)
 		if !ok {
 			return nil, fmt.Errorf("durable time must be a Unix-millisecond number")
 		}
@@ -148,15 +153,15 @@ func decodeDurableJSONTimes(target reflect.Type, document any) (any, error) {
 			return nil, fmt.Errorf("durable time must be an integer: %w", err)
 		}
 		if millis == 0 {
-			return "0001-01-01T00:00:00Z", nil
+			return json.RawMessage(`"0001-01-01T00:00:00Z"`), nil
 		}
-		return time.UnixMilli(millis).UTC().Format(time.RFC3339Nano), nil
+		return json.Marshal(time.UnixMilli(millis).UTC().Format(time.RFC3339Nano))
 	}
 	switch target.Kind() {
 	case reflect.Struct:
-		object, ok := document.(map[string]any)
-		if !ok {
-			return document, nil
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			return raw, nil
 		}
 		for index := 0; index < target.NumField(); index++ {
 			field := target.Field(index)
@@ -164,11 +169,12 @@ func decodeDurableJSONTimes(target reflect.Type, document any) (any, error) {
 				continue
 			}
 			if field.Anonymous && field.Tag.Get("json") == "" {
-				normalized, err := decodeDurableJSONTimes(field.Type, object)
+				normalized, err := normalizeDurableJSONRaw(field.Type, raw)
 				if err != nil {
 					return nil, err
 				}
-				if updated, ok := normalized.(map[string]any); ok {
+				var updated map[string]json.RawMessage
+				if json.Unmarshal(normalized, &updated) == nil {
 					object = updated
 				}
 				continue
@@ -181,44 +187,47 @@ func decodeDurableJSONTimes(target reflect.Type, document any) (any, error) {
 			if !exists {
 				continue
 			}
-			normalized, err := decodeDurableJSONTimes(field.Type, child)
+			normalized, err := normalizeDurableJSONRaw(field.Type, child)
 			if err != nil {
 				return nil, fmt.Errorf("decode durable JSON field %s: %w", name, err)
 			}
 			object[name] = normalized
 		}
-		return object, nil
+		return json.Marshal(object)
 	case reflect.Slice, reflect.Array:
 		if target.Elem().Kind() == reflect.Uint8 {
-			return document, nil
+			return raw, nil
 		}
-		items, ok := document.([]any)
-		if !ok {
-			return document, nil
+		var items []json.RawMessage
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return raw, nil
 		}
 		for index := range items {
-			normalized, err := decodeDurableJSONTimes(target.Elem(), items[index])
+			normalized, err := normalizeDurableJSONRaw(target.Elem(), items[index])
 			if err != nil {
 				return nil, err
 			}
 			items[index] = normalized
 		}
-		return items, nil
+		return json.Marshal(items)
 	case reflect.Map:
-		object, ok := document.(map[string]any)
-		if !ok || target.Key().Kind() != reflect.String {
-			return document, nil
+		if target.Key().Kind() != reflect.String {
+			return raw, nil
+		}
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &object); err != nil {
+			return raw, nil
 		}
 		for key, child := range object {
-			normalized, err := decodeDurableJSONTimes(target.Elem(), child)
+			normalized, err := normalizeDurableJSONRaw(target.Elem(), child)
 			if err != nil {
 				return nil, err
 			}
 			object[key] = normalized
 		}
-		return object, nil
+		return json.Marshal(object)
 	default:
-		return document, nil
+		return raw, nil
 	}
 }
 
