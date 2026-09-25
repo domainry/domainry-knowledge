@@ -1,244 +1,270 @@
 package store
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
+
+	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/persistence"
 )
 
-var durableJSONTimeType = reflect.TypeOf(time.Time{})
-var durableJSONRawMessageType = reflect.TypeOf(json.RawMessage{})
+// These are persistence shapes, not HTTP projections. Each owned instant is
+// already a UTC Unix-millisecond number before JSON serialization begins.
+type storedKnowledgeLibrary struct {
+	agentsdk.KnowledgeLibrary
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
 
-// marshalDurableJSON preserves the domain model while encoding every time.Time
-// as an integer UTC Unix-millisecond value in durable JSON.
+type storedKnowledgeLibraryMember struct {
+	agentsdk.KnowledgeLibraryMember
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedKnowledgeDocument struct {
+	agentsdk.KnowledgeDocument
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedKnowledgeDocumentRecord struct {
+	persistence.KnowledgeDocumentRecord
+	Document storedKnowledgeDocument `json:"document"`
+}
+
+type storedKnowledgeDocumentLease struct {
+	persistence.KnowledgeDocumentLease
+	ExpiresAt int64 `json:"expires_at"`
+}
+
+type storedAttachmentIndexLease struct {
+	persistence.ConversationAttachmentIndexLease
+	ExpiresAt int64 `json:"expires_at"`
+}
+
+type storedKnowledgeDatasourceBinding struct {
+	persistence.KnowledgeDatasourceBinding
+	CreatedAt int64 `json:"created_at"`
+}
+
+type storedArtifact struct {
+	agentsdk.ConversationArtifact
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedArtifactRecord struct {
+	persistence.ConversationArtifactRecord
+	Artifact storedArtifact `json:"artifact"`
+}
+
+type storedArtifactExport struct {
+	agentsdk.ConversationArtifactExport
+	CreatedAt        int64  `json:"created_at"`
+	ExpiresAt        int64  `json:"expires_at"`
+	LastDownloadedAt *int64 `json:"last_downloaded_at,omitempty"`
+}
+
+func durableMillis(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UTC().UnixMilli()
+}
+
+func durableTime(value int64) time.Time {
+	if value == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(value).UTC()
+}
+
+func storedLibrary(value agentsdk.KnowledgeLibrary) storedKnowledgeLibrary {
+	return storedKnowledgeLibrary{KnowledgeLibrary: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedMember(value agentsdk.KnowledgeLibraryMember) storedKnowledgeLibraryMember {
+	return storedKnowledgeLibraryMember{KnowledgeLibraryMember: value, UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedDocument(value agentsdk.KnowledgeDocument) storedKnowledgeDocument {
+	return storedKnowledgeDocument{KnowledgeDocument: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedArtifactValue(value agentsdk.ConversationArtifact) storedArtifact {
+	return storedArtifact{ConversationArtifact: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedExport(value agentsdk.ConversationArtifactExport) storedArtifactExport {
+	out := storedArtifactExport{ConversationArtifactExport: value, CreatedAt: durableMillis(value.CreatedAt), ExpiresAt: durableMillis(value.ExpiresAt)}
+	if value.LastDownloadedAt != nil {
+		last := durableMillis(*value.LastDownloadedAt)
+		out.LastDownloadedAt = &last
+	}
+	return out
+}
+
+// marshalDurableJSON has no timestamp-name inference and never opens a
+// json.RawMessage. Unregistered types containing time.Time fail closed.
 func marshalDurableJSON(value any) ([]byte, error) {
-	raw, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
+	switch item := value.(type) {
+	case agentsdk.KnowledgeLibrary:
+		return json.Marshal(storedLibrary(item))
+	case agentsdk.KnowledgeLibraryMember:
+		return json.Marshal(storedMember(item))
+	case agentsdk.KnowledgeDocument:
+		return json.Marshal(storedDocument(item))
+	case persistence.KnowledgeDocumentRecord:
+		return json.Marshal(storedKnowledgeDocumentRecord{KnowledgeDocumentRecord: item, Document: storedDocument(item.Document)})
+	case *persistence.KnowledgeDocumentRecord:
+		if item == nil {
+			return json.Marshal(nil)
+		}
+		return marshalDurableJSON(*item)
+	case persistence.KnowledgeDocumentLease:
+		return json.Marshal(storedKnowledgeDocumentLease{KnowledgeDocumentLease: item, ExpiresAt: durableMillis(item.ExpiresAt)})
+	case persistence.ConversationAttachmentIndexLease:
+		return json.Marshal(storedAttachmentIndexLease{ConversationAttachmentIndexLease: item, ExpiresAt: durableMillis(item.ExpiresAt)})
+	case persistence.KnowledgeDatasourceBinding:
+		return json.Marshal(storedKnowledgeDatasourceBinding{KnowledgeDatasourceBinding: item, CreatedAt: durableMillis(item.CreatedAt)})
+	case agentsdk.ConversationArtifact:
+		return json.Marshal(storedArtifactValue(item))
+	case persistence.ConversationArtifactRecord:
+		return json.Marshal(storedArtifactRecord{ConversationArtifactRecord: item, Artifact: storedArtifactValue(item.Artifact)})
+	case agentsdk.ConversationArtifactExport:
+		return json.Marshal(storedExport(item))
+	default:
+		if containsUnregisteredTime(reflect.ValueOf(value), map[uintptr]bool{}) {
+			return nil, fmt.Errorf("durable JSON type %T has unregistered time fields", value)
+		}
+		return json.Marshal(value)
 	}
-	document, err := decodeDurableJSONDocument(raw)
-	if err != nil {
-		return nil, err
-	}
-	document = encodeDurableJSONTimes(reflect.ValueOf(value), document)
-	return json.Marshal(document)
 }
 
-// unmarshalDurableJSON rejects legacy string timestamps. This keeps numeric
-// storage enforceable instead of relying on SQLite's permissive type affinity.
+// unmarshalDurableJSON reconstructs typed instants from the numeric storage
+// DTOs. It does not format a user-facing date or inspect opaque content.
 func unmarshalDurableJSON(raw []byte, destination any) error {
-	if destination == nil || reflect.TypeOf(destination).Kind() != reflect.Pointer {
-		return fmt.Errorf("durable JSON destination must be a pointer")
+	switch out := destination.(type) {
+	case *agentsdk.KnowledgeLibrary:
+		var stored storedKnowledgeLibrary
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgeLibrary
+		out.CreatedAt, out.UpdatedAt = durableTime(stored.CreatedAt), durableTime(stored.UpdatedAt)
+	case *agentsdk.KnowledgeLibraryMember:
+		var stored storedKnowledgeLibraryMember
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgeLibraryMember
+		out.UpdatedAt = durableTime(stored.UpdatedAt)
+	case *persistence.KnowledgeDocumentRecord:
+		var stored storedKnowledgeDocumentRecord
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgeDocumentRecord
+		out.Document = stored.Document.KnowledgeDocument
+		out.Document.CreatedAt, out.Document.UpdatedAt = durableTime(stored.Document.CreatedAt), durableTime(stored.Document.UpdatedAt)
+	case *persistence.KnowledgeDocumentLease:
+		var stored storedKnowledgeDocumentLease
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgeDocumentLease
+		out.ExpiresAt = durableTime(stored.ExpiresAt)
+	case *persistence.ConversationAttachmentIndexLease:
+		var stored storedAttachmentIndexLease
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.ConversationAttachmentIndexLease
+		out.ExpiresAt = durableTime(stored.ExpiresAt)
+	case *persistence.KnowledgeDatasourceBinding:
+		var stored storedKnowledgeDatasourceBinding
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgeDatasourceBinding
+		out.CreatedAt = durableTime(stored.CreatedAt)
+	case *agentsdk.ConversationArtifact:
+		var stored storedArtifact
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.ConversationArtifact
+		out.CreatedAt, out.UpdatedAt = durableTime(stored.CreatedAt), durableTime(stored.UpdatedAt)
+	case *persistence.ConversationArtifactRecord:
+		var stored storedArtifactRecord
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.ConversationArtifactRecord
+		out.Artifact = stored.Artifact.ConversationArtifact
+		out.Artifact.CreatedAt, out.Artifact.UpdatedAt = durableTime(stored.Artifact.CreatedAt), durableTime(stored.Artifact.UpdatedAt)
+	case *agentsdk.ConversationArtifactExport:
+		var stored storedArtifactExport
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.ConversationArtifactExport
+		out.CreatedAt, out.ExpiresAt = durableTime(stored.CreatedAt), durableTime(stored.ExpiresAt)
+		if stored.LastDownloadedAt != nil {
+			last := durableTime(*stored.LastDownloadedAt)
+			out.LastDownloadedAt = &last
+		}
+	default:
+		return json.Unmarshal(raw, destination)
 	}
-	normalized, err := normalizeDurableJSONRaw(reflect.TypeOf(destination).Elem(), json.RawMessage(raw))
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(normalized, destination)
+	return nil
 }
 
-func decodeDurableJSONDocument(raw []byte) (any, error) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	var document any
-	if err := decoder.Decode(&document); err != nil {
-		return nil, err
-	}
-	return document, nil
-}
-
-func encodeDurableJSONTimes(value reflect.Value, document any) any {
+func containsUnregisteredTime(value reflect.Value, seen map[uintptr]bool) bool {
 	for value.IsValid() && (value.Kind() == reflect.Interface || value.Kind() == reflect.Pointer) {
 		if value.IsNil() {
-			return document
+			return false
+		}
+		if value.Kind() == reflect.Pointer {
+			address := value.Pointer()
+			if seen[address] {
+				return false
+			}
+			seen[address] = true
 		}
 		value = value.Elem()
 	}
-	if !value.IsValid() {
-		return document
+	if !value.IsValid() || value.Type() == reflect.TypeOf(json.RawMessage{}) {
+		return false
 	}
-	if value.Type() == durableJSONRawMessageType {
-		return value.Interface().(json.RawMessage)
+	if value.Type() == reflect.TypeOf(time.Time{}) {
+		return true
 	}
-	if value.Type() == durableJSONTimeType {
-		instant := value.Interface().(time.Time)
-		if instant.IsZero() {
-			return int64(0)
-		}
-		return instant.UTC().UnixMilli()
+	if value.Type().Implements(reflect.TypeOf((*json.Marshaler)(nil)).Elem()) {
+		return false
 	}
 	switch value.Kind() {
 	case reflect.Struct:
-		object, ok := document.(map[string]any)
-		if !ok {
-			return document
-		}
-		typeValue := value.Type()
-		for index := 0; index < value.NumField(); index++ {
-			fieldType := typeValue.Field(index)
-			if fieldType.PkgPath != "" {
-				continue
-			}
-			if fieldType.Anonymous && fieldType.Tag.Get("json") == "" {
-				if normalized, ok := encodeDurableJSONTimes(value.Field(index), object).(map[string]any); ok {
-					object = normalized
-				}
-				continue
-			}
-			name, included := durableJSONFieldName(fieldType)
-			if !included {
-				continue
-			}
-			if child, exists := object[name]; exists {
-				object[name] = encodeDurableJSONTimes(value.Field(index), child)
+		for i := 0; i < value.NumField(); i++ {
+			if value.Type().Field(i).PkgPath == "" && containsUnregisteredTime(value.Field(i), seen) {
+				return true
 			}
 		}
-		return object
 	case reflect.Slice, reflect.Array:
-		if value.Type().Elem().Kind() == reflect.Uint8 {
-			return document
+		for i := 0; i < value.Len(); i++ {
+			if containsUnregisteredTime(value.Index(i), seen) {
+				return true
+			}
 		}
-		items, ok := document.([]any)
-		if !ok {
-			return document
-		}
-		for index := 0; index < value.Len() && index < len(items); index++ {
-			items[index] = encodeDurableJSONTimes(value.Index(index), items[index])
-		}
-		return items
 	case reflect.Map:
-		object, ok := document.(map[string]any)
-		if !ok || value.Type().Key().Kind() != reflect.String {
-			return document
-		}
-		iterator := value.MapRange()
-		for iterator.Next() {
-			key := iterator.Key().String()
-			if child, exists := object[key]; exists {
-				object[key] = encodeDurableJSONTimes(iterator.Value(), child)
+		iter := value.MapRange()
+		for iter.Next() {
+			if containsUnregisteredTime(iter.Value(), seen) {
+				return true
 			}
 		}
-		return object
-	default:
-		return document
 	}
-}
-
-func normalizeDurableJSONRaw(target reflect.Type, raw json.RawMessage) (json.RawMessage, error) {
-	for target.Kind() == reflect.Pointer {
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-			return raw, nil
-		}
-		target = target.Elem()
-	}
-	if target == durableJSONRawMessageType {
-		return raw, nil
-	}
-	if target == durableJSONTimeType {
-		decoder := json.NewDecoder(bytes.NewReader(raw))
-		decoder.UseNumber()
-		var value any
-		if err := decoder.Decode(&value); err != nil {
-			return nil, err
-		}
-		number, ok := value.(json.Number)
-		if !ok {
-			return nil, fmt.Errorf("durable time must be a Unix-millisecond number")
-		}
-		millis, err := number.Int64()
-		if err != nil {
-			return nil, fmt.Errorf("durable time must be an integer: %w", err)
-		}
-		if millis == 0 {
-			return json.RawMessage(`"0001-01-01T00:00:00Z"`), nil
-		}
-		return json.Marshal(time.UnixMilli(millis).UTC().Format(time.RFC3339Nano))
-	}
-	switch target.Kind() {
-	case reflect.Struct:
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &object); err != nil {
-			return raw, nil
-		}
-		for index := 0; index < target.NumField(); index++ {
-			field := target.Field(index)
-			if field.PkgPath != "" {
-				continue
-			}
-			if field.Anonymous && field.Tag.Get("json") == "" {
-				normalized, err := normalizeDurableJSONRaw(field.Type, raw)
-				if err != nil {
-					return nil, err
-				}
-				var updated map[string]json.RawMessage
-				if json.Unmarshal(normalized, &updated) == nil {
-					object = updated
-				}
-				continue
-			}
-			name, included := durableJSONFieldName(field)
-			if !included {
-				continue
-			}
-			child, exists := object[name]
-			if !exists {
-				continue
-			}
-			normalized, err := normalizeDurableJSONRaw(field.Type, child)
-			if err != nil {
-				return nil, fmt.Errorf("decode durable JSON field %s: %w", name, err)
-			}
-			object[name] = normalized
-		}
-		return json.Marshal(object)
-	case reflect.Slice, reflect.Array:
-		if target.Elem().Kind() == reflect.Uint8 {
-			return raw, nil
-		}
-		var items []json.RawMessage
-		if err := json.Unmarshal(raw, &items); err != nil {
-			return raw, nil
-		}
-		for index := range items {
-			normalized, err := normalizeDurableJSONRaw(target.Elem(), items[index])
-			if err != nil {
-				return nil, err
-			}
-			items[index] = normalized
-		}
-		return json.Marshal(items)
-	case reflect.Map:
-		if target.Key().Kind() != reflect.String {
-			return raw, nil
-		}
-		var object map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &object); err != nil {
-			return raw, nil
-		}
-		for key, child := range object {
-			normalized, err := normalizeDurableJSONRaw(target.Elem(), child)
-			if err != nil {
-				return nil, err
-			}
-			object[key] = normalized
-		}
-		return json.Marshal(object)
-	default:
-		return raw, nil
-	}
-}
-
-func durableJSONFieldName(field reflect.StructField) (string, bool) {
-	tag := field.Tag.Get("json")
-	if tag == "-" {
-		return "", false
-	}
-	name := strings.Split(tag, ",")[0]
-	if name == "" {
-		name = field.Name
-	}
-	return name, true
+	return false
 }
