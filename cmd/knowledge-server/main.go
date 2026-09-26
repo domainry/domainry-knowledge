@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -30,6 +31,17 @@ func run() error {
 	token := strings.TrimSpace(os.Getenv("KNOWLEDGE_SERVICE_ACCESS_TOKEN"))
 	databasePath := strings.TrimSpace(os.Getenv("KNOWLEDGE_DATABASE_PATH"))
 	storagePath := strings.TrimSpace(os.Getenv("KNOWLEDGE_STORAGE_PATH"))
+	fileStorage := saasservice.FileStorageOptions{
+		Driver: strings.TrimSpace(os.Getenv("KNOWLEDGE_FILE_STORAGE_DRIVER")), Region: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_REGION")),
+		Bucket: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_BUCKET")), Prefix: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_PREFIX")), Endpoint: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_ENDPOINT")),
+	}
+	if raw := strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_FORCE_PATH_STYLE")); raw != "" {
+		value, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return fmt.Errorf("KNOWLEDGE_S3_FORCE_PATH_STYLE must be a boolean: %w", parseErr)
+		}
+		fileStorage.ForcePathStyle = value
+	}
 	address := strings.TrimSpace(os.Getenv("KNOWLEDGE_HTTP_ADDR"))
 	if address == "" {
 		address = ":8092"
@@ -43,7 +55,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	service, err := saasservice.Open(ctx, saasservice.Options{RuntimeID: runtimeID, ServiceAccessToken: token, DatabasePath: databasePath, StoragePath: storagePath, Knowledge: knowledgecontract.Options{Knowledge: source}})
+	service, err := saasservice.Open(ctx, saasservice.Options{RuntimeID: runtimeID, ServiceAccessToken: token, DatabasePath: databasePath, StoragePath: storagePath, FileStorage: fileStorage, Knowledge: knowledgecontract.Options{Knowledge: source}})
 	if err != nil {
 		return fmt.Errorf("open Knowledge SaaS service: %w", err)
 	}

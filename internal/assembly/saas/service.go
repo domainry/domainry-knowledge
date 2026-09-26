@@ -16,11 +16,13 @@ import (
 	agentmodulehost "github.com/domainry/domainry-agent-sdk/modulehost"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
+	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
 	knowledgeapp "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	knowledgemodule "github.com/domainry/domainry-knowledge/internal/assembly/module"
 	artifactstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/artifactstorage"
 	documentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
+	filestore "github.com/domainry/domainry-knowledge/internal/infrastructure/filestore"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/migrationhost"
 	saashttp "github.com/domainry/domainry-knowledge/internal/transport/http/saas"
@@ -34,7 +36,17 @@ type Options struct {
 	ServiceAccessToken string
 	DatabasePath       string
 	StoragePath        string
+	FileStorage        FileStorageOptions
 	Knowledge          knowledgecontract.Options
+}
+
+type FileStorageOptions struct {
+	Driver         string
+	Region         string
+	Bucket         string
+	Prefix         string
+	Endpoint       string
+	ForcePathStyle bool
 }
 
 type Service struct {
@@ -42,8 +54,9 @@ type Service struct {
 	knowledge knowledgecontract.Service
 	database  *sql.DB
 	artifacts *artifactstorage.Files
-	shared    *artifactstorage.SharedFiles
+	shared    artifactstorage.SharedStorage
 	documents *documentstorage.Files
+	files     knowledgefiles.Service
 }
 
 type grantSourceReader struct{ bridge saashttp.GrantBridge }
@@ -101,7 +114,10 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	if err = store.EnsureSchema(ctx, backend, registrar); err != nil {
 		return nil, err
 	}
-	service.shared, err = artifactstorage.NewSharedFiles(filepath.Join(storagePath, "shared-artifacts"))
+	service.shared, err = artifactstorage.OpenShared(ctx, filepath.Join(storagePath, "shared-artifacts"), artifactstorage.SharedStorageConfig{
+		Driver: options.FileStorage.Driver, Region: options.FileStorage.Region, Bucket: options.FileStorage.Bucket,
+		Prefix: options.FileStorage.Prefix, Endpoint: options.FileStorage.Endpoint, ForcePathStyle: options.FileStorage.ForcePathStyle,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +135,10 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	}
 	bridge := saashttp.GrantBridge{}
 	repository := store.New(backend, grantSourceReader{bridge: bridge}, store.ArtifactPersistence{Store: artifactStore, Content: service.shared, Writer: service.shared})
+	service.files, err = filestore.New(options.RuntimeID, artifactStore, service.shared, service.shared)
+	if err != nil {
+		return nil, err
+	}
 	knowledgeOptions := options.Knowledge
 	knowledgeOptions.AttachmentAuthorizer = bridge
 	knowledgeOptions.LibraryAuthorizer = bridge
@@ -144,7 +164,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	service.knowledge = runtime.NewService(options.RuntimeID, knowledgeOptions)
 	service.knowledge.Start(ctx)
 	subjects := store.NewSubjectLifecycle(repository, options.RuntimeID, store.SubjectLifecycleOptions{ArtifactStorage: knowledgeOptions.ArtifactStorage, DocumentStorage: knowledgeOptions.DocumentStorage})
-	server, err := saashttp.New(saashttp.Dependencies{Audience: options.RuntimeID, ServiceAccessToken: options.ServiceAccessToken, Runtime: runtime, Knowledge: service.knowledge, ConversationKnowledge: prepared, Artifacts: repository, Subjects: subjects, Repository: repository})
+	server, err := saashttp.New(saashttp.Dependencies{Audience: options.RuntimeID, ServiceAccessToken: options.ServiceAccessToken, Runtime: runtime, Knowledge: service.knowledge, Files: service.files, ConversationKnowledge: prepared, Artifacts: repository, Subjects: subjects, Repository: repository})
 	if err != nil {
 		return nil, err
 	}

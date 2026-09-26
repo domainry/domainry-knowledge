@@ -6,12 +6,59 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	lifecyclemodel "github.com/domainry/domainry-lifecycle-sdk/model"
 )
 
 func (server *Server) dispatch(ctx context.Context, operation string, raw json.RawMessage) (any, error) {
 	s := server.dependencies.Knowledge
 	switch operation {
+	case "files.upload":
+		var in struct {
+			Authority knowledgefiles.Authority `json:"authority"`
+			Input     knowledgefiles.Upload    `json:"input"`
+		}
+		if err := decodeInput(raw, &in); err != nil {
+			return nil, err
+		}
+		return server.dependencies.Files.Upload(ctx, in.Authority, in.Input)
+	case "files.get":
+		var in struct {
+			Authority knowledgefiles.Authority `json:"authority"`
+			ID        string                   `json:"id"`
+		}
+		if err := decodeInput(raw, &in); err != nil {
+			return nil, err
+		}
+		return server.dependencies.Files.Get(ctx, in.Authority, in.ID)
+	case "files.download":
+		var in struct {
+			Authority knowledgefiles.Authority `json:"authority"`
+			ID        string                   `json:"id"`
+		}
+		if err := decodeInput(raw, &in); err != nil {
+			return nil, err
+		}
+		return server.dependencies.Files.Download(ctx, in.Authority, in.ID)
+	case "files.bind":
+		var in struct {
+			Authority knowledgefiles.Authority `json:"authority"`
+			ID        string                   `json:"id"`
+			Binding   knowledgefiles.Binding   `json:"binding"`
+		}
+		if err := decodeInput(raw, &in); err != nil {
+			return nil, err
+		}
+		return struct{}{}, server.dependencies.Files.Bind(ctx, in.Authority, in.ID, in.Binding)
+	case "files.delete":
+		var in struct {
+			Authority knowledgefiles.Authority `json:"authority"`
+			ID        string                   `json:"id"`
+		}
+		if err := decodeInput(raw, &in); err != nil {
+			return nil, err
+		}
+		return struct{}{}, server.dependencies.Files.Delete(ctx, in.Authority, in.ID)
 	case "runtime.activate":
 		return struct{}{}, nil
 	case "runtime.knowledge.search":

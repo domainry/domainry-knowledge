@@ -13,6 +13,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
+	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	"github.com/domainry/domainry-knowledge-sdk/saashost"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
@@ -24,6 +25,7 @@ type Dependencies struct {
 	ServiceAccessToken    string
 	Runtime               knowledgecontract.Runtime
 	Knowledge             knowledgecontract.Service
+	Files                 knowledgefiles.Service
 	ConversationKnowledge knowledgecontract.ConversationKnowledge
 	Artifacts             knowledgecontract.ArtifactMutationService
 	Subjects              lifecyclecontract.SubjectExecutionHandler
@@ -38,7 +40,7 @@ type Server struct {
 }
 
 func New(dependencies Dependencies) (*Server, error) {
-	if strings.TrimSpace(dependencies.Audience) == "" || strings.TrimSpace(dependencies.ServiceAccessToken) == "" || dependencies.Runtime == nil || dependencies.Knowledge == nil || dependencies.Artifacts == nil || dependencies.Subjects == nil || dependencies.Repository == nil {
+	if strings.TrimSpace(dependencies.Audience) == "" || strings.TrimSpace(dependencies.ServiceAccessToken) == "" || dependencies.Runtime == nil || dependencies.Knowledge == nil || dependencies.Files == nil || dependencies.Artifacts == nil || dependencies.Subjects == nil || dependencies.Repository == nil {
 		return nil, errors.New("Knowledge SaaS server dependencies are incomplete")
 	}
 	secret := make([]byte, 32)
@@ -112,6 +114,10 @@ func decodeInput(raw json.RawMessage, output any) error {
 	return nil
 }
 func safeError(err error) *knowledgecontract.SaaSError {
+	var fileError *knowledgefiles.Error
+	if errors.As(err, &fileError) {
+		return &knowledgecontract.SaaSError{Class: safeClass(fileError.Class), Code: safeCode(fileError.Code), Retryable: fileError.Retryable}
+	}
 	var coded *agentsdk.Error
 	if errors.As(err, &coded) {
 		return &knowledgecontract.SaaSError{Class: safeClass(coded.Class), Code: safeCode(coded.Code), Retryable: coded.Retryable}

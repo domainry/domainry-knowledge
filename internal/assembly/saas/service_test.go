@@ -1,14 +1,17 @@
 package saas
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
+	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	knowledgeremote "github.com/domainry/domainry-knowledge-sdk/remote"
 	_ "modernc.org/sqlite"
 )
@@ -17,6 +20,49 @@ type allowLibraries struct{}
 
 func (allowLibraries) AuthorizeKnowledgeLibrary(context.Context, string, agentsdk.KnowledgeLibrary, agentsdk.ConversationAuthority) error {
 	return nil
+}
+
+func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
+	root := t.TempDir()
+	options := Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", DatabasePath: filepath.Join(root, "knowledge.db"), StoragePath: filepath.Join(root, "storage")}
+	open := func() (*Service, *httptest.Server, knowledgefiles.Service) {
+		service, err := Open(t.Context(), options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		httpServer := httptest.NewServer(service.Handler())
+		client, err := knowledgefiles.OpenRemote(t.Context(), knowledgefiles.RemoteConfig{Endpoint: httpServer.URL, ServiceAccessToken: "secret-token"}, "runtime-a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return service, httpServer, client
+	}
+	authority := knowledgefiles.Authority{RuntimeID: "runtime-a", WorkspaceID: "workspace-a", SubjectID: "user-a"}
+	service, httpServer, client := open()
+	raw := []byte("offline attachment")
+	file, err := client.Upload(t.Context(), authority, knowledgefiles.Upload{ClientID: "upload-a", Filename: "note.txt", ContentType: "text/plain", Data: raw})
+	if err != nil || file.ID == "" || file.ContentType != "text/plain" {
+		t.Fatalf("file=%+v err=%v", file, err)
+	}
+	if err = client.Bind(t.Context(), authority, file.ID, knowledgefiles.Binding{Owner: "im", ResourceType: "message", ResourceID: "message-a", FieldKey: "attachment-a"}); err != nil {
+		t.Fatal(err)
+	}
+	httpServer.Close()
+	if err = service.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	service, httpServer, client = open()
+	defer httpServer.Close()
+	defer service.Close(t.Context())
+	download, err := client.Download(t.Context(), authority, file.ID)
+	if err != nil || download.File.ID != file.ID || !bytes.Equal(download.Data, raw) {
+		t.Fatalf("download=%+v err=%v", download, err)
+	}
+	err = client.Delete(t.Context(), authority, file.ID)
+	var fileErr *knowledgefiles.Error
+	if !errors.As(err, &fileErr) || fileErr.Code != "knowledge.file_in_use" {
+		t.Fatalf("delete err=%v", err)
+	}
 }
 func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.ConversationAuthority) error {
 	return nil
