@@ -19,17 +19,18 @@ import (
 type LibraryKnowledgeBinding = contract.LibraryKnowledgeBinding
 
 type LibraryKnowledgeSource struct {
-	repo        persistence.KnowledgeLibraryRepository
-	policy      agentsdk.KnowledgeLibraryAuthorizer
-	bindings    map[string]LibraryKnowledgeBinding
-	legacy      ConversationKnowledge
-	runtimeID   string
-	documents   persistence.KnowledgeDocumentRepository
-	catalog     agentsdk.KnowledgeDatasourceCatalog
-	datasources persistence.KnowledgeDatasourceRepository
+	repo         persistence.KnowledgeLibraryRepository
+	policy       agentsdk.KnowledgeLibraryAuthorizer
+	sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer
+	bindings     map[string]LibraryKnowledgeBinding
+	legacy       ConversationKnowledge
+	runtimeID    string
+	documents    persistence.KnowledgeDocumentRepository
+	catalog      agentsdk.KnowledgeDatasourceCatalog
+	datasources  persistence.KnowledgeDatasourceRepository
 }
 
-func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
+func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
 	libraries, ok := repo.(persistence.KnowledgeLibraryRepository)
 	if !ok || policy == nil || len(bindings) == 0 && catalog == nil || len(bindings) > 1000 {
 		return nil, fmt.Errorf("library retrieval requires library persistence, live authorization and at most 1000 host bindings")
@@ -39,7 +40,7 @@ func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.Knowl
 			return nil, fmt.Errorf("legacy knowledge source must support revalidation")
 		}
 	}
-	out := &LibraryKnowledgeSource{repo: libraries, policy: policy, bindings: map[string]LibraryKnowledgeBinding{}, legacy: legacy, runtimeID: runtimeID}
+	out := &LibraryKnowledgeSource{repo: libraries, policy: policy, sourcePolicy: sourcePolicy, bindings: map[string]LibraryKnowledgeBinding{}, legacy: legacy, runtimeID: runtimeID}
 	out.documents, _ = repo.(persistence.KnowledgeDocumentRepository)
 	out.catalog = catalog
 	out.datasources, _ = repo.(persistence.KnowledgeDatasourceRepository)

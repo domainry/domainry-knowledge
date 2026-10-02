@@ -56,7 +56,7 @@ func (runtime Runtime) Prepare(runtimeID string, options contract.Options) (cont
 		}
 	}
 	if len(options.LibraryKnowledge) > 0 || options.KnowledgeDatasources != nil {
-		return application.NewLibraryKnowledgeSource(runtime.repository, runtimeID, options.LibraryAuthorizer, options.LibraryKnowledge, options.Knowledge, options.KnowledgeDatasources)
+		return application.NewLibraryKnowledgeSource(runtime.repository, runtimeID, options.LibraryAuthorizer, options.SourceAuthorizer, options.LibraryKnowledge, options.Knowledge, options.KnowledgeDatasources)
 	}
 	return options.Knowledge, nil
 }

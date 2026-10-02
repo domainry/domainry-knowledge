@@ -66,6 +66,10 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		return
 	}
 	if !r.PutStarted {
+		if s.authorizeDocumentSource(ctx, r.SourceAccess, r.Actor) != nil {
+			progress.ErrorCode = "document_source_access_denied"
+			return
+		}
 		if r.Document.Bytes > DocumentMaxBytes(source) {
 			progress.ErrorCode = "document_size_invalid"
 			return
@@ -92,6 +96,10 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		}
 		if _, err = s.DocumentAccess(ctx, r.Document.LibraryID, "documents_upload", r.Actor); err != nil {
 			progress.ErrorCode = "document_upload_access_denied"
+			return
+		}
+		if s.authorizeDocumentSource(ctx, r.SourceAccess, r.Actor) != nil {
+			progress.ErrorCode = "document_source_access_denied"
 			return
 		}
 		write, cancel, err := CommittedKnowledgeWriteContext(ctx, lease.ExpiresAt)

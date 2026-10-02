@@ -105,6 +105,12 @@ func (GrantBridge) ValidateKnowledgeLibraryMember(ctx context.Context, user stri
 		Authority agentsdk.ConversationAuthority `json:"authority"`
 	}{user, authority}, nil)
 }
+func (GrantBridge) AuthorizeKnowledgeDocumentSource(ctx context.Context, source agentsdk.KnowledgeDocumentSourceAccess, authority agentsdk.ConversationAuthority) error {
+	return challengeFor(ctx, "authorize.document_source", struct {
+		Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
+		Authority agentsdk.ConversationAuthority         `json:"authority"`
+	}{source, authority}, nil)
+}
 func (GrantBridge) AuthorizeConversationTool(ctx context.Context, input agentsdk.ConversationToolRequest) (agentsdk.ConversationToolAuthorization, error) {
 	var output agentsdk.ConversationToolAuthorization
 	err := challengeFor(ctx, "authorize.personal", input, &output)

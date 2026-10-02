@@ -295,6 +295,18 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.UploadKnowledgeDocument(ctx, in.Library, in.Input, in.Authority)
 		return v, e, true
+	case "service.document_upload_source":
+		var in struct {
+			Library   string                                 `json:"library"`
+			Input     agentsdk.KnowledgeDocumentUpload       `json:"input"`
+			Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
+			Authority agentsdk.ConversationAuthority         `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.UploadKnowledgeDocumentForSource(ctx, in.Library, in.Input, in.Source, in.Authority)
+		return v, e, true
 	}
 	return nil, nil, false
 }

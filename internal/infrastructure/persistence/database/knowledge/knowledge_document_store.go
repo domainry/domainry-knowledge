@@ -155,12 +155,26 @@ func (s *Store) CompatSaveDocument(ctx context.Context, tx *sql.Tx, r *persisten
 	}
 	return nil
 }
+
+func compatValidDocumentSourceAccess(source *agentsdk.KnowledgeDocumentSourceAccess) bool {
+	return source == nil || personalMemoryKey(source.Namespace) && personalMemoryKey(source.ResourceType) &&
+		executionText(source.ResourceID, 256, true) && source.ResourceID == strings.TrimSpace(source.ResourceID)
+}
+
+func cloneCompatDocumentSourceAccess(source *agentsdk.KnowledgeDocumentSourceAccess) *agentsdk.KnowledgeDocumentSourceAccess {
+	if source == nil {
+		return nil
+	}
+	copy := *source
+	return &copy
+}
+
 func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.KnowledgeDocumentReserve, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
 	valid := CompatValidAttachmentReserve(persistence.ConversationAttachmentReserve{ClientID: in.ClientID, ConversationID: in.LibraryID, Filename: in.Filename, ContentType: in.ContentType, SHA256: in.SHA256, Bytes: in.Bytes})
-	if in.AttachmentOrigin != nil && in.DocumentOrigin != nil || !valid || !CompatValidLibraryID(in.LibraryID) || !CompatArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !CompatArtifactSHA(in.AccessPolicySHA256) {
+	if in.AttachmentOrigin != nil && in.DocumentOrigin != nil || !valid || !CompatValidLibraryID(in.LibraryID) || !CompatArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !CompatArtifactSHA(in.AccessPolicySHA256) || !compatValidDocumentSourceAccess(in.SourceAccess) {
 		return out, conversationError("bad_request", "document_invalid")
 	}
 	namespace := ""
@@ -232,7 +246,7 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		actor := agentsdk.ConversationAuthority{Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: a.UserID, RoleKey: a.RoleKey}
-		out = persistence.KnowledgeDocumentRecord{AttachmentOrigin: in.AttachmentOrigin, DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, CreatedByUserID: a.UserID, State: "uploading", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: source, RemoteID: "dka_" + conversationHash([]string{source, CompatLibraryScope(a), id, in.SHA256})}
+		out = persistence.KnowledgeDocumentRecord{AttachmentOrigin: in.AttachmentOrigin, DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, CreatedByUserID: a.UserID, State: "uploading", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: source, SourceAccess: cloneCompatDocumentSourceAccess(in.SourceAccess), RemoteID: "dka_" + conversationHash([]string{source, CompatLibraryScope(a), id, in.SHA256})}
 		out.AccessPolicySHA256 = in.AccessPolicySHA256
 		out.PutRequestID = CompatKnowledgeDocumentPutRequestID(out)
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), CompatKnowledgeDocumentTable).Columns("scope_key", "document_id", "library_id", "source_key", "remote_id", "state", "revision", "bytes", "payload_json").Values(CompatLibraryScope(a), id, in.LibraryID, source, out.RemoteID, out.Document.State, 1, in.Bytes, conversationJSON(out)).Build()

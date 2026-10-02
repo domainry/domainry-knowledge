@@ -68,8 +68,8 @@ func DocumentReadable(r persistence.KnowledgeDocumentRecord, library, source, po
 type LibraryKnowledgeBinding = application.LibraryKnowledgeBinding
 type LibraryKnowledgeSource = application.LibraryKnowledgeSource
 
-func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
-	return application.NewLibraryKnowledgeSource(repo, runtimeID, policy, bindings, legacy, catalog)
+func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
+	return application.NewLibraryKnowledgeSource(repo, runtimeID, policy, sourcePolicy, bindings, legacy, catalog)
 }
 func LibraryKnowledgeAccessError(err error) error {
 	return application.LibraryKnowledgeAccessError(err)

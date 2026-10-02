@@ -142,6 +142,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	knowledgeOptions := options.Knowledge
 	knowledgeOptions.AttachmentAuthorizer = bridge
 	knowledgeOptions.LibraryAuthorizer = bridge
+	knowledgeOptions.SourceAuthorizer = bridge
 	knowledgeOptions.PersonalAuthorizer = bridge
 	knowledgeOptions.Sources = bridge
 	if knowledgeOptions.ArtifactStorage == nil {

@@ -28,6 +28,9 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 		return zero, err
 	}
 	if found {
+		if err = s.authorizeDocumentSource(ctx, prior.SourceAccess, a); err != nil {
+			return zero, err
+		}
 		if prior.Document.State == "deleting" || prior.Document.State == "deleted" {
 			return zero, conversationFailure("not_found", "document_not_found")
 		}
@@ -62,7 +65,15 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 	if source.Document.Revision != in.ExpectedRevision {
 		return zero, conversationFailure("conflict", "revision_conflict")
 	}
-	return s.UploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Data: source.Data}, nil, &origin, recheck, a)
+	documents, ok := s.repo.(persistence.KnowledgeDocumentRepository)
+	if !ok {
+		return zero, conversationFailure("unavailable", "document_transfer_unavailable")
+	}
+	sourceRecord, err := s.KnowledgeDocumentRecord(ctx, documents, in.SourceLibraryID, in.SourceDocumentID, a)
+	if err != nil {
+		return zero, err
+	}
+	return s.uploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Data: source.Data}, nil, &origin, recheck, cloneDocumentSourceAccess(sourceRecord.SourceAccess), a)
 }
 
 var _ agentsdk.KnowledgeDocumentTransferService = (*Service)(nil)

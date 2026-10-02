@@ -121,6 +121,15 @@ type DocumentEvidence struct {
 func DocumentReadable(r persistence.KnowledgeDocumentRecord, library, source, policy string) bool {
 	return r.Document.LibraryID == library && r.SourceID == source && r.AccessPolicySHA256 == policy && r.Document.State == "ready" && r.IndexObserved && !r.DeleteStarted
 }
+func (k *LibraryKnowledgeSource) authorizeManagedDocumentSource(ctx context.Context, r persistence.KnowledgeDocumentRecord, a agentsdk.ConversationAuthority) error {
+	if r.SourceAccess == nil {
+		return nil
+	}
+	if !validDocumentSourceAccess(*r.SourceAccess) || k.sourcePolicy == nil {
+		return conversationFailure("forbidden", "knowledge_access_denied")
+	}
+	return k.sourcePolicy.AuthorizeKnowledgeDocumentSource(ctx, *r.SourceAccess, a)
+}
 func (k *LibraryKnowledgeSource) ManagedDocument(ctx context.Context, b LibraryKnowledgeBinding, source, id string, a agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRecord, error) {
 	r, err := k.documents.KnowledgeDocumentRecord(ctx, id, a)
 	if err != nil {
@@ -128,6 +137,9 @@ func (k *LibraryKnowledgeSource) ManagedDocument(ctx context.Context, b LibraryK
 	}
 	if !DocumentReadable(r, b.LibraryID, source, DocumentAccessPolicy(b.Source)) {
 		return r, conversationFailure("forbidden", "knowledge_access_denied")
+	}
+	if err = k.authorizeManagedDocumentSource(ctx, r, a); err != nil {
+		return r, err
 	}
 	return r, nil
 }
@@ -162,6 +174,13 @@ func (k *LibraryKnowledgeSource) ManagedKnowledge(ctx context.Context, b Library
 		}
 		if !DocumentReadable(r, b.LibraryID, source.KnowledgeDocumentSourceIdentity(), DocumentAccessPolicy(source)) {
 			continue
+		}
+		if err = k.authorizeManagedDocumentSource(ctx, r, a); err != nil {
+			var denied *agentsdk.Error
+			if errors.As(err, &denied) && (denied.Class == "forbidden" || denied.Class == "not_found") {
+				continue
+			}
+			return agentsdk.ConversationKnowledgeResult{}, err
 		}
 		if id != "" && r.Document.ID != id {
 			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")

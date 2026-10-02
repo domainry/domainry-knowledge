@@ -78,11 +78,12 @@ func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *te
 	reader := producer
 	reader.UserID, reader.RoleKey = "reader", "read-only"
 	lib := sdk.KnowledgeLibrary{ID: "lib_" + strings.Repeat("a", 32), Kind: "shared", Role: "reader"}
-	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true}
+	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
 	repo := &sharedKnowledgeReadRepo{resultReadLibraryRepo: resultReadLibraryRepo{a: producer, library: lib, doc: doc, member: true}, producer: producer, reader: reader, readerMember: true}
 	policy := &sharedKnowledgeReadPolicy{}
+	sourcePolicy := &resultReadSourcePolicy{}
 	provider := &sharedKnowledgeReadProvider{resultReadDocumentProvider: resultReadDocumentProvider{passages: []sdk.KnowledgeDocumentPassage{{DocumentID: doc.RemoteID, Title: "金额来源", Content: "金额：123.45\n编号：9007199254740993"}}}}
-	k, err := NewLibraryKnowledgeSource(repo, producer.RuntimeID, policy, []LibraryKnowledgeBinding{{WorkspaceID: producer.WorkspaceID, LibraryID: lib.ID, Source: provider, ManageDocuments: true}}, nil, nil)
+	k, err := NewLibraryKnowledgeSource(repo, producer.RuntimeID, policy, sourcePolicy, []LibraryKnowledgeBinding{{WorkspaceID: producer.WorkspaceID, LibraryID: lib.ID, Source: provider, ManageDocuments: true}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +136,12 @@ func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *te
 			if err := sdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, reader); err == nil {
 				t.Fatal("ordinary reader acquired producer evidence")
 			}
-			for _, revoked := range []string{"reader-membership", "reader-policy", "producer-policy", "producer-membership", "source-document", "reader-during-IO", "reader-during-final-producer-IO"} {
+			for _, revoked := range []string{"reader-membership", "reader-policy", "producer-policy", "producer-membership", "source-document", "source-record", "reader-during-IO", "reader-during-final-producer-IO"} {
 				t.Run(revoked, func(t *testing.T) {
 					t.Cleanup(func() {
 						repo.member, repo.readerMember, repo.doc, repo.library = true, true, doc, lib
 						policy.deniedUser, policy.deniedOperation = "", ""
+						sourcePolicy.denied = false
 						provider.after = nil
 					})
 					switch revoked {
@@ -162,6 +164,11 @@ func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *te
 						if operation == "libraries" {
 							repo.library.Archived = true
 						}
+					case "source-record":
+						if operation == "libraries" {
+							return
+						}
+						sourcePolicy.denied = true
 					case "reader-during-IO":
 						if operation == "libraries" {
 							return

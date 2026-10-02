@@ -67,6 +67,19 @@ type resultReadDocumentProvider struct {
 	afterRead func()
 }
 
+type resultReadSourcePolicy struct {
+	denied bool
+	calls  []sdk.ConversationAuthority
+}
+
+func (p *resultReadSourcePolicy) AuthorizeKnowledgeDocumentSource(_ context.Context, _ sdk.KnowledgeDocumentSourceAccess, a sdk.ConversationAuthority) error {
+	p.calls = append(p.calls, a)
+	if p.denied {
+		return conversationFailure("forbidden", "document_source_access_denied")
+	}
+	return nil
+}
+
 func (*resultReadDocumentProvider) KnowledgeDocumentSourceIdentity() string { return "isolated-source" }
 func (*resultReadDocumentProvider) KnowledgeDocumentManagementReady() error { return nil }
 func (s *resultReadDocumentProvider) SearchKnowledgeDocumentPassages(context.Context, string, sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
@@ -83,11 +96,12 @@ func (s *resultReadDocumentProvider) ReadKnowledgeDocumentPassages(ctx context.C
 func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *testing.T) {
 	a := sdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "reader"}
 	lib := sdk.KnowledgeLibrary{ID: "lib_" + strings.Repeat("a", 32), Kind: "shared", Role: "reader"}
-	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true}
+	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
 	repo := &resultReadLibraryRepo{a: a, library: lib, doc: doc, member: true}
 	policy := &resultReadLibraryPolicy{}
+	sourcePolicy := &resultReadSourcePolicy{}
 	provider := &resultReadDocumentProvider{passages: []sdk.KnowledgeDocumentPassage{{DocumentID: doc.RemoteID, Title: "文件", Content: "金额：123.45"}}}
-	k, err := NewLibraryKnowledgeSource(repo, a.RuntimeID, policy, []LibraryKnowledgeBinding{{WorkspaceID: a.WorkspaceID, LibraryID: lib.ID, Source: provider, ManageDocuments: true}}, nil, nil)
+	k, err := NewLibraryKnowledgeSource(repo, a.RuntimeID, policy, sourcePolicy, []LibraryKnowledgeBinding{{WorkspaceID: a.WorkspaceID, LibraryID: lib.ID, Source: provider, ManageDocuments: true}}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +130,7 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 				{"removed", func() { repo.doc.DeleteStarted = true }},
 				{"content", func() { repo.doc.Document.SHA256 = strings.Repeat("d", 64) }},
 				{"binding", func() { repo.doc.SourceID = "different-source" }},
+				{"source-record", func() { sourcePolicy.denied = true }},
 			} {
 				t.Run(change.name, func(t *testing.T) {
 					change.apply()
@@ -123,6 +138,7 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 						t.Fatal("revoked source remained readable")
 					}
 					policy.denied = ""
+					sourcePolicy.denied = false
 					repo.member = true
 					repo.library = lib
 					repo.doc = doc
