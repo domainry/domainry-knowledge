@@ -92,6 +92,13 @@ func (GrantBridge) AuthorizeConversationAttachment(ctx context.Context, action s
 		Authority agentsdk.ConversationAuthority `json:"authority"`
 	}{action, authority}, nil)
 }
+func (GrantBridge) ResolveConversationAttachmentPermissions(ctx context.Context, authority agentsdk.ConversationAuthority) (agentsdk.ConversationAttachmentPermissionScope, error) {
+	var output agentsdk.ConversationAttachmentPermissionScope
+	err := challengeFor(ctx, "resolve.attachment_permissions", struct {
+		Authority agentsdk.ConversationAuthority `json:"authority"`
+	}{authority}, &output)
+	return output, err
+}
 func (GrantBridge) AuthorizeKnowledgeLibrary(ctx context.Context, operation string, item agentsdk.KnowledgeLibrary, authority agentsdk.ConversationAuthority) error {
 	return challengeFor(ctx, "authorize.library", struct {
 		Operation string                         `json:"operation"`

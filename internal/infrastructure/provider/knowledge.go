@@ -50,6 +50,14 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 		slices.Sort(c.DocumentPermissionIDs)
 		c.DocumentPermissionIDs = slices.Compact(c.DocumentPermissionIDs)
 	}
+	if c.ReadPermissionIDs != nil {
+		if len(c.ReadPermissionIDs) == 0 || len(c.ReadPermissionIDs) > 100 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
+			return nil, fmt.Errorf("fixed read permissions must be nonempty and cannot use dynamic authority policy")
+		}
+		c.ReadPermissionIDs = slices.Clone(c.ReadPermissionIDs)
+		slices.Sort(c.ReadPermissionIDs)
+		c.ReadPermissionIDs = slices.Compact(c.ReadPermissionIDs)
+	}
 	if c.AnalysisDocumentIDs != nil {
 		if len(c.AnalysisDocumentIDs) == 0 || len(c.AnalysisDocumentIDs) > 50 {
 			return nil, fmt.Errorf("analysis document IDs must contain between 1 and 50 values")
@@ -181,7 +189,7 @@ func (g knowledgeGateway) Call(ctx context.Context, request connector.CallReques
 	request.Connection.WorkspaceID = a.WorkspaceID
 	request.Principal = connector.Principal{IsAuthenticated: true, UserID: a.UserID, WorkspaceID: a.WorkspaceID}
 	request.Secrets = map[string]string{"api_key": k.config.APIKey}
-	if k.config.DocumentPermissionIDs != nil || k.config.PermissionIDs != nil {
+	if k.config.ReadPermissionIDs != nil || k.config.DocumentPermissionIDs != nil || k.config.PermissionIDs != nil {
 		request.Connection.Config["permission_ids_by_user"] = map[string][]string{a.UserID: ids}
 	}
 	return k.adapter.Call(ctx, request)

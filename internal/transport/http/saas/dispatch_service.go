@@ -5,25 +5,27 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
 )
 
 type sourceDescriptor struct {
-	Handle             string `json:"handle"`
-	Identity           string `json:"identity"`
-	PermissionID       string `json:"permission_id,omitempty"`
-	AccessPolicySHA256 string `json:"access_policy_sha256,omitempty"`
-	MaxBytes           int64  `json:"max_bytes,omitempty"`
-	Ready              bool   `json:"ready"`
+	Handle                string   `json:"handle"`
+	Identity              string   `json:"identity"`
+	DocumentPermissionIDs []string `json:"document_permission_ids,omitempty"`
+	ReadPermissionIDs     []string `json:"read_permission_ids,omitempty"`
+	AccessPolicySHA256    string   `json:"access_policy_sha256,omitempty"`
+	MaxBytes              int64    `json:"max_bytes,omitempty"`
+	Ready                 bool     `json:"ready"`
 }
 
-func (server *Server) registerSource(source agentsdk.ManagedKnowledgeDocumentSource, permission string) sourceDescriptor {
+func (server *Server) registerSource(source agentsdk.ManagedKnowledgeDocumentSource, documentPermissions, readPermissions []string) sourceDescriptor {
 	identity := source.KnowledgeDocumentSourceIdentity()
 	sum := sha256.Sum256([]byte(identity))
 	handle := hex.EncodeToString(sum[:])
-	descriptor := sourceDescriptor{Handle: handle, Identity: identity, PermissionID: permission, Ready: source.KnowledgeDocumentManagementReady() == nil}
+	descriptor := sourceDescriptor{Handle: handle, Identity: identity, DocumentPermissionIDs: slices.Clone(documentPermissions), ReadPermissionIDs: slices.Clone(readPermissions), Ready: source.KnowledgeDocumentManagementReady() == nil}
 	if value, ok := source.(agentsdk.KnowledgeDocumentAccessPolicySource); ok {
 		descriptor.AccessPolicySHA256 = value.KnowledgeDocumentAccessPolicySHA256()
 	}
@@ -114,7 +116,7 @@ func (server *Server) dispatchService(ctx context.Context, operation string, raw
 		return struct {
 			Scope   sourceDescriptor                                    `json:"scope"`
 			Records map[string]persistence.ConversationAttachmentRecord `json:"records"`
-		}{server.registerSource(source, scope.PermissionID), records}, nil, true
+		}{server.registerSource(source, scope.DocumentPermissionIDs, scope.ReadPermissionIDs), records}, nil, true
 	case "service.attachment_knowledge_binding":
 		var in struct {
 			Conversation string                         `json:"conversation"`
@@ -131,7 +133,7 @@ func (server *Server) dispatchService(ctx context.Context, operation string, raw
 		if !ok {
 			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.source_invalid"}, true
 		}
-		return server.registerSource(source, scope.PermissionID), nil, true
+		return server.registerSource(source, scope.DocumentPermissionIDs, scope.ReadPermissionIDs), nil, true
 	case "service.attachment_record":
 		var in struct {
 			ConversationID string                         `json:"conversation_id"`

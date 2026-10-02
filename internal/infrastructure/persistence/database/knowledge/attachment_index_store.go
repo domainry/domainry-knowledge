@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"math"
+	"slices"
+	"strings"
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -42,7 +44,7 @@ func (s *Store) CompatQueueAttachmentIndexWork(ctx context.Context, tx *sql.Tx, 
 }
 
 func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected int64, source persistence.ConversationAttachmentSource, a agentsdk.ConversationAuthority) (out persistence.ConversationAttachmentRecord, err error) {
-	if conversationAuthority(a) != nil || expected < 1 || !CompatArtifactSHA(source.Identity) || !CompatArtifactSHA(source.AccessPolicySHA256) || !executionText(source.PermissionID, 128, true) || source.DocID != "" || source.RequestID != "" {
+	if conversationAuthority(a) != nil || expected < 1 || !CompatArtifactSHA(source.Identity) || !CompatArtifactSHA(source.AccessPolicySHA256) || !validAttachmentDocumentPermissions(source.DocumentPermissionIDs) || source.DocID != "" || source.RequestID != "" {
 		return out, conversationError("bad_request", "attachment_source_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
@@ -69,7 +71,7 @@ func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected in
 			return conversationError("not_found", "attachment_not_found")
 		}
 		if out.Index != nil && out.Source != nil {
-			if out.Source.Identity != source.Identity || out.Source.PermissionID != source.PermissionID || out.Source.AccessPolicySHA256 != source.AccessPolicySHA256 {
+			if out.Source.Identity != source.Identity || !slices.Equal(out.Source.DocumentPermissionIDs, source.DocumentPermissionIDs) || out.Source.AccessPolicySHA256 != source.AccessPolicySHA256 {
 				return conversationError("conflict", "attachment_source_changed")
 			}
 			return nil // An old response can be recovered; no write or lease is reset.
@@ -82,7 +84,8 @@ func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected in
 		}
 		frozen := source
 		frozen.DocID = "dka_" + conversationHash([]string{"private_attachment.v1", source.Identity, conversationOwner(a), out.Attachment.ConversationID, id, out.Attachment.SHA256})
-		frozen.RequestID = "aput_" + conversationHash([]string{frozen.DocID, out.RequestSHA256, source.PermissionID, source.AccessPolicySHA256})
+		frozen.DocumentPermissionIDs = slices.Clone(source.DocumentPermissionIDs)
+		frozen.RequestID = "aput_" + conversationHash([]string{frozen.DocID, out.RequestSHA256, strings.Join(source.DocumentPermissionIDs, "\x00"), source.AccessPolicySHA256})
 		out.Source = &frozen
 		out.Index = &persistence.ConversationAttachmentIndex{Actor: a}
 		out.Attachment.State, out.Attachment.IndexStatus, out.Attachment.ErrorCode = "indexing", "QUEUED", ""
@@ -92,6 +95,18 @@ func (s *Store) QueueAttachmentIndex(ctx context.Context, id string, expected in
 		return s.CompatQueueAttachmentIndexWork(ctx, tx, out, a)
 	})
 	return
+}
+
+func validAttachmentDocumentPermissions(ids []string) bool {
+	if len(ids) != 1 || !slices.IsSorted(ids) {
+		return false
+	}
+	for i, id := range ids {
+		if !executionText(id, 128, true) || i > 0 && ids[i-1] == id {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) ClaimAttachmentIndexWork(ctx context.Context, runtime, owner string, now time.Time, ttl time.Duration) (out persistence.ConversationAttachmentIndexLease, found bool, err error) {

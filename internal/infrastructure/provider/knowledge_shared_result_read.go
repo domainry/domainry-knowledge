@@ -32,6 +32,9 @@ func (k *Knowledge) knowledgeAccessPolicy(ctx context.Context, a sdk.Conversatio
 		}
 		return slices.Clone(ids), nil
 	}
+	if k.config.ReadPermissionIDs != nil {
+		return slices.Clone(k.config.ReadPermissionIDs), nil
+	}
 	return slices.Clone(k.config.DocumentPermissionIDs), nil
 }
 

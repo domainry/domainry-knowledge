@@ -14,6 +14,9 @@ func ValidateAttachmentKnowledge(repo any, options *Options) error {
 	if len(options.AttachmentKnowledge) == 0 {
 		return nil
 	}
+	if _, ok := options.AttachmentAuthorizer.(agentsdk.ConversationAttachmentPermissionResolver); !ok {
+		return fmt.Errorf("attachment knowledge requires live Identity permission resolution")
+	}
 	if _, ok := repo.(persistence.ConversationAttachmentIndexRepository); !ok {
 		return fmt.Errorf("attachment knowledge requires durable index persistence")
 	}
@@ -62,16 +65,36 @@ func (s *Service) AttachmentKnowledgeBinding(ctx context.Context, conversation s
 		if b.WorkspaceID != a.WorkspaceID {
 			continue
 		}
-		scope, err := b.Knowledge.ResolveAttachmentKnowledge(ctx, conversation, a)
+		resolver, ok := s.options.AttachmentAuthorizer.(agentsdk.ConversationAttachmentPermissionResolver)
+		if !ok {
+			return zero, conversationFailure("unavailable", "attachment_permission_resolver_unavailable")
+		}
+		permissions, err := resolver.ResolveConversationAttachmentPermissions(ctx, a)
 		if err != nil {
 			return zero, err
 		}
-		if scope.Source == nil || scope.Source.KnowledgeDocumentManagementReady() != nil || scope.Source.KnowledgeDocumentSourceIdentity() != b.Knowledge.AttachmentKnowledgeSourceIdentity() || !ValidAttachmentSourceHash(scope.Source.KnowledgeDocumentAccessPolicySHA256()) || !conversationText(scope.PermissionID, 128, true) || scope.Source.KnowledgeDocumentMaxBytes() < 1 {
+		scope, err := b.Knowledge.ResolveAttachmentKnowledge(ctx, conversation, a, permissions)
+		if err != nil {
+			return zero, err
+		}
+		if scope.Source == nil || scope.Source.KnowledgeDocumentManagementReady() != nil || scope.Source.KnowledgeDocumentSourceIdentity() != b.Knowledge.AttachmentKnowledgeSourceIdentity() || !ValidAttachmentSourceHash(scope.Source.KnowledgeDocumentAccessPolicySHA256()) || !validAttachmentPermissionIDs(scope.DocumentPermissionIDs, 1) || !validAttachmentPermissionIDs(scope.ReadPermissionIDs, 100) || scope.Source.KnowledgeDocumentMaxBytes() < 1 {
 			return zero, conversationFailure("unavailable", "attachment_source_invalid")
 		}
 		return scope, nil
 	}
 	return zero, conversationFailure("unavailable", "attachment_index_unavailable")
+}
+
+func validAttachmentPermissionIDs(ids []string, limit int) bool {
+	if len(ids) == 0 || len(ids) > limit || !slices.IsSorted(ids) {
+		return false
+	}
+	for i, id := range ids {
+		if !conversationText(id, 128, true) || i > 0 && ids[i-1] == id {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) IndexAttachment(ctx context.Context, conversation, id string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.ConversationAttachment, error) {
@@ -98,7 +121,7 @@ func (s *Service) IndexAttachment(ctx context.Context, conversation, id string, 
 	if r.Attachment.Bytes > DocumentMaxBytes(scope.Source) {
 		return zero, conversationFailure("bad_request", "attachment_size_invalid")
 	}
-	source := persistence.ConversationAttachmentSource{Identity: scope.Source.KnowledgeDocumentSourceIdentity(), PermissionID: scope.PermissionID, AccessPolicySHA256: scope.Source.KnowledgeDocumentAccessPolicySHA256()}
+	source := persistence.ConversationAttachmentSource{Identity: scope.Source.KnowledgeDocumentSourceIdentity(), DocumentPermissionIDs: slices.Clone(scope.DocumentPermissionIDs), AccessPolicySHA256: scope.Source.KnowledgeDocumentAccessPolicySHA256()}
 	if err = repo.ActivateAttachmentKnowledgeSource(ctx, a.RuntimeID, a.WorkspaceID, source.Identity); err != nil {
 		return zero, err
 	}

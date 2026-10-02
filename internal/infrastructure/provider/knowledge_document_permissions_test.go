@@ -105,3 +105,38 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 		t.Fatal("fixed writes combined with dynamic reads")
 	}
 }
+
+func TestKnowledgeSeparatesDocumentGrantsFromPrincipalReadIdentities(t *testing.T) {
+	documentPermissions := []string{"scope:conversation"}
+	readPermissions := []string{"scope:conversation", "scope:organization", "scope:user", "scope:workspace"}
+	var uploadChecked, readChecked bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/kb/kbs/kb/documents" {
+			uploadChecked = r.Method == http.MethodPost && r.Header.Get("X-KB-Permission-Ids") == `["scope:conversation"]`
+			io.WriteString(w, `{"err_code":0}`)
+			return
+		}
+		var in struct {
+			IDs []string `json:"permission_ids"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		readChecked = slices.Equal(in.IDs, readPermissions)
+		io.WriteString(w, `{"err_code":0,"data":{"doc_id":"doc-1","status":"INDEXED","hits":[]}}`)
+	}))
+	defer upstream.Close()
+	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentPermissionIDs: documentPermissions, ReadPermissionIDs: readPermissions}
+	k, err := newKnowledgeWithOfficialAdapter(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := knowledgeAuthority()
+	if err = k.PutKnowledgeDocument(t.Context(), agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "private.txt", Data: []byte("private"), RequestID: "request-1", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = k.Search(t.Context(), "private", a); err != nil {
+		t.Fatal(err)
+	}
+	if !uploadChecked || !readChecked {
+		t.Fatalf("upload=%t read=%t", uploadChecked, readChecked)
+	}
+}

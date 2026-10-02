@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"slices"
 	"unicode/utf8"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -45,7 +46,7 @@ func (s *Service) AttachmentKnowledgeAccess(ctx context.Context, conversation st
 	for _, r := range records {
 		if r.Attachment.ConversationID != conversation || r.Attachment.State != "ready" || r.Source == nil || r.Index == nil || !r.Index.IndexObserved || r.Index.DeleteStarted ||
 			r.Index.Actor.RuntimeID != a.RuntimeID || r.Index.Actor.WorkspaceID != a.WorkspaceID || r.Index.Actor.UserID != a.UserID ||
-			r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || r.Source.PermissionID != scope.PermissionID || r.Source.DocID == "" {
+			r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || !slices.Equal(r.Source.DocumentPermissionIDs, scope.DocumentPermissionIDs) || r.Source.DocID == "" {
 			continue
 		}
 		if _, duplicate := out[r.Source.DocID]; duplicate {
@@ -61,7 +62,7 @@ func AttachmentKnowledgeReceipt(scope agentsdk.ConversationAttachmentKnowledgeSc
 	if err != nil || len(raw) > 640*1024 {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_context_exceeded")
 	}
-	identity := []any{AttachmentKnowledgeProvider, scope.Source.KnowledgeDocumentSourceIdentity(), scope.Source.KnowledgeDocumentAccessPolicySHA256(), scope.PermissionID, a.RuntimeID, a.WorkspaceID, a.UserID, conversation}
+	identity := []any{AttachmentKnowledgeProvider, scope.Source.KnowledgeDocumentSourceIdentity(), scope.Source.KnowledgeDocumentAccessPolicySHA256(), scope.DocumentPermissionIDs, scope.ReadPermissionIDs, a.RuntimeID, a.WorkspaceID, a.UserID, conversation}
 	out := agentsdk.ConversationKnowledgeResult{Provider: AttachmentKnowledgeProvider, ConversationID: conversation, Operation: op, Query: q, DocumentID: id, Data: raw}
 	for i, p := range data.Passages {
 		if i >= 50 {
@@ -115,7 +116,7 @@ func (s *Service) AttachmentKnowledge(ctx context.Context, conversation, op, q, 
 	if err != nil {
 		return zero, err
 	}
-	if currentScope.Source.KnowledgeDocumentSourceIdentity() != scope.Source.KnowledgeDocumentSourceIdentity() || currentScope.Source.KnowledgeDocumentAccessPolicySHA256() != scope.Source.KnowledgeDocumentAccessPolicySHA256() || currentScope.PermissionID != scope.PermissionID {
+	if currentScope.Source.KnowledgeDocumentSourceIdentity() != scope.Source.KnowledgeDocumentSourceIdentity() || currentScope.Source.KnowledgeDocumentAccessPolicySHA256() != scope.Source.KnowledgeDocumentAccessPolicySHA256() || !slices.Equal(currentScope.DocumentPermissionIDs, scope.DocumentPermissionIDs) || !slices.Equal(currentScope.ReadPermissionIDs, scope.ReadPermissionIDs) {
 		return zero, conversationFailure("forbidden", "knowledge_access_denied")
 	}
 	data := DocumentEvidence{Passages: []agentsdk.KnowledgeDocumentPassage{}, Documents: []DocumentSnapshot{}, Partial: true}

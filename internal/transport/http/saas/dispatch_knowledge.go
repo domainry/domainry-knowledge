@@ -88,7 +88,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		if e != nil {
 			return nil, e, true
 		}
-		return server.registerSource(source, ""), nil, true
+		return server.registerSource(source, nil, nil), nil, true
 	case "service.document_download":
 		var in struct {
 			Library   string                         `json:"library"`

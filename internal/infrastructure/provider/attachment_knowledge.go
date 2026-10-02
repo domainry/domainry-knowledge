@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -21,7 +22,7 @@ type AttachmentKnowledge struct {
 }
 
 func NewAttachmentKnowledge(c KnowledgeConfig, runtime string, adapterFactory knowledgeprovider.AdapterFactory) (*AttachmentKnowledge, error) {
-	if strings.TrimSpace(runtime) == "" || len(runtime) > 255 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil || c.DocumentPermissionIDs != nil {
+	if strings.TrimSpace(runtime) == "" || len(runtime) > 255 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil || c.DocumentPermissionIDs != nil || c.ReadPermissionIDs != nil {
 		return nil, fmt.Errorf("attachment knowledge owns its private runtime/workspace/user/conversation policy")
 	}
 	c.DocumentManagement = true
@@ -40,7 +41,7 @@ func (k *AttachmentKnowledge) AttachmentKnowledgeSourceIdentity() string { retur
 
 var attachmentConversationID = regexp.MustCompile(`^conv_[a-f0-9]{32}$`)
 
-func (k *AttachmentKnowledge) ResolveAttachmentKnowledge(ctx context.Context, conversation string, a agentsdk.ConversationAuthority) (agentsdk.ConversationAttachmentKnowledgeScope, error) {
+func (k *AttachmentKnowledge) ResolveAttachmentKnowledge(ctx context.Context, conversation string, a agentsdk.ConversationAuthority, permissions agentsdk.ConversationAttachmentPermissionScope) (agentsdk.ConversationAttachmentKnowledgeScope, error) {
 	var zero agentsdk.ConversationAttachmentKnowledgeScope
 	if err := ctx.Err(); err != nil {
 		return zero, err
@@ -48,15 +49,40 @@ func (k *AttachmentKnowledge) ResolveAttachmentKnowledge(ctx context.Context, co
 	if !a.Known || a.RuntimeID != k.runtime || a.WorkspaceID != k.config.WorkspaceID || strings.TrimSpace(a.UserID) == "" || len(a.UserID) > 255 || !attachmentConversationID.MatchString(conversation) {
 		return zero, knowledgeFailure("access_denied")
 	}
-	raw, _ := json.Marshal([]string{"attachment.v1", a.RuntimeID, a.WorkspaceID, a.UserID, conversation})
-	permission := fmt.Sprintf("scope:agent:attachment:%x", sha256.Sum256(raw))
+	if len(permissions.OrganizationIDs) > 96 {
+		return zero, knowledgeFailure("access_denied")
+	}
+	organizations := slices.Clone(permissions.OrganizationIDs)
+	for _, id := range organizations {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(id) != id || len(id) > 255 || strings.ContainsAny(id, "\x00\r\n") {
+			return zero, knowledgeFailure("access_denied")
+		}
+	}
+	slices.Sort(organizations)
+	organizations = slices.Compact(organizations)
+	permissionID := func(kind string, values ...string) string {
+		raw, _ := json.Marshal(append([]string{"attachment_permission.v1", kind}, values...))
+		return fmt.Sprintf("scope:agent:attachment:%x", sha256.Sum256(raw))
+	}
+	conversationPermission := permissionID("conversation", a.RuntimeID, a.WorkspaceID, a.UserID, conversation)
+	readPermissions := []string{
+		conversationPermission,
+		permissionID("user", a.RuntimeID, a.WorkspaceID, a.UserID),
+		permissionID("workspace", a.RuntimeID, a.WorkspaceID),
+	}
+	for _, organization := range organizations {
+		readPermissions = append(readPermissions, permissionID("organization", a.RuntimeID, a.WorkspaceID, organization))
+	}
+	slices.Sort(readPermissions)
+	readPermissions = slices.Compact(readPermissions)
 	c := k.config
-	c.DocumentPermissionIDs = []string{permission}
+	c.DocumentPermissionIDs = []string{conversationPermission}
+	c.ReadPermissionIDs = readPermissions
 	base, err := NewKnowledge(c, k.adapterFactory)
 	if err != nil {
 		return zero, err
 	}
-	return agentsdk.ConversationAttachmentKnowledgeScope{Source: &attachmentKnowledgeSource{base: base, authority: a}, PermissionID: permission}, nil
+	return agentsdk.ConversationAttachmentKnowledgeScope{Source: &attachmentKnowledgeSource{base: base, authority: a}, DocumentPermissionIDs: slices.Clone(c.DocumentPermissionIDs), ReadPermissionIDs: slices.Clone(c.ReadPermissionIDs)}, nil
 }
 
 // Do not expose the unscoped Knowledge through embedding: a resolved source

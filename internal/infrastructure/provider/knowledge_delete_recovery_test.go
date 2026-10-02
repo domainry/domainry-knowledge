@@ -37,7 +37,7 @@ func TestKnowledgeDeleteRecoveryPreservesAuthorizationAndTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope, err := factory.ResolveAttachmentKnowledge(t.Context(), "conv_0123456789abcdef0123456789abcdef", a)
+	scope, err := factory.ResolveAttachmentKnowledge(t.Context(), "conv_0123456789abcdef0123456789abcdef", a, agentsdk.ConversationAttachmentPermissionScope{})
 	if err != nil {
 		t.Fatal(err)
 	}

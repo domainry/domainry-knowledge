@@ -4,6 +4,7 @@ import (
 	"context"
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	"slices"
 )
 
 func (s *Service) AttachmentIndexView(ctx context.Context, r persistence.ConversationAttachmentRecord, a agentsdk.ConversationAuthority) agentsdk.ConversationAttachment {
@@ -19,7 +20,7 @@ func (s *Service) AttachmentIndexView(ctx context.Context, r persistence.Convers
 		return out
 	}
 	v.MaxBytes = DocumentMaxBytes(scope.Source)
-	if r.Source != nil && (r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || r.Source.PermissionID != scope.PermissionID) {
+	if r.Source != nil && (r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || !slices.Equal(r.Source.DocumentPermissionIDs, scope.DocumentPermissionIDs)) {
 		v.Reason = "attachment_source_changed"
 		return out
 	}

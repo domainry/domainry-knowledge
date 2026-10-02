@@ -2,6 +2,7 @@ package application
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -59,7 +60,7 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 		return
 	}
 	source := scope.Source
-	if source.KnowledgeDocumentAccessPolicySHA256() != r.Source.AccessPolicySHA256 || scope.PermissionID != r.Source.PermissionID {
+	if source.KnowledgeDocumentAccessPolicySHA256() != r.Source.AccessPolicySHA256 || !slices.Equal(scope.DocumentPermissionIDs, r.Source.DocumentPermissionIDs) {
 		progress.ErrorCode = "attachment_access_policy_changed"
 		return
 	}
