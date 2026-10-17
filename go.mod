@@ -6,20 +6,20 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
-	github.com/domainry/domainry-agent-sdk v0.1.34
+	github.com/domainry/domainry-agent-sdk v0.1.37
 	github.com/domainry/domainry-connector-sdk v0.1.3
 	github.com/domainry/domainry-connectors v0.1.5
-	github.com/domainry/domainry-lifecycle-sdk v0.1.20
-	github.com/domainry/domainry-orm v0.1.32
-	github.com/domainry/domainry-report-sdk v0.1.16
-	github.com/domainry/domainry-tools-sdk v0.1.11
+	github.com/domainry/domainry-lifecycle-sdk v0.1.21
+	github.com/domainry/domainry-orm v0.1.33
+	github.com/domainry/domainry-report-sdk v0.1.17
+	github.com/domainry/domainry-tools-sdk v0.1.14
 )
 
 require (
 	github.com/aws/smithy-go v1.28.1
-	github.com/domainry/domainry-foundation v0.1.41
-	github.com/domainry/domainry-identity-sdk v0.1.18
-	github.com/domainry/domainry-knowledge-sdk v0.1.11
+	github.com/domainry/domainry-foundation v0.1.44
+	github.com/domainry/domainry-identity-sdk v0.1.20
+	github.com/domainry/domainry-knowledge-sdk v0.1.12
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )
@@ -39,9 +39,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.38.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 // indirect
-	github.com/domainry/domainry-integration-sdk v0.1.12 // indirect
-	github.com/domainry/domainry-notification-sdk v0.1.9 // indirect
-	github.com/domainry/domainry-todo-sdk v0.1.6 // indirect
+	github.com/domainry/domainry-integration-sdk v0.1.16 // indirect
+	github.com/domainry/domainry-notification-sdk v0.1.12 // indirect
+	github.com/domainry/domainry-todo-sdk v0.1.7 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
