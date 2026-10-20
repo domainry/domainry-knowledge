@@ -2,6 +2,7 @@ package product
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -55,9 +56,9 @@ func (host *Host) openIdentity(ctx context.Context, options Options) error {
 		return fmt.Errorf("bootstrap Knowledge workspace identity: %w", bootstrapErr)
 	}
 	if err = tx.Commit(); err != nil {
-		_ = bootstrap.CompleteWorkspaceIdentityBootstrap(ctx, identitysdk.WorkspaceIdentityBootstrapCompletion{WorkspaceID: receipt.WorkspaceID, ReceiptID: receipt.ReceiptID, Outcome: identitysdk.WorkspaceIdentityBootstrapTransactionRolledBack})
+		completionErr := bootstrap.CompleteWorkspaceIdentityBootstrap(ctx, identitysdk.WorkspaceIdentityBootstrapCompletion{WorkspaceID: receipt.WorkspaceID, ReceiptID: receipt.ReceiptID, Outcome: identitysdk.WorkspaceIdentityBootstrapTransactionRolledBack})
 		_ = bootstrap.Close(context.Background())
-		return err
+		return errors.Join(err, completionErr)
 	}
 	if !receipt.Replayed {
 		if err = bootstrap.CompleteWorkspaceIdentityBootstrap(ctx, identitysdk.WorkspaceIdentityBootstrapCompletion{WorkspaceID: receipt.WorkspaceID, ReceiptID: receipt.ReceiptID, Outcome: identitysdk.WorkspaceIdentityBootstrapTransactionCommitted}); err != nil {

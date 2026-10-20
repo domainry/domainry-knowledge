@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
-	"github.com/domainry/domainry-foundation/telemetry"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
@@ -1012,27 +1012,38 @@ func writeError(response http.ResponseWriter, err error) {
 			KnowledgePageConflict() knowledgesdk.KnowledgePageConflict
 		}
 		if errors.As(err, &pageConflict) {
-			telemetry.RecordHTTPStatusError(response, status, coded.Code, err)
-			writeJSON(response, status, struct {
-				Code     string                             `json:"code"`
-				Conflict knowledgesdk.KnowledgePageConflict `json:"conflict"`
-			}{Code: coded.Code, Conflict: pageConflict.KnowledgePageConflict()})
+			conflict := pageConflict.KnowledgePageConflict()
+			httpresponse.WriteError(response, nil, httpresponse.Failure{Status: status, Code: knowledgeErrorCode(coded.Code), Cause: err, Params: map[string]string{
+				"current_draft_revision": strconv.FormatInt(conflict.CurrentDraftRevision, 10),
+				"base_published_version": strconv.FormatInt(conflict.BasePublishedVersion, 10),
+				"current_content_sha256": conflict.CurrentContentSHA256,
+				"current_updated_at":     conflict.CurrentUpdatedAt.UTC().Format(time.RFC3339Nano),
+			}})
 			return
 		}
 	}
-	writeCode(response, status, coded.Code, err)
+	writeCode(response, status, knowledgeErrorCode(coded.Code), err)
+}
+
+func knowledgeErrorCode(code string) string {
+	code = strings.TrimSpace(code)
+	if code == "" || strings.Contains(code, ".") {
+		return code
+	}
+	return "knowledge." + code
 }
 
 func writeCode(response http.ResponseWriter, status int, code string, causes ...error) {
-	telemetry.RecordHTTPStatusError(response, status, code, causes...)
-	writeJSON(response, status, map[string]string{"code": code})
+	var cause error
+	if len(causes) > 0 {
+		cause = causes[0]
+	}
+	httpresponse.WriteError(response, nil, httpresponse.Failure{Status: status, Code: code, Cause: cause})
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
-	response.Header().Set("Content-Type", "application/json")
 	response.Header().Set("Cache-Control", "no-store")
-	response.WriteHeader(status)
-	_ = json.NewEncoder(response).Encode(value)
+	httpresponse.WriteJSON(response, status, value)
 }
 
 var _ modulehttp.Adapter = (*adapter)(nil)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	actioncontract "github.com/domainry/domainry-foundation/action"
+	"github.com/domainry/domainry-foundation/logging"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -40,11 +41,17 @@ func (runtime Runtime) Activate(runtimeID string, options contract.Options) erro
 	return application.ActivateDocumentSources(runtime.repository, runtimeID, options)
 }
 func (runtime Runtime) NewService(runtimeID string, options contract.Options) contract.Service {
-	service := newSupervisedService(application.NewService(runtime.repository, runtimeID, options))
+	service := newSupervisedService(application.NewService(runtime.repository, runtimeID, options, failureRecorder{}))
 	if runtime.binding != nil {
 		runtime.binding.bindService(service)
 	}
 	return service
+}
+
+type failureRecorder struct{}
+
+func (failureRecorder) RecordFailure(ctx context.Context, event string, err error, failure application.Failure) {
+	logging.RecordFailure(ctx, event, err, logging.Failure{Stage: failure.Stage, Dependency: failure.Dependency, Retryable: failure.Retryable})
 }
 func (runtime Runtime) Prepare(runtimeID string, options contract.Options) (contract.Knowledge, error) {
 	if documents, ok := runtime.repository.(persistence.KnowledgeSourceRegistry); ok && options.Knowledge != nil {

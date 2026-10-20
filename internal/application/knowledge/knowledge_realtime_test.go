@@ -42,7 +42,7 @@ func TestKnowledgeRealtimeRechecksExactIdentityActionAndNeverAuditsBody(t *testi
 	repository := &realtimeAuthorizationRepository{pageAuthorizationRepository: base}
 	policy := &pageAuthorizationPolicy{}
 	sink := &knowledgeEventSink{}
-	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy, AuditAppender: sink})
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy, AuditAppender: sink}, nil)
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 
 	session, err := service.ConnectKnowledgeCollaboration(t.Context(), base.library.ID, base.page.Page.ID, knowledgesdk.KnowledgeCollaborationConnect{ClientID: "client"}, authority)
@@ -79,7 +79,7 @@ func TestKnowledgeRealtimeIdentityDenialStopsBeforeRepositoryMutation(t *testing
 	base := &pageAuthorizationRepository{library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "editor"}, page: knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{ID: "kpage_test", LibraryID: "klib_test", State: "active"}}}
 	repository := &realtimeAuthorizationRepository{pageAuthorizationRepository: base}
 	policy := &pageAuthorizationPolicy{denyAt: 1}
-	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy})
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy}, nil)
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 	if _, err := service.SyncKnowledgeCollaboration(t.Context(), base.library.ID, base.page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: "session"}, authority); err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("Identity denial was not returned: %v", err)

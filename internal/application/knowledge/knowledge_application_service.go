@@ -17,16 +17,28 @@ import (
 
 type Knowledge = contract.Knowledge
 type Options = contract.Options
+
+type Failure struct {
+	Stage      string
+	Dependency string
+	Retryable  bool
+}
+
+type FailureRecorder interface {
+	RecordFailure(context.Context, string, error, Failure)
+}
+
 type Service struct {
 	repo                          any
 	options                       Options
+	failures                      FailureRecorder
 	runtimeID, owner              string
 	documentWake                  chan struct{}
 	workerMu                      sync.Mutex
 	nextDocumentUploadExpirySweep time.Time
 }
 
-func NewService(repo any, runtimeID string, options Options) *Service {
+func NewService(repo any, runtimeID string, options Options, failures FailureRecorder) *Service {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(err)
@@ -43,7 +55,7 @@ func NewService(repo any, runtimeID string, options Options) *Service {
 	if options.DocumentStorage != nil && options.DocumentSecurity == nil {
 		options.DocumentSecurity = builtinDocumentSecurity{}
 	}
-	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, documentWake: make(chan struct{}, 1)}
+	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, failures: failures, documentWake: make(chan struct{}, 1)}
 }
 
 // Start and Close are intentionally lifecycle-neutral. The assembly wrapper

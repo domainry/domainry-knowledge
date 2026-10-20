@@ -18,9 +18,9 @@ require (
 
 require (
 	github.com/aws/smithy-go v1.28.1
-	github.com/domainry/domainry-foundation v0.2.6
-	github.com/domainry/domainry-identity-sdk v0.1.23
-	github.com/domainry/domainry-knowledge-sdk v0.1.15
+	github.com/domainry/domainry-foundation v0.2.7
+	github.com/domainry/domainry-identity-sdk v0.1.26
+	github.com/domainry/domainry-knowledge-sdk v0.1.17
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )
@@ -91,5 +91,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/domainry/domainry-knowledge-sdk => ../domainry-knowledge-sdk

@@ -106,7 +106,7 @@ func TestKnowledgePageReadRechecksExactActionAfterRepositoryRead(t *testing.T) {
 		page:    knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{ID: "kpage_test", LibraryID: "klib_test"}},
 	}
 	policy := &pageAuthorizationPolicy{denyAt: 2}
-	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy})
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy}, nil)
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 
 	if _, err := service.KnowledgePage(t.Context(), "klib_test", "kpage_test", true, authority); err == nil || !strings.Contains(err.Error(), "permission_denied") {
@@ -123,7 +123,7 @@ func TestKnowledgePageReadRechecksExactActionAfterRepositoryRead(t *testing.T) {
 func TestKnowledgePageWriteRequiresLibraryRoleAfterExactAction(t *testing.T) {
 	repository := &pageAuthorizationRepository{library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "reader"}}
 	policy := &pageAuthorizationPolicy{}
-	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy})
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy}, nil)
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 
 	if _, err := service.CreateKnowledgePage(t.Context(), "klib_test", knowledgesdk.KnowledgePageCreate{ClientID: "create", Title: "page", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority); err == nil || !strings.Contains(err.Error(), "library_role_denied") {
@@ -144,7 +144,7 @@ func TestKnowledgeAccessExplanationCombinesIdentityLibraryAndAncestorGrant(t *te
 	}
 	identity := &pageIdentityAccessExplainer{allowed: true}
 	policy := &pageAuthorizationPolicy{}
-	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy, AccessExplainer: identity})
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy, AccessExplainer: identity}, nil)
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "manager"}
 
 	result, err := service.ExplainKnowledgeAccess(t.Context(), repository.library.ID, knowledgesdk.KnowledgeAccessExplainRequest{UserID: "bob", PageID: repository.page.Page.ID, Action: knowledgesdk.ActionPagesUpdate}, authority)

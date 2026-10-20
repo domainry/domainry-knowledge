@@ -154,7 +154,7 @@ func TestSourceBackedDocumentUploadPersistsAndRechecksRecordAccess(t *testing.T)
 		service := NewService(repo, authority.RuntimeID, Options{
 			DocumentStorage: storage, LibraryAuthorizer: &sourceUploadLibraryPolicy{}, SourceAuthorizer: authorizer,
 			LibraryKnowledge: []LibraryKnowledgeBinding{{WorkspaceID: authority.WorkspaceID, LibraryID: library.ID, Source: &sourceUploadProvider{}, ManageDocuments: true}},
-		})
+		}, nil)
 		return service, repo, storage
 	}
 
@@ -204,7 +204,7 @@ func TestPublicDocumentChunkUploadCommitsOnlyAfterFinalVerifiedPart(t *testing.T
 	service := NewService(repo, authority.RuntimeID, Options{
 		DocumentStorage: storage, LibraryAuthorizer: &sourceUploadLibraryPolicy{},
 		LibraryKnowledge: []LibraryKnowledgeBinding{{WorkspaceID: authority.WorkspaceID, LibraryID: library.ID, Source: &sourceUploadProvider{}, ManageDocuments: true}},
-	})
+	}, nil)
 	raw := bytes.Repeat([]byte("resumable-knowledge-"), int(sdk.KnowledgeDocumentUploadChunkBytes/20)+2)
 	first := raw[:sdk.KnowledgeDocumentUploadChunkBytes]
 	last := raw[sdk.KnowledgeDocumentUploadChunkBytes:]
@@ -228,7 +228,7 @@ func TestPublicDocumentChunkUploadReconcilesCommittedResultAfterLostCommitRespon
 	service := NewService(repo, authority.RuntimeID, Options{
 		DocumentStorage: storage, LibraryAuthorizer: &sourceUploadLibraryPolicy{},
 		LibraryKnowledge: []LibraryKnowledgeBinding{{WorkspaceID: authority.WorkspaceID, LibraryID: library.ID, Source: &sourceUploadProvider{}, ManageDocuments: true}},
-	})
+	}, nil)
 	raw := []byte("committed-before-response-was-lost")
 	progress, err := service.UploadKnowledgeDocumentChunk(t.Context(), library.ID, sdk.KnowledgeDocumentUploadChunk{
 		ClientID: "reconcile-a", Filename: "notes.txt", Bytes: int64(len(raw)), SHA256: testContentHash(raw),

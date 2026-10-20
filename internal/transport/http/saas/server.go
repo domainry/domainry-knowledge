@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/telemetry"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -117,12 +118,12 @@ func (server *Server) invoke(writer http.ResponseWriter, request *http.Request) 
 			writeJSON(writer, http.StatusOK, knowledgecontract.SaaSResponse{Challenge: challenge})
 			return
 		}
-		writeJSON(writer, http.StatusOK, knowledgecontract.SaaSResponse{Error: safeError(err)})
+		writeSaaSError(writer, err)
 		return
 	}
 	raw, err := json.Marshal(result)
 	if err != nil {
-		writeJSON(writer, http.StatusOK, knowledgecontract.SaaSResponse{Error: &knowledgecontract.SaaSError{Class: "unavailable", Code: "knowledge.response_invalid"}})
+		httpresponse.WriteError(writer, nil, httpresponse.Failure{Status: http.StatusInternalServerError, Code: "knowledge.response_invalid", Cause: err})
 		return
 	}
 	writeJSON(writer, http.StatusOK, knowledgecontract.SaaSResponse{Result: raw})
@@ -176,12 +177,35 @@ func safeCode(value string) string {
 	}
 	return value
 }
-func writeStatus(w http.ResponseWriter, status int, class, code string) {
-	telemetry.RecordHTTPStatusError(w, status, code)
-	writeJSON(w, status, knowledgecontract.SaaSResponse{Error: &knowledgecontract.SaaSError{Class: class, Code: code}})
+func writeSaaSError(w http.ResponseWriter, err error) {
+	status := http.StatusInternalServerError
+	if wire := safeError(err); wire != nil {
+		switch wire.Class {
+		case "bad_request":
+			status = http.StatusBadRequest
+		case "forbidden":
+			status = http.StatusForbidden
+		case "not_found":
+			status = http.StatusNotFound
+		case "conflict":
+			status = http.StatusConflict
+		case "unavailable":
+			var fileError *knowledgefiles.Error
+			var coded *agentsdk.Error
+			if errors.As(err, &fileError) && strings.TrimSpace(fileError.Class) == "unavailable" || errors.As(err, &coded) && strings.TrimSpace(coded.Class) == "unavailable" {
+				status = http.StatusServiceUnavailable
+			}
+		}
+		httpresponse.WriteError(w, nil, httpresponse.Failure{Status: status, Code: wire.Code, Message: wire.Message, Cause: err})
+	}
+}
+func writeStatus(w http.ResponseWriter, status int, _ string, code string, causes ...error) {
+	var cause error
+	if len(causes) > 0 {
+		cause = causes[0]
+	}
+	httpresponse.WriteError(w, nil, httpresponse.Failure{Status: status, Code: code, Cause: cause})
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
+	httpresponse.WriteJSON(w, status, value)
 }

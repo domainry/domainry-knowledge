@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
@@ -29,11 +30,8 @@ func TestWriteErrorIncludesBoundedPageConflictDetails(t *testing.T) {
 	if response.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	var body struct {
-		Code     string                             `json:"code"`
-		Conflict knowledgesdk.KnowledgePageConflict `json:"conflict"`
-	}
-	if decodeErr := json.Unmarshal(response.Body.Bytes(), &body); decodeErr != nil || body.Code != "page_draft_revision_conflict" || body.Conflict.CurrentDraftRevision != 7 || !body.Conflict.CurrentUpdatedAt.Equal(updatedAt) {
+	var body httpresponse.ErrorResponse
+	if decodeErr := json.Unmarshal(response.Body.Bytes(), &body); decodeErr != nil || body.Code != "knowledge.page_draft_revision_conflict" || body.Params["current_draft_revision"] != "7" || body.Params["current_updated_at"] != updatedAt.Format(time.RFC3339Nano) {
 		t.Fatalf("body=%+v decodeErr=%v", body, decodeErr)
 	}
 }

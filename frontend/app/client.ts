@@ -7,7 +7,7 @@ import type {
   KnowledgePageVersionDiff, KnowledgePageVersionPage, KnowledgePageView, KnowledgePrincipal, KnowledgePrincipalPage,
   KnowledgeResult,
 } from "../src/types.ts";
-import { APIError, request, sessionFetch, sessionScope } from "./session.ts";
+import { APIError, errorFrom, request, sessionFetch, sessionScope } from "./session.ts";
 
 const librariesPath = "/knowledge/libraries";
 const uploadChunkBytes = 8 * 1024 * 1024;
@@ -21,8 +21,7 @@ async function sha256(bytes: ArrayBuffer) {
 
 async function checked(response: Response) {
   if (response.ok) return response;
-  const value = await response.json().catch(() => ({})) as { code?: unknown };
-  throw new APIError(typeof value.code === "string" ? value.code : `http.${response.status}`, response.status);
+  throw await errorFrom(response);
 }
 
 export const knowledgeClient: KnowledgeClient = {

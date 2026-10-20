@@ -17,6 +17,14 @@ type knowledgeEventSink struct {
 	err           error
 }
 
+type failureCapture struct {
+	events []string
+}
+
+func (capture *failureCapture) RecordFailure(_ context.Context, event string, _ error, _ Failure) {
+	capture.events = append(capture.events, event)
+}
+
 func (s *knowledgeEventSink) AppendKnowledgeAudit(_ context.Context, event knowledgesdk.KnowledgeGovernanceEvent) error {
 	s.audits = append(s.audits, event)
 	return s.err
@@ -29,7 +37,8 @@ func (s *knowledgeEventSink) PublishKnowledgeCollaboration(_ context.Context, ev
 
 func TestKnowledgeEventsAreStableMinimalAndBestEffort(t *testing.T) {
 	sink := &knowledgeEventSink{err: errors.New("sink unavailable")}
-	service := &Service{options: contract.Options{AuditAppender: sink, CollaborationPublisher: sink}}
+	failures := &failureCapture{}
+	service := &Service{options: contract.Options{AuditAppender: sink, CollaborationPublisher: sink}, failures: failures}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
 
 	service.appendKnowledgeAudit(t.Context(), knowledgesdk.ActionPagesPublish, "knowledge.page.published", "library-a", "page-a", "page-a", "publish-1", 3, nil, map[string]string{"content_sha256": "sha256"}, authority)
@@ -49,5 +58,8 @@ func TestKnowledgeEventsAreStableMinimalAndBestEffort(t *testing.T) {
 	}
 	if !reflect.DeepEqual(sink.collaboration[0].RecipientUserIDs, comment.MentionedUserIDs) || sink.collaboration[0].CommentID != comment.ID {
 		t.Fatalf("unexpected collaboration event: %#v", sink.collaboration[0])
+	}
+	if !reflect.DeepEqual(failures.events, []string{"knowledge_audit_append_failed", "knowledge_audit_append_failed", "knowledge_collaboration_publish_failed", "knowledge_collaboration_publish_failed"}) {
+		t.Fatalf("failures=%v", failures.events)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	identityprincipal "github.com/domainry/domainry-identity-sdk/authorization/principal"
@@ -87,8 +88,8 @@ func (host *Host) newHandler(options Options, knowledgeAdapters []modulehttp.Ada
 	if options.Files != nil {
 		mux.Handle("/", spaFiles(options.Files))
 	} else {
-		mux.HandleFunc("/", func(response http.ResponseWriter, _ *http.Request) {
-			writeJSON(response, http.StatusNotFound, map[string]string{"code": "knowledge.ui_unavailable"})
+		mux.HandleFunc("/", func(response http.ResponseWriter, request *http.Request) {
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusNotFound, Code: "knowledge.ui_unavailable"})
 		})
 	}
 	origin, err := url.Parse(options.Origin)
@@ -102,7 +103,7 @@ func (host *Host) newHandler(options Options, knowledgeAdapters []modulehttp.Ada
 		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		unsafe := request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions
 		if request.Host != origin.Host || request.Header.Get("Sec-Fetch-Site") == "cross-site" || request.Header.Get("Origin") != "" && request.Header.Get("Origin") != options.Origin || unsafe && request.Header.Get("Origin") != options.Origin {
-			writeJSON(response, http.StatusForbidden, map[string]string{"code": "knowledge.origin_required"})
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusForbidden, Code: "knowledge.origin_required"})
 			return
 		}
 		mux.ServeHTTP(response, request)
@@ -143,7 +144,7 @@ func (host *Host) searchKnowledge(response http.ResponseWriter, request *http.Re
 	query := strings.TrimSpace(request.URL.Query().Get("query"))
 	libraryID := strings.TrimSpace(request.URL.Query().Get("library_id"))
 	if query == "" || len(query) > 8192 || len(request.URL.Query()) > 2 {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "knowledge.query_invalid"})
+		httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusBadRequest, Code: "knowledge.query_invalid"})
 		return
 	}
 	authority, err := authorityFromRequest(request, host.runtimeID)
@@ -152,14 +153,14 @@ func (host *Host) searchKnowledge(response http.ResponseWriter, request *http.Re
 		return
 	}
 	if host.retrieval == nil {
-		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "knowledge.retrieval_unavailable"})
+		httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusServiceUnavailable, Code: "knowledge.retrieval_unavailable"})
 		return
 	}
 	var result knowledgesdk.Result
 	if libraryID != "" {
 		librarySource, ok := host.retrieval.(libraryRetrieval)
 		if !ok {
-			writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "knowledge.library_retrieval_unavailable"})
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusServiceUnavailable, Code: "knowledge.library_retrieval_unavailable"})
 			return
 		}
 		result, err = librarySource.SearchLibraryKnowledge(request.Context(), libraryID, query, authority)
@@ -177,7 +178,7 @@ func (host *Host) readKnowledge(response http.ResponseWriter, request *http.Requ
 	documentID := strings.TrimSpace(request.PathValue("documentID"))
 	libraryID := strings.TrimSpace(request.URL.Query().Get("library_id"))
 	if documentID == "" || len(documentID) > 512 || len(request.URL.Query()) > 1 {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "knowledge.request_invalid"})
+		httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusBadRequest, Code: "knowledge.request_invalid"})
 		return
 	}
 	authority, err := authorityFromRequest(request, host.runtimeID)
@@ -186,14 +187,14 @@ func (host *Host) readKnowledge(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	if host.retrieval == nil {
-		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "knowledge.retrieval_unavailable"})
+		httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusServiceUnavailable, Code: "knowledge.retrieval_unavailable"})
 		return
 	}
 	var result knowledgesdk.Result
 	if libraryID != "" {
 		librarySource, ok := host.retrieval.(libraryRetrieval)
 		if !ok {
-			writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "knowledge.library_retrieval_unavailable"})
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusServiceUnavailable, Code: "knowledge.library_retrieval_unavailable"})
 			return
 		}
 		result, err = librarySource.ReadLibraryKnowledge(request.Context(), libraryID, documentID, authority)
@@ -227,13 +228,11 @@ func writeKnowledgeError(response http.ResponseWriter, err error) {
 			status = http.StatusServiceUnavailable
 		}
 	}
-	writeJSON(response, status, map[string]string{"code": code})
+	httpresponse.WriteError(response, nil, httpresponse.Failure{Status: status, Code: code, Cause: err})
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
-	response.Header().Set("Content-Type", "application/json; charset=utf-8")
-	response.WriteHeader(status)
-	_ = json.NewEncoder(response).Encode(value)
+	httpresponse.WriteJSON(response, status, value)
 }
 
 func spaFiles(files fs.FS) http.Handler {
@@ -249,7 +248,7 @@ func spaFiles(files fs.FS) http.Handler {
 		}
 		content, err := fs.ReadFile(files, "index.html")
 		if err != nil {
-			http.NotFound(response, request)
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusInternalServerError, Code: "knowledge.ui_unavailable", Cause: err})
 			return
 		}
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")

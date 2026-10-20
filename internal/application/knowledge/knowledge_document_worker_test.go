@@ -40,7 +40,7 @@ type uploadExpiryDocumentStorage struct {
 
 func TestKnowledgeDocumentWorkerSweepsIdleUploads(t *testing.T) {
 	repo := &uploadExpiryWorkerRepository{called: make(chan uploadExpirySweep, 1)}
-	service := NewService(repo, "runtime-a", Options{DocumentStorage: &uploadExpiryDocumentStorage{}})
+	service := NewService(repo, "runtime-a", Options{DocumentStorage: &uploadExpiryDocumentStorage{}}, nil)
 	if _, err := service.KnowledgeDocumentWorkerTick(t.Context()); err != nil {
 		t.Fatal(err)
 	}

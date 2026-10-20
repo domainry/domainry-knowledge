@@ -2,8 +2,10 @@ package saas
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,6 +13,20 @@ import (
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
+
+type errorCapture struct {
+	*httptest.ResponseRecorder
+	kind, code  string
+	internalErr error
+}
+
+func (capture *errorCapture) RecordError(kind, code string) {
+	capture.kind, capture.code = kind, code
+}
+
+func (capture *errorCapture) RecordInternalError(err error) {
+	capture.internalErr = err
+}
 
 func TestRecordRoutePublishesBoundedTemplateToOuterProcessBoundary(t *testing.T) {
 	var observation telemetry.HTTPServerObservation
@@ -36,5 +52,24 @@ func TestSafeErrorPreservesOnlyPageConflictSnapshot(t *testing.T) {
 	var conflict knowledgesdk.KnowledgePageConflict
 	if wire.Class != "conflict" || wire.Code != "page_draft_revision_conflict" || json.Unmarshal(wire.Details, &conflict) != nil || conflict.CurrentDraftRevision != 9 || !conflict.CurrentUpdatedAt.Equal(updatedAt) {
 		t.Fatalf("wire=%+v conflict=%+v", wire, conflict)
+	}
+}
+
+func TestWriteSaaSErrorUsesNonSuccessStatusForClassifiedFailure(t *testing.T) {
+	capture := &errorCapture{ResponseRecorder: httptest.NewRecorder()}
+	writeSaaSError(capture, &knowledgesdk.Error{Class: "conflict", Code: "knowledge.page_conflict"})
+	if capture.Code != http.StatusConflict || capture.kind != "conflict" || capture.code != "knowledge.page_conflict" || capture.internalErr != nil {
+		t.Fatalf("status=%d kind=%q code=%q internal=%v", capture.Code, capture.kind, capture.code, capture.internalErr)
+	}
+}
+
+func TestWriteSaaSErrorRecordsUnknownFailureWithoutLeakingRawText(t *testing.T) {
+	capture := &errorCapture{ResponseRecorder: httptest.NewRecorder()}
+	writeSaaSError(capture, errors.New("database password=private"))
+	if capture.Code != http.StatusInternalServerError || capture.kind != "internal" || capture.internalErr == nil {
+		t.Fatalf("status=%d kind=%q internal=%v", capture.Code, capture.kind, capture.internalErr)
+	}
+	if strings.Contains(capture.Body.String(), "private") || strings.Contains(capture.Body.String(), "password") {
+		t.Fatalf("raw error leaked: %s", capture.Body.String())
 	}
 }

@@ -5,6 +5,8 @@ export { KnowledgePagesPanel, pageContentSHA256 } from "./KnowledgePagesPanel.ts
 export type { KnowledgeWorkspaceProps } from "./KnowledgeWorkspace.tsx";
 export { FilePreviewDialog } from "./FilePreviewDialog.tsx";
 export { canPreviewFilename, downloadFile, downloadFilename, fileSHA256Header, knowledgeDocumentPreviewSource } from "./file-preview.ts";
+export { parseHTTPErrorResponse } from "./http-error.ts";
+export type { HTTPErrorResponse } from "./http-error.ts";
 export type {
   FilePreviewDescriptor,
   FilePreviewLocation,

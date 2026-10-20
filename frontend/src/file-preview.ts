@@ -1,4 +1,5 @@
 import type { FilePreviewSource, KnowledgeClient, KnowledgeDocument } from "./types.ts";
+import { readHTTPErrorResponse } from "./http-error.ts";
 
 export type PreviewFile = { filename: string; blob: Blob; format: string; bytes: number; sha256: string };
 export type PreviewText = { filename: string; format: string; text: string; bytes: number; loadedBytes: number; truncated: boolean };
@@ -70,8 +71,8 @@ function responseSize(response: Response) {
 async function checkedContent(source: FilePreviewSource, signal: AbortSignal, range?: string) {
   const response = await source.read({ signal, range });
   if (!response.ok && response.status !== 206) {
-    const data = await response.json().catch(() => ({})) as { code?: string };
-    throw Error(data.code || `读取文件失败（${response.status}）`);
+    const error = await readHTTPErrorResponse(response);
+    throw Error(error ? `${error.message}（${error.code}）` : `读取文件失败（${response.status}）`);
   }
   const filename = downloadFilename(response.headers.get("Content-Disposition"));
   const sha256 = response.headers.get(fileSHA256Header) || "";

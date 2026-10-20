@@ -1,3 +1,5 @@
+import { readHTTPErrorResponse } from "../src/http-error.ts";
+
 export type ProductConfig = {
   mode: "identity";
   workspace_id: string;
@@ -24,8 +26,14 @@ type IdentitySession = {
 };
 
 export class APIError extends Error {
-  constructor(public readonly code: string, public readonly status: number) {
-    super(code);
+  constructor(
+    public readonly code: string,
+    public readonly status: number,
+    message?: string,
+    public readonly params?: Record<string, string>,
+    public readonly requestID = "",
+  ) {
+    super(message?.trim() || code);
     this.name = "APIError";
   }
 }
@@ -45,12 +53,11 @@ function acceptIdentitySession(value: IdentitySession, identityChanged = false) 
   return value;
 }
 
-async function errorFrom(response: Response) {
-  const value = await response.json().catch(() => ({})) as { code?: unknown; message?: unknown };
-  const code = typeof value.code === "string" ? value.code : `http.${response.status}`;
-  const error = new APIError(code, response.status);
-  if (typeof value.message === "string" && value.message.trim()) error.message = value.message;
-  return error;
+export async function errorFrom(response: Response) {
+  const value = await readHTTPErrorResponse(response);
+  return value
+    ? new APIError(value.code, response.status, value.message, value.params, value.request_id)
+    : new APIError(`http.${response.status}`, response.status);
 }
 
 async function identityRequest(path: string, body: unknown, token = "") {

@@ -24,7 +24,9 @@ func (s *Service) appendKnowledgeAudit(ctx context.Context, action, eventType, l
 	}
 	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	_ = s.options.AuditAppender.AppendKnowledgeAudit(writeContext, event)
+	if err := s.options.AuditAppender.AppendKnowledgeAudit(writeContext, event); err != nil && s.failures != nil {
+		s.failures.RecordFailure(ctx, "knowledge_audit_append_failed", err, Failure{Stage: "audit_append", Dependency: "audit"})
+	}
 }
 
 func (s *Service) publishKnowledgeMentions(ctx context.Context, comment knowledgesdk.KnowledgePageComment, authority agentsdk.Authority) {
@@ -38,5 +40,7 @@ func (s *Service) publishKnowledgeMentions(ctx context.Context, comment knowledg
 	}
 	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 	defer cancel()
-	_ = s.options.CollaborationPublisher.PublishKnowledgeCollaboration(writeContext, event)
+	if err := s.options.CollaborationPublisher.PublishKnowledgeCollaboration(writeContext, event); err != nil && s.failures != nil {
+		s.failures.RecordFailure(ctx, "knowledge_collaboration_publish_failed", err, Failure{Stage: "collaboration_publish", Dependency: "collaboration"})
+	}
 }

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/domainry/domainry-foundation/telemetry"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
@@ -219,7 +218,7 @@ func (server *Server) downloadDocument(writer http.ResponseWriter, request *http
 func writeTransferResult(writer http.ResponseWriter, value any) {
 	raw, err := json.Marshal(value)
 	if err != nil {
-		writeStatus(writer, http.StatusServiceUnavailable, "unavailable", "knowledge.response_invalid")
+		writeStatus(writer, http.StatusInternalServerError, "internal", "knowledge.response_invalid", err)
 		return
 	}
 	writeJSON(writer, http.StatusOK, knowledgecontract.SaaSResponse{Result: raw})
@@ -231,18 +230,5 @@ func writeTransferError(writer http.ResponseWriter, err error) {
 		writeStatus(writer, http.StatusConflict, "conflict", "knowledge.authorization_stale")
 		return
 	}
-	safe := safeError(err)
-	status := http.StatusServiceUnavailable
-	switch safe.Class {
-	case "bad_request":
-		status = http.StatusBadRequest
-	case "forbidden":
-		status = http.StatusForbidden
-	case "not_found":
-		status = http.StatusNotFound
-	case "conflict":
-		status = http.StatusConflict
-	}
-	telemetry.RecordHTTPStatusError(writer, status, safe.Code)
-	writeJSON(writer, status, knowledgecontract.SaaSResponse{Error: safe})
+	writeSaaSError(writer, err)
 }
