@@ -463,19 +463,21 @@ P0-P7 完成的是 Knowledge 页面、权限、版本、检索与原生编辑器
 
 ### P10.1 HTTP POST 上行 + SSE 下行
 
-- [ ] 保留现有 `connect / sync / close / publish` 服务语义；客户端编辑继续通过受权 HTTP POST 提交，SSE 只负责服务端到客户端的实时事件推送。
-- [ ] 新增 `GET /knowledge/libraries/{libraryID}/pages/{pageID}/collaboration/{sessionID}/events` 事件流接口。
-- [ ] SSE 事件至少包括 `update`、`snapshot`、`presence`、`revoked` 和 `heartbeat`；事件 envelope 使用现有 collaboration DTO，不再定义第二套更新真相。
-- [ ] SSE `id` 使用单调递增的 `server_clock`；客户端重连携带 `Last-Event-ID`，服务端从对应 clock 继续发送。
-- [ ] 如果 `Last-Event-ID` 仍在有界 update log 中，按顺序补发缺失 update；如果已经超过保留窗口，发送当前 durable snapshot 后从新 clock 继续。
-- [ ] 每次建立事件流都重新校验当前 Identity Action、资料库角色、页面权限、session 归属和有效期；无权用户不能根据 page/session ID 判断资源是否存在。
-- [ ] 权限撤销、成员移除、页面归档或 session 失效时发送 `revoked` 并立即关闭事件流；后续重连继续拒绝。
-- [ ] 如果浏览器认证依赖自定义 Header，使用 `fetch()` 读取 `text/event-stream`，或由 `connect` 签发一次性短期 stream token；禁止把长期凭证或 AccessBundle 放进 SSE URL。
-- [ ] 设置正确的 `Content-Type: text/event-stream`、禁用代理缓冲，并定期发送注释 heartbeat，避免网关和负载均衡器静默断开长连接。
-- [ ] 服务端从 durable event store 按 clock 读取事件；进程内 notifier 只负责唤醒等待中的流，不作为事件真相，丢失唤醒不能导致事件丢失。
-- [ ] 前端删除当前 2 秒 `sync` 轮询；SSE 断开时进入明确的 reconnecting 状态并自动退避重连，不允许后台同时保留第二套轮询循环。
-- [ ] 正文 POST、光标 POST 和空闲心跳分开节流：正文批量合并发送，光标/选区高频但可丢弃，空闲 session 只做低频续租。
-- [ ] 发布仍冻结服务端已确认的 collaboration snapshot；SSE 消息本身不能直接发布、建索引或修改不可变版本。
+- [x] 保留现有 `connect / sync / close / publish` 服务语义；客户端编辑继续通过受权 HTTP POST 提交，SSE 只负责服务端到客户端的实时事件推送。
+- [x] 新增 `GET /knowledge/libraries/{libraryID}/pages/{pageID}/collaboration/{sessionID}/events` 事件流接口。
+- [x] SSE 事件至少包括 `update`、`snapshot`、`presence`、`revoked` 和 `heartbeat`；事件 envelope 使用现有 collaboration DTO，不再定义第二套更新真相。
+- [x] SSE `id` 使用单调递增的 `server_clock`；客户端重连携带 `Last-Event-ID`，服务端从对应 clock 继续发送。
+- [x] 如果 `Last-Event-ID` 仍在有界 update log 中，按顺序补发缺失 update；如果已经超过保留窗口，发送当前 durable snapshot 后从新 clock 继续。
+- [x] 每次建立事件流都重新校验当前 Identity Action、资料库角色、页面权限、session 归属和有效期；无权用户不能根据 page/session ID 判断资源是否存在。
+- [x] 权限撤销、成员移除、页面归档或 session 失效时发送 `revoked` 并立即关闭事件流；后续重连继续拒绝。
+- [x] 如果浏览器认证依赖自定义 Header，使用 `fetch()` 读取 `text/event-stream`，或由 `connect` 签发一次性短期 stream token；禁止把长期凭证或 AccessBundle 放进 SSE URL。
+- [x] 设置正确的 `Content-Type: text/event-stream`、禁用代理缓冲，并定期发送注释 heartbeat，避免网关和负载均衡器静默断开长连接。
+- [x] 服务端从 durable event store 按 clock 读取事件；进程内 notifier 只负责唤醒等待中的流，不作为事件真相，丢失唤醒不能导致事件丢失。
+- [x] 前端删除当前 2 秒 `sync` 轮询；SSE 断开时进入明确的 reconnecting 状态并自动退避重连，不允许后台同时保留第二套轮询循环。
+- [x] 正文 POST、光标 POST 和空闲心跳分开节流：正文批量合并发送，光标/选区高频但可丢弃，空闲 session 只做低频续租。
+- [x] 发布仍冻结服务端已确认的 collaboration snapshot；SSE 消息本身不能直接发布、建索引或修改不可变版本。
+
+实现与验收记录（2026-10-21）：上行继续使用受权 POST，下行改为基于 durable clock/update log 的认证 SSE；完成 update 补发、snapshot 回退、presence、heartbeat、撤权关闭、退避重连和独立节流。单元/契约/架构测试、主仓库与 SDK 全量 Go 测试、前端类型检查及两种生产构建均通过；真实双窗口验证远端正文即时出现，SSE 重连瞬间的本地编辑不丢失，重新加入后从 durable snapshot 恢复。
 
 验收：两个浏览器同时打开文档时，远端更新不等待 2 秒轮询即可出现；断流重连能按 `Last-Event-ID` 补发，事件缺口能回退到 snapshot；撤权后已有流立即关闭且无法重连。
 

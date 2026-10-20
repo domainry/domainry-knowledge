@@ -271,7 +271,10 @@ export function useKnowledgeCollaboration(options: Options) {
 
   function edit(title: string, content: string, change?: KnowledgeEditorChange) {
     const confirmed = confirmedRef.current;
-    if (!confirmed || !ready || state === "connecting" || state === "reconnecting" || state === "error") return;
+    // Once the first snapshot is ready, a transient SSE reconnect must not drop
+    // local edits. The POST session is still valid while the downlink reconnects,
+    // so queue the newest canonical document and let the normal pump submit it.
+    if (!confirmed || !ready) return;
     const currentState: KnowledgeEditorChange = change || (() => {
       const encoded = encodeKnowledgeYjsState(document);
       return { yjsUpdate: encoded, yjsState: encoded, editedBlockIDs: [] };

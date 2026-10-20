@@ -59,6 +59,8 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   assert.match(collaboration, /streamKnowledgeCollaborationEvents/);
   assert.match(collaboration, /reconnecting/);
   assert.match(collaboration, /2 \*\* \(failures - 1\)/);
+  assert.match(collaboration, /transient SSE reconnect must not drop/);
+  assert.match(collaboration, /function edit[\s\S]*if \(!confirmed \|\| !ready\) return;/);
   assert.doesNotMatch(collaboration, /setInterval/);
   assert.doesNotMatch(collaboration, /2_000/);
   assert.match(client, /Accept: "text\/event-stream"/);
