@@ -13,6 +13,7 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-foundation/telemetry"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
@@ -242,5 +243,6 @@ func writeTransferError(writer http.ResponseWriter, err error) {
 	case "conflict":
 		status = http.StatusConflict
 	}
+	telemetry.RecordHTTPStatusError(writer, status, safe.Code)
 	writeJSON(writer, status, knowledgecontract.SaaSResponse{Error: safe})
 }

@@ -180,6 +180,7 @@ func safeCode(value string) string {
 	return value
 }
 func writeStatus(w http.ResponseWriter, status int, class, code string) {
+	telemetry.RecordHTTPStatusError(w, status, code)
 	writeJSON(w, status, knowledgecontract.SaaSResponse{Error: &knowledgecontract.SaaSError{Class: class, Code: code}})
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {

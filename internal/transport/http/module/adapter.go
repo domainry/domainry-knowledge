@@ -14,6 +14,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-foundation/modulehttp"
+	"github.com/domainry/domainry-foundation/telemetry"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
@@ -1026,6 +1027,7 @@ func writeError(response http.ResponseWriter, err error) {
 			KnowledgePageConflict() knowledgesdk.KnowledgePageConflict
 		}
 		if errors.As(err, &pageConflict) {
+			telemetry.RecordHTTPStatusError(response, status, coded.Code)
 			writeJSON(response, status, struct {
 				Code     string                             `json:"code"`
 				Conflict knowledgesdk.KnowledgePageConflict `json:"conflict"`
@@ -1037,6 +1039,7 @@ func writeError(response http.ResponseWriter, err error) {
 }
 
 func writeCode(response http.ResponseWriter, status int, code string) {
+	telemetry.RecordHTTPStatusError(response, status, code)
 	writeJSON(response, status, map[string]string{"code": code})
 }
 
