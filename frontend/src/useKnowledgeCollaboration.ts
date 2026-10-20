@@ -130,10 +130,10 @@ export function useKnowledgeCollaboration(options: Options) {
     confirmedRef.current = null;
     pendingRef.current = null;
     drainRef.current = null;
-	if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
-	if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
-	bodyTimerRef.current = null;
-	presenceTimerRef.current = null;
+    if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+    if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+    bodyTimerRef.current = null;
+    presenceTimerRef.current = null;
     setReady(false);
     setState(retryNonce > 0 ? "reconnecting" : "connecting");
     setPresence([]);
@@ -201,11 +201,9 @@ export function useKnowledgeCollaboration(options: Options) {
           cursor_block_id: cursorRef.current.cursor || undefined,
           selection_block_id: cursorRef.current.selection || undefined,
         }, AbortSignal.timeout(10_000));
-      } catch (failure) {
-        if (generationRef.current === generation) {
-          setState("reconnecting");
-          callbacksRef.current.onError(failure);
-        }
+      } catch {
+        // Presence is deliberately lossy. The SSE stream owns connection state
+        // and the next selection/body update carries the latest cursor again.
       }
     };
 
@@ -259,10 +257,10 @@ export function useKnowledgeCollaboration(options: Options) {
     return () => {
       abort.abort();
       generationRef.current++;
-	  if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
-	  if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
-	  bodyTimerRef.current = null;
-	  presenceTimerRef.current = null;
+      if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+      if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+      bodyTimerRef.current = null;
+      presenceTimerRef.current = null;
       drainRef.current = null;
       pendingRef.current = null;
       const session = sessionRef.current;
@@ -282,28 +280,28 @@ export function useKnowledgeCollaboration(options: Options) {
     pendingRef.current = { updateID: crypto.randomUUID(), title, content, change: currentState };
     cursorRef.current = { cursor: currentState.cursorBlockID || "", selection: currentState.selectionBlockID || "" };
     setState("syncing");
-	if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
-	bodyTimerRef.current = window.setTimeout(() => {
-	  bodyTimerRef.current = null;
-	  void pumpRef.current();
-	}, 120);
+    if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+    bodyTimerRef.current = window.setTimeout(() => {
+      bodyTimerRef.current = null;
+      void pumpRef.current();
+    }, 120);
   }
 
   function updatePresence(cursorBlockID?: string, selectionBlockID?: string) {
-	cursorRef.current = { cursor: cursorBlockID || "", selection: selectionBlockID || "" };
-	if (!ready || state === "connecting" || state === "reconnecting" || state === "error") return;
-	if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
-	presenceTimerRef.current = window.setTimeout(() => {
-	  presenceTimerRef.current = null;
-	  void presenceRef.current();
-	}, 250);
-	}
+    cursorRef.current = { cursor: cursorBlockID || "", selection: selectionBlockID || "" };
+    if (!ready || state === "connecting" || state === "reconnecting" || state === "error") return;
+    if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+    presenceTimerRef.current = window.setTimeout(() => {
+      presenceTimerRef.current = null;
+      void presenceRef.current();
+    }, 250);
+  }
 
   async function publish(publishNote?: string): Promise<KnowledgePageView> {
-	if (bodyTimerRef.current !== null) {
-	  window.clearTimeout(bodyTimerRef.current);
-	  bodyTimerRef.current = null;
-	}
+    if (bodyTimerRef.current !== null) {
+      window.clearTimeout(bodyTimerRef.current);
+      bodyTimerRef.current = null;
+    }
     await pumpRef.current();
     const session = sessionRef.current;
     if (!session || pendingRef.current) throw new Error("协作更改尚未完成合并");
@@ -334,7 +332,7 @@ export function useKnowledgeCollaboration(options: Options) {
     draftRevision,
     userID,
     edit,
-	updatePresence,
+    updatePresence,
     publish,
     reconnect: () => setRetryNonce(value => value + 1),
     encodeState: () => encodeKnowledgeYjsState(document),
