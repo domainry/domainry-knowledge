@@ -79,6 +79,25 @@ func TestKnowledgeRealtimeRechecksExactIdentityActionAndNeverAuditsBody(t *testi
 	}
 }
 
+func TestKnowledgeCollaborationEventsRechecksExactIdentityAction(t *testing.T) {
+	base := &pageAuthorizationRepository{
+		library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "editor"},
+		page:    knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{ID: "kpage_test", LibraryID: "klib_test", State: "active"}},
+	}
+	repository := &realtimeAuthorizationRepository{pageAuthorizationRepository: base}
+	policy := &pageAuthorizationPolicy{}
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy}, nil)
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	batch, err := service.KnowledgeCollaborationEvents(t.Context(), base.library.ID, base.page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: "session", AfterClock: 3, WaitMillis: 10}, authority)
+	if err != nil || batch.SessionID != "session" {
+		t.Fatalf("events batch=%+v err=%v", batch, err)
+	}
+	want := []string{knowledgesdk.ActionPageCollaborationEvents, knowledgesdk.ActionPageCollaborationEvents}
+	if len(policy.actions) != len(want) || policy.actions[0] != want[0] || policy.actions[1] != want[1] {
+		t.Fatalf("event stream did not recheck exact action: %v", policy.actions)
+	}
+}
+
 func TestKnowledgeRealtimeIdentityDenialStopsBeforeRepositoryMutation(t *testing.T) {
 	base := &pageAuthorizationRepository{library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "editor"}, page: knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{ID: "kpage_test", LibraryID: "klib_test", State: "active"}}}
 	repository := &realtimeAuthorizationRepository{pageAuthorizationRepository: base}

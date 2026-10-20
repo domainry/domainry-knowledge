@@ -1,20 +1,39 @@
 package modulehttptransport
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
+	identitysdk "github.com/domainry/domainry-identity-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
 type adapterTestService struct{ knowledgecontract.Service }
 type adapterTestProvider struct{ adapter modulehttp.Adapter }
+
+type collaborationEventAdapterService struct {
+	adapterTestService
+	calls  int
+	inputs []knowledgesdk.KnowledgeCollaborationEvents
+}
+
+func (service *collaborationEventAdapterService) KnowledgeCollaborationEvents(_ context.Context, _, _ string, input knowledgesdk.KnowledgeCollaborationEvents, _ knowledgesdk.Authority) (knowledgesdk.KnowledgeCollaborationEventBatch, error) {
+	service.calls++
+	service.inputs = append(service.inputs, input)
+	if service.calls > 1 {
+		return knowledgesdk.KnowledgeCollaborationEventBatch{}, &knowledgesdk.Error{Class: "forbidden", Code: "knowledge.collaboration_session_revoked"}
+	}
+	update := &knowledgesdk.KnowledgeCollaborationUpdate{ClientID: "client", UpdateID: "update", YjsState: "c3RhdGU=", Content: "content", ContentSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	return knowledgesdk.KnowledgeCollaborationEventBatch{SessionID: input.SessionID, ServerClock: 7, Complete: true, Events: []knowledgesdk.KnowledgeCollaborationServerEvent{{Type: knowledgesdk.KnowledgeCollaborationEventUpdate, Clock: 7, UserID: "bob", Update: update}}}, nil
+}
 
 func (value adapterTestProvider) HTTPAdapters() []modulehttp.Adapter {
 	return []modulehttp.Adapter{value.adapter}
@@ -75,5 +94,31 @@ func TestKnowledgeHTTPRoutesRejectUnknownAndRepeatedQueryParameters(t *testing.T
 		if response.Code != http.StatusBadRequest {
 			t.Fatalf("%s status=%d body=%s", target, response.Code, response.Body.String())
 		}
+	}
+}
+
+func TestKnowledgeCollaborationEventsStreamsSSEAndClosesOnRevocation(t *testing.T) {
+	service := &collaborationEventAdapterService{}
+	projected, err := NewAdapter(service, "runtime-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/knowledge/libraries/lib_a/pages/page_a/collaboration/session_a/events", nil)
+	request.Header.Set("Last-Event-ID", "6")
+	identity := identitysdk.RequestIdentity{Principal: identitysdk.Principal{Known: true, WorkspaceID: "workspace-a", UserID: "alice"}}
+	request = request.WithContext(identitysdk.WithRequestIdentity(request.Context(), identity))
+	response := httptest.NewRecorder()
+	projected.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/event-stream; charset=utf-8" || response.Header().Get("X-Accel-Buffering") != "no" || !response.Flushed {
+		t.Fatalf("SSE headers/status invalid: status=%d headers=%v flushed=%v body=%s", response.Code, response.Header(), response.Flushed, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"retry: 1000", "id: 7", "event: update", `"update_id":"update"`, "event: revoked", `"code":"knowledge.collaboration_session_revoked"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SSE body missing %q: %s", want, body)
+		}
+	}
+	if len(service.inputs) != 2 || service.inputs[0].AfterClock != 6 || service.inputs[0].WaitMillis != 0 || service.inputs[1].AfterClock != 7 || service.inputs[1].WaitMillis != 15_000 {
+		t.Fatalf("Last-Event-ID/wait contract lost: %+v", service.inputs)
 	}
 }

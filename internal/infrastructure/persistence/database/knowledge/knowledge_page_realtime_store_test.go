@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -235,6 +237,69 @@ func TestKnowledgeCollaborationHeartbeatRetentionAndSnapshotFallback(t *testing.
 	result := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, 0, nil, authority)
 	if len(result.Events) != 1 || result.Events[0].Snapshot == nil || result.Events[0].Update != nil || result.Events[0].Snapshot.Content != documentContentFixture(strings.Repeat("x", int(knowledgeCollaborationRetainedEvents+1))) {
 		t.Fatalf("client outside retained window did not receive current checkpoint: %+v", result.Events)
+	}
+	stream, err := store.KnowledgeCollaborationEvents(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: session.ID, AfterClock: 0}, authority)
+	if err != nil || len(stream.Events) != 2 || stream.Events[0].Type != knowledgesdk.KnowledgeCollaborationEventSnapshot || stream.Events[0].Snapshot == nil || stream.Events[0].Snapshot.ServerClock != clock || stream.Events[1].Type != knowledgesdk.KnowledgeCollaborationEventPresence {
+		t.Fatalf("SSE batch did not fall back to durable snapshot and presence: batch=%+v err=%v", stream, err)
+	}
+}
+
+func TestKnowledgeCollaborationEventsWakeImmediatelyAndResumeByClock(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	reader := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "reader", authority)
+	result := make(chan knowledgesdk.KnowledgeCollaborationEventBatch, 1)
+	errors := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	go func() {
+		batch, err := store.KnowledgeCollaborationEvents(ctx, library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: reader.ID, AfterClock: reader.ServerClock, WaitMillis: 2500}, authority)
+		if err != nil {
+			errors <- err
+			return
+		}
+		result <- batch
+	}()
+	update := collaborationUpdateFixture("reader", "stream-update", "SSE 立即更新", nil, "block-1")
+	syncResult := syncCollaborationFixture(t, store, library.ID, page.Page.ID, reader, reader.ServerClock, &update, authority)
+	select {
+	case err := <-errors:
+		t.Fatal(err)
+	case batch := <-result:
+		if batch.ServerClock != syncResult.Session.ServerClock || len(batch.Events) < 1 || batch.Events[0].Type != knowledgesdk.KnowledgeCollaborationEventUpdate || batch.Events[0].Clock != syncResult.Session.ServerClock || batch.Events[0].Update == nil || batch.Events[0].Update.UpdateID != update.UpdateID {
+			t.Fatalf("event wait did not resume from durable clock: %+v", batch)
+		}
+	case <-ctx.Done():
+		t.Fatal("event wait was not awakened by committed update")
+	}
+}
+
+func TestKnowledgeCollaborationEventsWakeWhenMembershipRevokesSession(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	bob := authority
+	bob.UserID = "bob"
+	var err error
+	library, err = store.SetKnowledgeLibraryMember(t.Context(), library.ID, bob.UserID, agentsdk.KnowledgeLibraryMemberWrite{Role: "editor", ExpectedRevision: library.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "bob-events", bob)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	streamErr := make(chan error, 1)
+	go func() {
+		_, waitErr := store.KnowledgeCollaborationEvents(ctx, library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: session.ID, AfterClock: session.ServerClock, WaitMillis: 2500}, bob)
+		streamErr <- waitErr
+	}()
+	if _, err = store.RemoveKnowledgeLibraryMember(t.Context(), library.ID, bob.UserID, library.Revision, authority); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err = <-streamErr:
+		if err == nil || !strings.Contains(err.Error(), "collaboration_session_revoked") && !strings.Contains(err.Error(), "library_not_found") {
+			t.Fatalf("revoked event wait returned %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("membership revocation did not wake the existing event wait")
 	}
 }
 

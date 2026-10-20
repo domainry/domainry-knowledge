@@ -21,6 +21,7 @@ export type KnowledgeEditorProps = {
     readOnly: boolean;
     collaboration?: KnowledgeEditorCollaboration;
     onChange(body: string, collaboration?: KnowledgeEditorChange): void;
+    onPresence?(cursorBlockID?: string, selectionBlockID?: string): void;
 };
 export type KnowledgeEditorModule = {
     default: React.ComponentType<KnowledgeEditorProps>;

@@ -52,6 +52,20 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.doesNotMatch(panel, /localStorage|sessionStorage|AccessBundle|provider[_ ]credential/i);
 });
 
+test("collaboration uses authenticated SSE downlink without retaining the two-second poller", async () => {
+  const collaboration = await readFile(path.join(root, "src", "useKnowledgeCollaboration.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  assert.match(collaboration, /streamKnowledgeCollaborationEvents/);
+  assert.match(collaboration, /reconnecting/);
+  assert.match(collaboration, /2 \*\* \(failures - 1\)/);
+  assert.doesNotMatch(collaboration, /setInterval/);
+  assert.doesNotMatch(collaboration, /2_000/);
+  assert.match(client, /Accept: "text\/event-stream"/);
+  assert.match(client, /"Last-Event-ID": String\(afterClock\)/);
+  assert.match(client, /sessionFetch/);
+  assert.doesNotMatch(client, /access_token=.*collaboration/);
+});
+
 test("library workspace keeps backend resource types out of primary navigation", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const pages = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");

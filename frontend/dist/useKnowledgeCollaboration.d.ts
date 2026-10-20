@@ -24,6 +24,7 @@ export declare function useKnowledgeCollaboration(options: Options): {
     draftRevision: number;
     userID: string;
     edit: (title: string, content: string, change?: KnowledgeEditorChange) => void;
+    updatePresence: (cursorBlockID?: string, selectionBlockID?: string) => void;
     publish: (publishNote?: string) => Promise<KnowledgePageView>;
     reconnect: () => void;
     encodeState: () => string;

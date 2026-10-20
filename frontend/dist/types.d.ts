@@ -159,6 +159,15 @@ export type KnowledgeCollaborationSyncResult = {
     applied: boolean;
     complete: boolean;
 };
+export type KnowledgeCollaborationServerEvent = {
+    type: "update" | "snapshot" | "presence" | "revoked" | "heartbeat";
+    clock: number;
+    user_id?: string;
+    update?: KnowledgeCollaborationUpdate;
+    snapshot?: KnowledgeCollaborationSnapshot;
+    presence?: KnowledgeCollaborationPresence[];
+    code?: string;
+};
 export type KnowledgePageAccessGrant = {
     user_id: string;
     role: "reader" | "editor" | "manager";
@@ -521,6 +530,7 @@ export interface KnowledgeClient {
         cursor_block_id?: string;
         selection_block_id?: string;
     }, signal: AbortSignal): Promise<KnowledgeCollaborationSyncResult>;
+    streamKnowledgeCollaborationEvents?(libraryID: string, pageID: string, sessionID: string, afterClock: number, onEvent: (event: KnowledgeCollaborationServerEvent) => void, signal: AbortSignal): Promise<void>;
     closeKnowledgeCollaboration?(libraryID: string, pageID: string, sessionID: string, signal: AbortSignal): Promise<void>;
     publishKnowledgeCollaboration?(libraryID: string, pageID: string, request: {
         session_id: string;
