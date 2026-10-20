@@ -291,6 +291,9 @@ func (k *LibraryKnowledgeSource) AuthorizeKnowledgeResultRead(ctx context.Contex
 	if err != nil {
 		return LibraryKnowledgeAccessError(err)
 	}
+	if err = k.policy.AuthorizeKnowledgeLibrary(ctx, knowledgesdk.ActionLibrariesList, library, a); err != nil {
+		return err
+	}
 	return k.policy.AuthorizeKnowledgeLibrary(ctx, knowledgesdk.ActionDocumentsDownload, library, a)
 }
 
