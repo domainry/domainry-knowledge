@@ -1008,7 +1008,7 @@ func writeResult(response http.ResponseWriter, value any, err error, status int)
 func writeError(response http.ResponseWriter, err error) {
 	var coded *agentsdk.Error
 	if !errors.As(err, &coded) {
-		writeCode(response, http.StatusServiceUnavailable, "knowledge.unavailable")
+		writeCode(response, http.StatusServiceUnavailable, "knowledge.unavailable", err)
 		return
 	}
 	status := http.StatusServiceUnavailable
@@ -1027,7 +1027,7 @@ func writeError(response http.ResponseWriter, err error) {
 			KnowledgePageConflict() knowledgesdk.KnowledgePageConflict
 		}
 		if errors.As(err, &pageConflict) {
-			telemetry.RecordHTTPStatusError(response, status, coded.Code)
+			telemetry.RecordHTTPStatusError(response, status, coded.Code, err)
 			writeJSON(response, status, struct {
 				Code     string                             `json:"code"`
 				Conflict knowledgesdk.KnowledgePageConflict `json:"conflict"`
@@ -1035,11 +1035,11 @@ func writeError(response http.ResponseWriter, err error) {
 			return
 		}
 	}
-	writeCode(response, status, coded.Code)
+	writeCode(response, status, coded.Code, err)
 }
 
-func writeCode(response http.ResponseWriter, status int, code string) {
-	telemetry.RecordHTTPStatusError(response, status, code)
+func writeCode(response http.ResponseWriter, status int, code string, causes ...error) {
+	telemetry.RecordHTTPStatusError(response, status, code, causes...)
 	writeJSON(response, status, map[string]string{"code": code})
 }
 
