@@ -51,7 +51,15 @@ func (runtime Runtime) NewService(runtimeID string, options contract.Options) co
 type failureRecorder struct{}
 
 func (failureRecorder) RecordFailure(ctx context.Context, event string, err error, failure application.Failure) {
-	logging.RecordFailure(ctx, event, err, logging.Failure{Stage: failure.Stage, Dependency: failure.Dependency, Retryable: failure.Retryable})
+	fields := logging.Failure{Stage: failure.Stage, Dependency: failure.Dependency, Retryable: failure.Retryable}
+	switch event {
+	case "knowledge_audit_append_failed":
+		logging.RecordFailure(ctx, "knowledge_audit_append_failed", err, fields)
+	case "knowledge_collaboration_publish_failed":
+		logging.RecordFailure(ctx, "knowledge_collaboration_publish_failed", err, fields)
+	default:
+		logging.RecordFailure(ctx, "knowledge_operational_failure", err, fields)
+	}
 }
 func (runtime Runtime) Prepare(runtimeID string, options contract.Options) (contract.Knowledge, error) {
 	if documents, ok := runtime.repository.(persistence.KnowledgeSourceRegistry); ok && options.Knowledge != nil {

@@ -18,7 +18,7 @@ require (
 
 require (
 	github.com/aws/smithy-go v1.28.1
-	github.com/domainry/domainry-foundation v0.2.8
+	github.com/domainry/domainry-foundation v0.2.9
 	github.com/domainry/domainry-identity-sdk v0.1.26
 	github.com/domainry/domainry-knowledge-sdk v0.1.17
 	golang.org/x/sys v0.47.0

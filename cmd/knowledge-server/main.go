@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	knowledgehttpapi "github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-foundation/logging"
 	"github.com/domainry/domainry-foundation/processhost"
 	identitymodule "github.com/domainry/domainry-identity/module"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
@@ -34,7 +36,16 @@ func run() (runErr error) {
 	if err != nil {
 		return err
 	}
-	defer func() { runErr = observability.Finish(context.Background(), nil, runErr) }()
+	started := false
+	startupFailure := logging.Failure{Stage: "configuration_validate"}
+	defer func() {
+		if !started && runErr != nil {
+			observability.StartFailed(context.Background(), runErr, startupFailure)
+			runErr = errors.Join(runErr, observability.Close(context.Background(), nil))
+			return
+		}
+		runErr = observability.Finish(context.Background(), nil, runErr)
+	}()
 	runtimeID := environmentValue("KNOWLEDGE_RUNTIME_ID", "knowledge")
 	workspaceID := environmentValue("KNOWLEDGE_WORKSPACE_ID", "knowledge-workspace")
 	applicationKey := environmentValue("KNOWLEDGE_APPLICATION_KEY", "knowledge")
@@ -73,6 +84,7 @@ func run() (runErr error) {
 		}
 		providerFactory = knowledgeassembly.NewProviderFactory(knowledgehttpapi.New)
 	}
+	startupFailure = logging.Failure{Stage: "product_initialize"}
 	service, err := product.Open(ctx, product.Options{
 		RuntimeID: runtimeID, WorkspaceID: workspaceID, ApplicationKey: applicationKey,
 		DatabasePath: databasePath, StoragePath: storagePath, Origin: origin, Files: os.DirFS(frontendPath),
@@ -87,8 +99,14 @@ func run() (runErr error) {
 	}
 	defer service.Close(context.Background())
 	server := &http.Server{Addr: address, Handler: observability.Handler("public", service.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
+	startupFailure = logging.Failure{Stage: "listener_bind", Dependency: "public_listener"}
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return err
+	}
 	serveErr := make(chan error, 1)
-	go func() { serveErr <- server.ListenAndServe() }()
+	go func() { serveErr <- server.Serve(listener) }()
+	started = true
 	observability.Started(ctx, map[string]any{"listener_group": "public"})
 	select {
 	case err = <-serveErr:
