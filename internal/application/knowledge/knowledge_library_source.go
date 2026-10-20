@@ -275,6 +275,25 @@ func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved 
 	return k.revalidateKnowledge(ctx, saved, a)
 }
 
+func (k *LibraryKnowledgeSource) AuthorizeKnowledgeResultRead(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) error {
+	if err := k.revalidateKnowledge(ctx, saved, a); err != nil {
+		return err
+	}
+	if saved.Provider != ManagedKnowledgeProvider || saved.LibraryID == "" {
+		if saved.LibraryID == "" {
+			if authorizer, ok := k.defaultSource.(knowledgesdk.ResultReadAuthorizer); ok {
+				return authorizer.AuthorizeKnowledgeResultRead(ctx, saved, a)
+			}
+		}
+		return nil
+	}
+	library, err := k.repo.KnowledgeLibrary(ctx, saved.LibraryID, a)
+	if err != nil {
+		return LibraryKnowledgeAccessError(err)
+	}
+	return k.policy.AuthorizeKnowledgeLibrary(ctx, knowledgesdk.ActionDocumentsDownload, library, a)
+}
+
 func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) error {
 	if saved.Operation == "libraries" {
 		var args struct {
@@ -353,3 +372,4 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 }
 
 var _ contract.Knowledge = (*LibraryKnowledgeSource)(nil)
+var _ knowledgesdk.ResultReadAuthorizer = (*LibraryKnowledgeSource)(nil)
