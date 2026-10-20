@@ -20,7 +20,7 @@ import (
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	knowledgeassembly "github.com/domainry/domainry-knowledge/internal/assembly/module"
-	product "github.com/domainry/domainry-knowledge/internal/assembly/product"
+	product "github.com/domainry/domainry-knowledge/internal/assembly/saas/product"
 )
 
 func main() {
