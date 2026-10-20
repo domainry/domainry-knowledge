@@ -4,7 +4,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	toolsdk "github.com/domainry/domainry-tools-sdk"
 )
 
 type classificationCapture struct {
@@ -26,7 +26,7 @@ func TestKnowledgeErrorClassificationMatrix(t *testing.T) {
 	}
 	for _, test := range tests {
 		capture := &classificationCapture{ResponseRecorder: httptest.NewRecorder()}
-		writeError(capture, &agentsdk.Error{Class: test.class, Code: test.code})
+		writeError(capture, &toolsdk.Error{Class: test.class, Code: test.code})
 		if capture.kind != test.kind || capture.code != test.code {
 			t.Fatalf("class=%q kind=%q code=%q", test.class, capture.kind, capture.code)
 		}
