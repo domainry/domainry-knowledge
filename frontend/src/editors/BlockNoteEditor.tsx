@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Block } from "@blocknote/core";
 import { zh } from "@blocknote/core/locales";
+import { withCollaboration } from "@blocknote/core/yjs";
 import { SuggestionMenuController, useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/ariakit";
 import "@blocknote/ariakit/style.css";
@@ -38,10 +39,16 @@ function changedDocumentBlockIDs(before: string, after: string) {
 
 function DocumentBlockEditor({ body, readOnly, collaboration, onChange, onPresence }: KnowledgeEditorProps) {
   const applying = useRef(false), emitted = useRef(body), seeded = useRef(false);
-  const editor = useCreateBlockNote({
+  const baseOptions = {
     schema: knowledgeDocumentSchema,
     dictionary: zh,
-    ...(collaboration ? { collaboration: { fragment: collaboration.fragment, user: collaboration.user } } : { initialContent: parseDocumentBlocks(body).length ? parseDocumentBlocks(body) as never : undefined }),
+  };
+  const editor = useCreateBlockNote(collaboration ? withCollaboration({
+    ...baseOptions,
+    collaboration: { fragment: collaboration.fragment, user: collaboration.user },
+  }) : {
+    ...baseOptions,
+    initialContent: parseDocumentBlocks(body).length ? parseDocumentBlocks(body) as never : undefined,
   }, [collaboration?.fragment]);
 
   const emitDocument = () => {
@@ -90,6 +97,11 @@ function DocumentBlockEditor({ body, readOnly, collaboration, onChange, onPresen
     queueMicrotask(() => { applying.current = false; });
   }, [body, collaboration, editor]);
 
+  useEffect(() => editor.onChange(() => {
+    if (applying.current || readOnly) return;
+    emitDocument();
+  }, false), [editor, readOnly, collaboration, onChange]);
+
   return <div className="knowledge-open-editor is-blocknote is-document">
     <BlockNoteView
       editor={editor}
@@ -98,10 +110,6 @@ function DocumentBlockEditor({ body, readOnly, collaboration, onChange, onPresen
       linkToolbar={!readOnly}
       slashMenu={false}
       sideMenu={!readOnly}
-      onChange={() => {
-        if (applying.current || readOnly) return;
-        emitDocument();
-      }}
       onSelectionChange={emitPresence}
     >
       {!readOnly && <SuggestionMenuController triggerCharacter="/" getItems={query => getKnowledgeSlashMenuItems(editor, query)} />}

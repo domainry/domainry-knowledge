@@ -55,6 +55,7 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
 test("collaboration uses authenticated SSE downlink without retaining the two-second poller", async () => {
   const collaboration = await readFile(path.join(root, "src", "useKnowledgeCollaboration.ts"), "utf8");
   const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const blockEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
   assert.match(collaboration, /streamKnowledgeCollaborationEvents/);
   assert.match(collaboration, /reconnecting/);
   assert.match(collaboration, /2 \*\* \(failures - 1\)/);
@@ -64,6 +65,8 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   assert.match(client, /"Last-Event-ID": String\(afterClock\)/);
   assert.match(client, /sessionFetch/);
   assert.doesNotMatch(client, /access_token=.*collaboration/);
+  assert.match(blockEditor, /withCollaboration/);
+  assert.match(blockEditor, /editor\.onChange\([\s\S]*false\)/);
 });
 
 test("library workspace keeps backend resource types out of primary navigation", async () => {
