@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	attachmentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/attachmentstorage"
 )
 
@@ -27,11 +27,11 @@ func (f *Files) Close() error { return f.files.Close() }
 var libraryPattern = regexp.MustCompile(`^lib_[a-f0-9]{32}$`)
 var documentPattern = regexp.MustCompile(`^kdoc_[a-f0-9]{32}$`)
 
-func namespace(s agentsdk.KnowledgeDocumentStorageScope, id string) (agentsdk.ConversationAuthority, string, error) {
+func namespace(s agentsdk.KnowledgeDocumentStorageScope, id string) (agentsdk.Authority, string, error) {
 	if !libraryPattern.MatchString(s.LibraryID) || !documentPattern.MatchString(id) {
-		return agentsdk.ConversationAuthority{}, "", &agentsdk.Error{Class: "bad_request", Code: "agent.conversation.document_reference_invalid"}
+		return agentsdk.Authority{}, "", &agentsdk.Error{Class: "bad_request", Code: "knowledge.document_reference_invalid"}
 	}
-	return agentsdk.ConversationAuthority{Known: true, RuntimeID: s.RuntimeID, WorkspaceID: s.WorkspaceID, UserID: "knowledge-library:" + s.LibraryID}, "att_" + strings.TrimPrefix(id, "kdoc_"), nil
+	return agentsdk.Authority{Known: true, RuntimeID: s.RuntimeID, WorkspaceID: s.WorkspaceID, UserID: "knowledge-library:" + s.LibraryID}, "att_" + strings.TrimPrefix(id, "kdoc_"), nil
 }
 func documentError(e error) error {
 	var coded *agentsdk.Error
@@ -66,7 +66,7 @@ func (f *Files) OpenKnowledgeDocumentContent(ctx context.Context, s agentsdk.Kno
 		return nil, e
 	}
 	if ref != key+":"+expectedSHA256 {
-		return nil, documentError(&agentsdk.Error{Class: "unavailable", Code: "agent.conversation.attachment_content_mismatch"})
+		return nil, documentError(&agentsdk.Error{Class: "unavailable", Code: "knowledge.attachment_content_mismatch"})
 	}
 	content, e := f.files.OpenAttachmentContent(ctx, key, ref, expectedBytes, expectedBytes, a)
 	return content, documentError(e)

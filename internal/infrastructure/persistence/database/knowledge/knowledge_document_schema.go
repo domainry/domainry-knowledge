@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/domainry/domainry-agent-sdk/modulehost"
+	"github.com/domainry/domainry-knowledge-sdk/modulehost"
 	ormschema "github.com/domainry/domainry-orm/schema"
 )
 
@@ -12,8 +12,6 @@ const knowledgeSourceTable = "_knowledge_sources"
 const (
 	knowledgeDocumentSourceKind   = "document"
 	knowledgeDatasourceSourceKind = "datasource"
-	knowledgeAttachmentSourceKind = "attachment"
-	knowledgeAttachmentBindingKey = "_attachments"
 )
 
 func knowledgeDocumentSchema(d modulehost.Dialect) ([]string, error) {

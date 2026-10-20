@@ -5,20 +5,20 @@ import (
 	"database/sql"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
 func (s *Store) KnowledgeDatasourceBinding(ctx context.Context, scope agentsdk.KnowledgeDocumentStorageScope) (out persistence.KnowledgeDatasourceBinding, found bool, err error) {
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
+	a := agentsdk.Authority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
 	if conversationAuthority(a) != nil || !validLibraryID(scope.LibraryID) {
 		return out, false, conversationError("bad_request", "document_source_invalid")
 	}
 	found, err = s.executionRead(ctx, s.store.Database(), knowledgeSourceTable, query.And(knowledgeSourcePredicate(a, scope.LibraryID), query.Equal("source_kind", knowledgeDatasourceSourceKind)), &out)
 	return
 }
-func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persistence.KnowledgeDatasourceAssignment, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persistence.KnowledgeDatasourceAssignment, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	if conversationAuthority(a) != nil || !validLibraryID(id) || !personalMemoryKey(in.DatasourceKey) || !validArtifactSHA(in.SourceID) || !validArtifactSHA(in.AccessPolicySHA256) || in.ExpectedRevision < 1 {
 		return out, conversationError("bad_request", "datasource_binding_invalid")
 	}
@@ -71,6 +71,6 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 	})
 	return
 }
-func documentScopeForLibrary(id string, a agentsdk.ConversationAuthority) agentsdk.KnowledgeDocumentStorageScope {
+func documentScopeForLibrary(id string, a agentsdk.Authority) agentsdk.KnowledgeDocumentStorageScope {
 	return agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: id}
 }

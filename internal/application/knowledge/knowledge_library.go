@@ -4,12 +4,12 @@ import (
 	"context"
 	"strconv"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func (s *Service) LibraryAccess(ctx context.Context, op string, a agentsdk.ConversationAuthority) (persistence.KnowledgeLibraryRepository, error) {
+func (s *Service) LibraryAccess(ctx context.Context, op string, a agentsdk.Authority) (persistence.KnowledgeLibraryRepository, error) {
 	if e := s.authorize(a); e != nil {
 		return nil, e
 	}
@@ -20,10 +20,10 @@ func (s *Service) LibraryAccess(ctx context.Context, op string, a agentsdk.Conve
 	// Resource-specific decisions are made after trusted facts are loaded.
 	return repo, nil
 }
-func (s *Service) LibraryAuthorize(ctx context.Context, op string, item agentsdk.KnowledgeLibrary, a agentsdk.ConversationAuthority) error {
+func (s *Service) LibraryAuthorize(ctx context.Context, op string, item agentsdk.KnowledgeLibrary, a agentsdk.Authority) error {
 	return s.authorizeLibraryAction(ctx, op, item, a)
 }
-func (s *Service) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.KnowledgeLibraryCreate, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.KnowledgeLibraryCreate, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesCreate, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
@@ -40,7 +40,7 @@ func (s *Service) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowle
 	}
 	return out, err
 }
-func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibraryPage, error) {
+func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.Authority) (agentsdk.KnowledgeLibraryPage, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesList, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibraryPage{}, e
@@ -65,7 +65,7 @@ func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit in
 	}
 	return page, nil
 }
-func (s *Service) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesGet, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
@@ -79,7 +79,7 @@ func (s *Service) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.Co
 	}
 	return s.LibraryResult(ctx, item, nil, a)
 }
-func (s *Service) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesUpdate, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
@@ -116,7 +116,7 @@ func (s *Service) UpdateKnowledgeLibrary(ctx context.Context, id string, in agen
 	}
 	return out, err
 }
-func (s *Service) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibraryMembers, error) {
+func (s *Service) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.Authority) (agentsdk.KnowledgeLibraryMembers, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersList, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibraryMembers{}, e
@@ -130,7 +130,7 @@ func (s *Service) KnowledgeLibraryMembers(ctx context.Context, id, after string,
 	}
 	return repo.KnowledgeLibraryMembers(ctx, id, after, limit, a)
 }
-func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersSet, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
@@ -157,7 +157,7 @@ func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string
 	}
 	return out, err
 }
-func (s *Service) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, revision int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, revision int64, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersRemove, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
@@ -189,7 +189,7 @@ func libraryState(archived bool) string {
 
 var _ agentsdk.KnowledgeLibraryService = (*Service)(nil)
 
-func (s *Service) LibraryResult(ctx context.Context, item agentsdk.KnowledgeLibrary, err error, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) LibraryResult(ctx context.Context, item agentsdk.KnowledgeLibrary, err error, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	if err != nil {
 		return agentsdk.KnowledgeLibrary{}, err
 	}

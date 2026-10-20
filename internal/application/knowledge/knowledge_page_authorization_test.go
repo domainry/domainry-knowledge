@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 type pageAuthorizationRepository struct {
@@ -24,44 +24,44 @@ type pageAuthorizationRepository struct {
 	targetPage knowledgesdk.KnowledgePageEffectiveAccess
 }
 
-func (repository *pageAuthorizationRepository) KnowledgePageAccess(context.Context, string, string, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
+func (repository *pageAuthorizationRepository) KnowledgePageAccess(context.Context, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	return knowledgesdk.KnowledgePageAccessPolicy{Mode: knowledgesdk.KnowledgePageAccessInherit, Revision: 1}, nil
 }
 
-func (repository *pageAuthorizationRepository) SetKnowledgePageAccess(context.Context, string, string, knowledgesdk.KnowledgePageAccessWrite, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
+func (repository *pageAuthorizationRepository) SetKnowledgePageAccess(context.Context, string, string, knowledgesdk.KnowledgePageAccessWrite, agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	return knowledgesdk.KnowledgePageAccessPolicy{}, nil
 }
 
-func (repository *pageAuthorizationRepository) EvaluateKnowledgePageAccess(context.Context, string, string, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
+func (repository *pageAuthorizationRepository) EvaluateKnowledgePageAccess(context.Context, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
 	return knowledgesdk.KnowledgePageEffectiveAccess{Allowed: true, Role: repository.library.Role, Mode: knowledgesdk.KnowledgePageAccessInherit, Source: "library"}, nil
 }
 
-func (repository *pageAuthorizationRepository) KnowledgeLibraryRoleForUser(context.Context, string, string, agentsdk.ConversationAuthority) (string, error) {
+func (repository *pageAuthorizationRepository) KnowledgeLibraryRoleForUser(context.Context, string, string, agentsdk.Authority) (string, error) {
 	return repository.targetRole, nil
 }
 
-func (repository *pageAuthorizationRepository) KnowledgeLibraryPageCount(context.Context, string, agentsdk.ConversationAuthority) (int, error) {
+func (repository *pageAuthorizationRepository) KnowledgeLibraryPageCount(context.Context, string, agentsdk.Authority) (int, error) {
 	return repository.pageCount, nil
 }
 
-func (repository *pageAuthorizationRepository) EvaluateKnowledgePageAccessForUser(context.Context, string, string, string, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
+func (repository *pageAuthorizationRepository) EvaluateKnowledgePageAccessForUser(context.Context, string, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
 	return repository.targetPage, nil
 }
 
-func (*pageAuthorizationRepository) KnowledgePagePermissionTokens(context.Context, string, agentsdk.ConversationAuthority) ([]string, error) {
+func (*pageAuthorizationRepository) KnowledgePagePermissionTokens(context.Context, string, agentsdk.Authority) ([]string, error) {
 	return nil, nil
 }
 
-func (*pageAuthorizationRepository) KnowledgePageProjectionPermission(context.Context, string, string, agentsdk.ConversationAuthority) (string, int64, error) {
+func (*pageAuthorizationRepository) KnowledgePageProjectionPermission(context.Context, string, string, agentsdk.Authority) (string, int64, error) {
 	return "", 1, nil
 }
 
-func (repository *pageAuthorizationRepository) KnowledgeLibrary(context.Context, string, agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (repository *pageAuthorizationRepository) KnowledgeLibrary(context.Context, string, agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repository.libraryGet++
 	return repository.library, nil
 }
 
-func (repository *pageAuthorizationRepository) KnowledgePage(context.Context, string, string, bool, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (repository *pageAuthorizationRepository) KnowledgePage(context.Context, string, string, bool, agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository.pageGet++
 	return repository.page, nil
 }
@@ -76,7 +76,7 @@ type pageIdentityAccessExplainer struct {
 	role    string
 }
 
-func (explainer *pageIdentityAccessExplainer) ExplainKnowledgeAccess(_ context.Context, input knowledgesdk.KnowledgeAccessExplainRequest, library agentsdk.KnowledgeLibrary, _ agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeAccessExplanation, error) {
+func (explainer *pageIdentityAccessExplainer) ExplainKnowledgeAccess(_ context.Context, input knowledgesdk.KnowledgeAccessExplainRequest, library agentsdk.KnowledgeLibrary, _ agentsdk.Authority) (knowledgesdk.KnowledgeAccessExplanation, error) {
 	explainer.role = library.Role
 	code := "identity_action_denied"
 	if explainer.allowed {
@@ -88,7 +88,7 @@ func (explainer *pageIdentityAccessExplainer) ExplainKnowledgeAccess(_ context.C
 	}, nil
 }
 
-func (policy *pageAuthorizationPolicy) AuthorizeKnowledgeLibrary(_ context.Context, action string, _ agentsdk.KnowledgeLibrary, _ agentsdk.ConversationAuthority) error {
+func (policy *pageAuthorizationPolicy) AuthorizeKnowledgeLibrary(_ context.Context, action string, _ agentsdk.KnowledgeLibrary, _ agentsdk.Authority) error {
 	policy.actions = append(policy.actions, action)
 	if len(policy.actions) == policy.denyAt {
 		return &agentsdk.Error{Class: "forbidden", Code: "identity.permission_denied"}
@@ -96,7 +96,7 @@ func (policy *pageAuthorizationPolicy) AuthorizeKnowledgeLibrary(_ context.Conte
 	return nil
 }
 
-func (*pageAuthorizationPolicy) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.ConversationAuthority) error {
+func (*pageAuthorizationPolicy) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.Authority) error {
 	return nil
 }
 
@@ -107,7 +107,7 @@ func TestKnowledgePageReadRechecksExactActionAfterRepositoryRead(t *testing.T) {
 	}
 	policy := &pageAuthorizationPolicy{denyAt: 2}
 	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy})
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 
 	if _, err := service.KnowledgePage(t.Context(), "klib_test", "kpage_test", true, authority); err == nil || !strings.Contains(err.Error(), "permission_denied") {
 		t.Fatalf("permission revoked after repository read was not enforced: %v", err)
@@ -124,7 +124,7 @@ func TestKnowledgePageWriteRequiresLibraryRoleAfterExactAction(t *testing.T) {
 	repository := &pageAuthorizationRepository{library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "reader"}}
 	policy := &pageAuthorizationPolicy{}
 	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy})
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 
 	if _, err := service.CreateKnowledgePage(t.Context(), "klib_test", knowledgesdk.KnowledgePageCreate{ClientID: "create", Title: "page", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority); err == nil || !strings.Contains(err.Error(), "library_role_denied") {
 		t.Fatalf("reader created a page: %v", err)
@@ -145,7 +145,7 @@ func TestKnowledgeAccessExplanationCombinesIdentityLibraryAndAncestorGrant(t *te
 	identity := &pageIdentityAccessExplainer{allowed: true}
 	policy := &pageAuthorizationPolicy{}
 	service := NewService(repository, "runtime", Options{LibraryAuthorizer: policy, AccessExplainer: identity})
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "manager"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "manager"}
 
 	result, err := service.ExplainKnowledgeAccess(t.Context(), repository.library.ID, knowledgesdk.KnowledgeAccessExplainRequest{UserID: "bob", PageID: repository.page.Page.ID, Action: knowledgesdk.ActionPagesUpdate}, authority)
 	if err != nil {

@@ -176,12 +176,12 @@ func TestKnowledgeAnalysisTableFailsClosedBeforeAndDuringRead(t *testing.T) {
 }
 
 func TestKnowledgeAnalysisConfigurationFromEnvironment(t *testing.T) {
-	t.Setenv("AGENT_KNOWLEDGE_ANALYSIS_DOCUMENT_IDS", `["doc-2","doc-1"]`)
+	t.Setenv("KNOWLEDGE_PROVIDER_ANALYSIS_DOCUMENT_IDS", `["doc-2","doc-1"]`)
 	config := KnowledgeConfigFromEnvironment()
 	if !reflect.DeepEqual(config.AnalysisDocumentIDs, []string{"doc-2", "doc-1"}) {
 		t.Fatalf("analysis docs=%v", config.AnalysisDocumentIDs)
 	}
-	t.Setenv("AGENT_KNOWLEDGE_ANALYSIS_DOCUMENT_IDS", `{}`)
+	t.Setenv("KNOWLEDGE_PROVIDER_ANALYSIS_DOCUMENT_IDS", `{}`)
 	if _, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment()); err == nil {
 		t.Fatal("invalid analysis document JSON accepted")
 	}

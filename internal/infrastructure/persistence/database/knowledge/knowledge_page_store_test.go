@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 )
@@ -38,10 +38,10 @@ func documentContentFixture(text string) string {
 	return string(raw)
 }
 
-func pageFixture(t *testing.T) (*Store, agentsdk.ConversationAuthority, agentsdk.KnowledgeLibrary, knowledgesdk.KnowledgePageView) {
+func pageFixture(t *testing.T) (*Store, agentsdk.Authority, agentsdk.KnowledgeLibrary, knowledgesdk.KnowledgePageView) {
 	t.Helper()
 	store, _ := openSubjectKnowledgeStore(t)
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "page-runtime", WorkspaceID: "page-workspace", UserID: "alice", RoleKey: "editor"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "page-runtime", WorkspaceID: "page-workspace", UserID: "alice", RoleKey: "editor"}
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "page-library", Kind: "shared", Name: "页面资料库"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func pageFixture(t *testing.T) (*Store, agentsdk.ConversationAuthority, agentsdk
 	return store, authority, library, page
 }
 
-func savePageFixture(t *testing.T, store *Store, authority agentsdk.ConversationAuthority, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePageView, client, title, content string) knowledgesdk.KnowledgePageView {
+func savePageFixture(t *testing.T, store *Store, authority agentsdk.Authority, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePageView, client, title, content string) knowledgesdk.KnowledgePageView {
 	t.Helper()
 	if page.Page.ContentType == knowledgesdk.KnowledgePageTypeDocument {
 		content = documentContentFixture(content)
@@ -69,7 +69,7 @@ func savePageFixture(t *testing.T, store *Store, authority agentsdk.Conversation
 	return updated
 }
 
-func publishPageFixture(t *testing.T, store *Store, authority agentsdk.ConversationAuthority, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePageView, client string) knowledgesdk.KnowledgePageView {
+func publishPageFixture(t *testing.T, store *Store, authority agentsdk.Authority, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePageView, client string) knowledgesdk.KnowledgePageView {
 	t.Helper()
 	published, err := store.PublishKnowledgePage(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgePagePublish{
 		ClientID: client, ExpectedPageRevision: page.Page.Revision, ExpectedDraftRevision: page.Draft.DraftRevision, PublishNote: "发布验收",

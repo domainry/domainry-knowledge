@@ -4,9 +4,9 @@ import (
 	"context"
 	"strconv"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 type pageRepository interface {
@@ -15,7 +15,7 @@ type pageRepository interface {
 	knowledgesdk.PageAttachmentService
 }
 
-func (s *Service) pageAccess(ctx context.Context, libraryID, action string, a agentsdk.ConversationAuthority) (pageRepository, agentsdk.KnowledgeLibrary, error) {
+func (s *Service) pageAccess(ctx context.Context, libraryID, action string, a agentsdk.Authority) (pageRepository, agentsdk.KnowledgeLibrary, error) {
 	libraries, err := s.LibraryAccess(ctx, action, a)
 	if err != nil {
 		return nil, agentsdk.KnowledgeLibrary{}, err
@@ -34,7 +34,7 @@ func (s *Service) pageAccess(ctx context.Context, libraryID, action string, a ag
 	return repository, library, nil
 }
 
-func (s *Service) recheckPageAction(ctx context.Context, libraryID, action string, a agentsdk.ConversationAuthority) error {
+func (s *Service) recheckPageAction(ctx context.Context, libraryID, action string, a agentsdk.Authority) error {
 	libraries, ok := s.repo.(persistence.KnowledgeLibraryRepository)
 	if !ok {
 		return conversationFailure("unavailable", "libraries_unavailable")
@@ -46,7 +46,7 @@ func (s *Service) recheckPageAction(ctx context.Context, libraryID, action strin
 	return s.authorizeLibraryAction(ctx, action, library, a)
 }
 
-func (s *Service) pageItemAccess(ctx context.Context, libraryID, pageID, action string, a agentsdk.ConversationAuthority) (pageRepository, agentsdk.KnowledgeLibrary, error) {
+func (s *Service) pageItemAccess(ctx context.Context, libraryID, pageID, action string, a agentsdk.Authority) (pageRepository, agentsdk.KnowledgeLibrary, error) {
 	repository, library, err := s.pageAccess(ctx, libraryID, action, a)
 	if err != nil {
 		return nil, agentsdk.KnowledgeLibrary{}, err
@@ -66,7 +66,7 @@ func (s *Service) pageItemAccess(ctx context.Context, libraryID, pageID, action 
 	return repository, library, nil
 }
 
-func (s *Service) recheckPageItemAction(ctx context.Context, libraryID, pageID, action string, a agentsdk.ConversationAuthority) error {
+func (s *Service) recheckPageItemAction(ctx context.Context, libraryID, pageID, action string, a agentsdk.Authority) error {
 	if err := s.recheckPageAction(ctx, libraryID, action, a); err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (s *Service) recheckPageItemAction(ctx context.Context, libraryID, pageID, 
 	return nil
 }
 
-func (s *Service) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePagePage, error) {
+func (s *Service) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.Authority) (knowledgesdk.KnowledgePagePage, error) {
 	repository, _, err := s.pageAccess(ctx, libraryID, knowledgesdk.ActionPagesList, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePagePage{}, err
@@ -97,7 +97,7 @@ func (s *Service) KnowledgePages(ctx context.Context, libraryID, parentID, after
 	return result, err
 }
 
-func (s *Service) KnowledgePage(ctx context.Context, libraryID, pageID string, includeDraft bool, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) KnowledgePage(ctx context.Context, libraryID, pageID string, includeDraft bool, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, library, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesGet, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
@@ -117,7 +117,7 @@ func (s *Service) KnowledgePage(ctx context.Context, libraryID, pageID string, i
 	return result, err
 }
 
-func (s *Service) CreateKnowledgePage(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageCreate, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) CreateKnowledgePage(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageCreate, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageAccess(ctx, libraryID, knowledgesdk.ActionPagesCreate, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
@@ -139,7 +139,7 @@ func (s *Service) CreateKnowledgePage(ctx context.Context, libraryID string, inp
 	return result, err
 }
 
-func (s *Service) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageDraftWrite, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageDraftWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesUpdate, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
@@ -158,7 +158,7 @@ func (s *Service) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID 
 	return result, err
 }
 
-func (s *Service) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageMove, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePage, error) {
+func (s *Service) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageMove, a agentsdk.Authority) (knowledgesdk.KnowledgePage, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesMove, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePage{}, err
@@ -177,7 +177,7 @@ func (s *Service) MoveKnowledgePage(ctx context.Context, libraryID, pageID strin
 	return result, err
 }
 
-func (s *Service) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageMovePreview, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageMoveImpact, error) {
+func (s *Service) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageMovePreview, a agentsdk.Authority) (knowledgesdk.KnowledgePageMoveImpact, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesMovePreview, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
@@ -189,7 +189,7 @@ func (s *Service) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageI
 	return result, err
 }
 
-func (s *Service) KnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
+func (s *Service) KnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	_, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageAccessGet, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageAccessPolicy{}, err
@@ -205,7 +205,7 @@ func (s *Service) KnowledgePageAccess(ctx context.Context, libraryID, pageID str
 	return result, err
 }
 
-func (s *Service) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageAccessWrite, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
+func (s *Service) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageAccessWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	_, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageAccessSet, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageAccessPolicy{}, err
@@ -225,7 +225,7 @@ func (s *Service) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID 
 	return result, err
 }
 
-func (s *Service) ReorderKnowledgePages(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageReorder, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePagePage, error) {
+func (s *Service) ReorderKnowledgePages(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageReorder, a agentsdk.Authority) (knowledgesdk.KnowledgePagePage, error) {
 	repository, _, err := s.pageAccess(ctx, libraryID, knowledgesdk.ActionPagesReorder, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePagePage{}, err
@@ -244,7 +244,7 @@ func (s *Service) ReorderKnowledgePages(ctx context.Context, libraryID string, i
 	return result, err
 }
 
-func (s *Service) CopyKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageCopy, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) CopyKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageCopy, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesCopy, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
@@ -263,7 +263,7 @@ func (s *Service) CopyKnowledgePage(ctx context.Context, libraryID, pageID strin
 	return result, err
 }
 
-func (s *Service) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID string, archived bool, input knowledgesdk.KnowledgePageStateWrite, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePage, error) {
+func (s *Service) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID string, archived bool, input knowledgesdk.KnowledgePageStateWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePage, error) {
 	action := knowledgesdk.ActionPagesArchive
 	if !archived {
 		action = knowledgesdk.ActionPagesRestore
@@ -288,7 +288,7 @@ func (s *Service) SetKnowledgePageArchived(ctx context.Context, libraryID, pageI
 	return result, err
 }
 
-func (s *Service) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePagePublish, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePagePublish, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesPublish, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
@@ -312,7 +312,7 @@ func (s *Service) PublishKnowledgePage(ctx context.Context, libraryID, pageID st
 	return result, err
 }
 
-func (s *Service) KnowledgePageVersions(ctx context.Context, libraryID, pageID string, before int64, limit int, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageVersionPage, error) {
+func (s *Service) KnowledgePageVersions(ctx context.Context, libraryID, pageID string, before int64, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePageVersionPage, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageVersionsList, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageVersionPage{}, err
@@ -324,7 +324,7 @@ func (s *Service) KnowledgePageVersions(ctx context.Context, libraryID, pageID s
 	return result, err
 }
 
-func (s *Service) KnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageVersion, error) {
+func (s *Service) KnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, a agentsdk.Authority) (knowledgesdk.KnowledgePageVersion, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageVersionsGet, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageVersion{}, err
@@ -336,7 +336,7 @@ func (s *Service) KnowledgePageVersion(ctx context.Context, libraryID, pageID st
 	return result, err
 }
 
-func (s *Service) DiffKnowledgePageVersions(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageVersionDiffInput, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageVersionDiff, error) {
+func (s *Service) DiffKnowledgePageVersions(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageVersionDiffInput, a agentsdk.Authority) (knowledgesdk.KnowledgePageVersionDiff, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageVersionsDiff, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageVersionDiff{}, err
@@ -348,7 +348,7 @@ func (s *Service) DiffKnowledgePageVersions(ctx context.Context, libraryID, page
 	return result, err
 }
 
-func (s *Service) RestoreKnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, input knowledgesdk.KnowledgePageRestoreVersion, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) RestoreKnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, input knowledgesdk.KnowledgePageRestoreVersion, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageVersionsRestore, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err

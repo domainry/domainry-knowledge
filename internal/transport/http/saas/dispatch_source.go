@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func (server *Server) source(handle string) (agentsdk.ManagedKnowledgeDocumentSource, error) {
@@ -21,9 +21,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 	switch operation {
 	case "source.document.inspect":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -36,9 +36,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return v, e, true
 	case "source.document.delete":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -50,9 +50,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return struct{}{}, e, true
 	case "source.document.recover_delete":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -69,9 +69,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return struct{}{}, e, true
 	case "source.knowledge.search":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			Query     string                         `json:"query"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			Query     string             `json:"query"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -80,7 +80,7 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		if e != nil {
 			return nil, e, true
 		}
-		knowledge, ok := source.(agentsdk.ConversationKnowledgeSource)
+		knowledge, ok := source.(agentsdk.Source)
 		if !ok {
 			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.source_search_unavailable"}, true
 		}
@@ -88,9 +88,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return v, e, true
 	case "source.knowledge.read":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -99,7 +99,7 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		if e != nil {
 			return nil, e, true
 		}
-		knowledge, ok := source.(agentsdk.ConversationKnowledgeSource)
+		knowledge, ok := source.(agentsdk.Source)
 		if !ok {
 			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.source_read_unavailable"}, true
 		}
@@ -107,9 +107,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return v, e, true
 	case "source.knowledge.revalidate":
 		var in struct {
-			Handle    string                               `json:"handle"`
-			Input     agentsdk.ConversationKnowledgeResult `json:"input"`
-			Authority agentsdk.ConversationAuthority       `json:"authority"`
+			Handle    string             `json:"handle"`
+			Input     agentsdk.Result    `json:"input"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -118,7 +118,7 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		if e != nil {
 			return nil, e, true
 		}
-		knowledge, ok := source.(agentsdk.ConversationKnowledgeSource)
+		knowledge, ok := source.(agentsdk.Source)
 		if !ok {
 			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.source_revalidation_unavailable"}, true
 		}
@@ -126,9 +126,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return struct{}{}, e, true
 	case "source.passages.search":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			Query     string                         `json:"query"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			Query     string             `json:"query"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -141,9 +141,9 @@ func (server *Server) dispatchSource(ctx context.Context, operation string, raw 
 		return v, e, true
 	case "source.passages.read":
 		var in struct {
-			Handle    string                         `json:"handle"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Handle    string             `json:"handle"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true

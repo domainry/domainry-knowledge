@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 func (server *Server) dispatchKnowledgeService(ctx context.Context, operation string, raw json.RawMessage) (any, error, bool) {
@@ -17,7 +17,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		var in struct {
 			ID        string                               `json:"id"`
 			Input     agentsdk.KnowledgeLibrarySourceWrite `json:"input"`
-			Authority agentsdk.ConversationAuthority       `json:"authority"`
+			Authority agentsdk.Authority                   `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -27,7 +27,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 	case knowledgesdk.ActionLibrariesCreate:
 		var in struct {
 			Input     agentsdk.KnowledgeLibraryCreate `json:"input"`
-			Authority agentsdk.ConversationAuthority  `json:"authority"`
+			Authority agentsdk.Authority              `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -36,9 +36,9 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case "service.datasource_access":
 		var in struct {
-			ID        string                         `json:"id"`
-			Operation string                         `json:"operation"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			ID        string             `json:"id"`
+			Operation string             `json:"operation"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -47,8 +47,8 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case "service.datasource_definitions":
 		var in struct {
-			Library   string                         `json:"library"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -57,10 +57,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionDocumentsDelete:
 		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Expected  int64                          `json:"expected"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			ID        string             `json:"id"`
+			Expected  int64              `json:"expected"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -69,10 +69,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionDocumentsRetry:
 		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Expected  int64                          `json:"expected"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			ID        string             `json:"id"`
+			Expected  int64              `json:"expected"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -81,10 +81,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionDocumentsReindex:
 		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Expected  int64                          `json:"expected"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			ID        string             `json:"id"`
+			Expected  int64              `json:"expected"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -93,9 +93,9 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case "service.document_access":
 		var in struct {
-			Library   string                         `json:"library"`
-			Operation string                         `json:"operation"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			Operation string             `json:"operation"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -104,8 +104,8 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return struct{}{}, e, true
 	case "service.document_binding":
 		var in struct {
-			Library   string                         `json:"library"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -129,22 +129,11 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		_ = v.Content.Close()
 		return v.Document, nil, true
-	case knowledgesdk.ActionDocumentsImportAttachment:
-		var in struct {
-			Library   string                             `json:"library"`
-			Input     agentsdk.KnowledgeAttachmentImport `json:"input"`
-			Authority agentsdk.ConversationAuthority     `json:"authority"`
-		}
-		if e := decodeInput(raw, &in); e != nil {
-			return nil, e, true
-		}
-		v, e := s.ImportConversationAttachment(ctx, in.Library, in.Input, in.Authority)
-		return v, e, true
 	case knowledgesdk.ActionDocumentsGet:
 		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -153,9 +142,9 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case "service.document_record":
 		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -168,10 +157,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionDocumentsList:
 		var in struct {
-			Library   string                         `json:"library"`
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Library   string             `json:"library"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -180,9 +169,9 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionLibrariesList:
 		var in struct {
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -191,8 +180,8 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionLibrariesGet:
 		var in struct {
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			ID        string             `json:"id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -201,10 +190,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionLibraryMembersList:
 		var in struct {
-			ID        string                         `json:"id"`
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			ID        string             `json:"id"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -213,10 +202,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionSourcesList:
 		var in struct {
-			ID        string                         `json:"id"`
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			ID        string             `json:"id"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -225,8 +214,8 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case "service.library_access":
 		var in struct {
-			Operation string                         `json:"operation"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Operation string             `json:"operation"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -235,9 +224,9 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return struct{}{}, e, true
 	case "service.library_authorize":
 		var in struct {
-			Operation string                         `json:"operation"`
-			Item      agentsdk.KnowledgeLibrary      `json:"item"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Operation string                    `json:"operation"`
+			Item      agentsdk.KnowledgeLibrary `json:"item"`
+			Authority agentsdk.Authority        `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -246,8 +235,8 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return struct{}{}, e, true
 	case "service.library_result":
 		var in struct {
-			Item      agentsdk.KnowledgeLibrary      `json:"item"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Item      agentsdk.KnowledgeLibrary `json:"item"`
+			Authority agentsdk.Authority        `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -256,10 +245,10 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		return v, e, true
 	case knowledgesdk.ActionLibraryMembersRemove:
 		var in struct {
-			ID        string                         `json:"id"`
-			User      string                         `json:"user"`
-			Revision  int64                          `json:"revision"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			ID        string             `json:"id"`
+			User      string             `json:"user"`
+			Revision  int64              `json:"revision"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -271,7 +260,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 			ID        string                               `json:"id"`
 			User      string                               `json:"user"`
 			Input     agentsdk.KnowledgeLibraryMemberWrite `json:"input"`
-			Authority agentsdk.ConversationAuthority       `json:"authority"`
+			Authority agentsdk.Authority                   `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -282,7 +271,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		var in struct {
 			Library   string                             `json:"library"`
 			Input     agentsdk.KnowledgeDocumentTransfer `json:"input"`
-			Authority agentsdk.ConversationAuthority     `json:"authority"`
+			Authority agentsdk.Authority                 `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -293,7 +282,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		var in struct {
 			ID        string                          `json:"id"`
 			Input     agentsdk.KnowledgeLibraryUpdate `json:"input"`
-			Authority agentsdk.ConversationAuthority  `json:"authority"`
+			Authority agentsdk.Authority              `json:"authority"`
 		}
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
@@ -334,7 +323,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		if in.Source != nil {
 			e := challengeFor(ctx, "authorize.document_source", struct {
 				Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
-				Authority agentsdk.ConversationAuthority         `json:"authority"`
+				Authority agentsdk.Authority                     `json:"authority"`
 			}{*in.Source, in.Authority}, nil)
 			if e != nil {
 				return nil, e, true

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 

@@ -7,7 +7,3 @@ import (
 func newKnowledgeWithOfficialAdapter(config KnowledgeConfig) (*Knowledge, error) {
 	return NewKnowledge(config, connectorknowledge.New)
 }
-
-func newTestAttachmentKnowledge(config KnowledgeConfig, runtimeID string) (*AttachmentKnowledge, error) {
-	return NewAttachmentKnowledge(config, runtimeID, connectorknowledge.New)
-}

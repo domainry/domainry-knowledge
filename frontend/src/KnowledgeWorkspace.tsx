@@ -263,7 +263,7 @@ export function KnowledgeLibraryManager({ client, formatError = defaultErrorMess
         {selected.sources_manageable && <KnowledgeSourcesPanel client={client} library={selected} disabled={busy || documentBusy} formatError={formatError} onBusyChange={setSourceBusy} onBound={value => { setSelected(value); setRefresh(current => current + 1); }} />}
         {error && <p role="alert" className="knowledge-error">{error}</p>}
       </div></section></div>, window.document.body)}
-    </> : !loading ? <EmptyState><FolderOpen size={32} /><h3>{visibleLibraries.length > 0 ? "请选择知识库" : libraryKind === "personal" ? "还没有个人知识库" : "还没有可访问的团队知识库"}</h3><p>{libraryKind === "personal" ? "打开个人知识库后，可在自己的空间内检索、编辑和整理内容。" : "创建团队知识库，或请团队管理员将你添加为成员。"}</p></EmptyState> : null}</section>
+    </> : !loading ? <EmptyState><FolderOpen size={32} /><h3>{visibleLibraries.length > 0 ? "请选择知识库" : libraryKind === "personal" ? "还没有个人知识库" : "还没有可访问的团队知识库"}</h3><p>{libraryKind === "personal" ? "打开个人知识库后，可在自己的空间内检索、编辑和整理内容。" : "创建团队知识库，或请团队管理员将你添加为成员。"}</p>{canCreatePersonal && <Button className="primary" disabled={blocked} onClick={() => void perform(signal => create("personal", signal))}><BookOpen size={15} />创建个人知识库</Button>}</EmptyState> : null}</section>
   </div>;
 }
 

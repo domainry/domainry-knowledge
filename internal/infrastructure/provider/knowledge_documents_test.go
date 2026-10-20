@@ -10,8 +10,7 @@ import (
 	"sync"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/artifact"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
@@ -66,7 +65,7 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 	}
 	a := knowledgeAuthority()
 	raw := bytes.Repeat([]byte{0, 0xff, 0x80, 1}, 65536)
-	content := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw)}
+	content := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw)}
 	if err := read.PutKnowledgeDocument(t.Context(), content, a); err == nil {
 		t.Fatal("retrieval config granted writes")
 	}
@@ -84,6 +83,7 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	content.AccessPolicySHA256 = source.KnowledgeDocumentAccessPolicySHA256()
 	state, err := source.InspectKnowledgeDocument(t.Context(), content.DocumentID, a)
 	if err != nil || state.Exists {
 		t.Fatal("preflight absence missing", err)

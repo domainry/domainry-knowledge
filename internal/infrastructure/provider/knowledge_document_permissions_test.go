@@ -14,8 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/artifact"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func TestKnowledgePagePermissionSearchBatchesWithoutTruncationAndGloballyRanks(t *testing.T) {
@@ -132,11 +131,11 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	ids[0] = "changed"
 	a := knowledgeAuthority()
 	raw := []byte("fixture")
-	in := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "季度费用.XLSX", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw), RequestID: "persisted-request", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}
+	in := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "季度费用.XLSX", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw), RequestID: "persisted-request", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}
 	if len(in.AccessPolicySHA256) != 64 {
 		t.Fatal("missing access fingerprint")
 	}
-	for _, invalid := range []agentsdk.KnowledgeDocumentContent{
+	for _, invalid := range []agentsdk.KnowledgeDocumentIndexContent{
 		{DocumentID: in.DocumentID, Filename: in.Filename, Bytes: in.Bytes, SHA256: in.SHA256, Content: bytes.NewReader(raw), RequestID: in.RequestID},
 		{DocumentID: in.DocumentID, Filename: in.Filename, Bytes: in.Bytes, SHA256: in.SHA256, Content: bytes.NewReader(raw), AccessPolicySHA256: in.AccessPolicySHA256},
 	} {
@@ -183,7 +182,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 		}
 	}
 	c.DocumentPermissionIDs = []string{"private"}
-	c.PermissionIDs = func(context.Context, agentsdk.ConversationAuthority) ([]string, error) { return nil, nil }
+	c.PermissionIDs = func(context.Context, agentsdk.Authority) ([]string, error) { return nil, nil }
 	if _, err := newKnowledgeWithOfficialAdapter(c); err == nil {
 		t.Fatal("fixed writes combined with dynamic reads")
 	}
@@ -214,7 +213,7 @@ func TestKnowledgeSeparatesDocumentGrantsFromPrincipalReadIdentities(t *testing.
 	}
 	a := knowledgeAuthority()
 	raw := []byte("private")
-	if err = k.PutKnowledgeDocument(t.Context(), agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "private.txt", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw), RequestID: "request-1", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
+	if err = k.PutKnowledgeDocument(t.Context(), agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "private.txt", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw), RequestID: "request-1", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = k.Search(t.Context(), "private", a); err != nil {

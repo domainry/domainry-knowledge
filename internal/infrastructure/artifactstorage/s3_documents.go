@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 var knowledgeLibraryIDPattern = regexp.MustCompile(`^lib_[a-f0-9]{32}$`)
@@ -27,7 +27,7 @@ var knowledgeDocumentSHA256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 const knowledgeDocumentMultipartPartBytes int64 = agentsdk.KnowledgeDocumentUploadChunkBytes
 
 func knowledgeDocumentStorageError(class, code string) error {
-	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}
+	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 
 func knowledgeDocumentScopeHash(scope agentsdk.KnowledgeDocumentStorageScope, documentID string) (string, error) {

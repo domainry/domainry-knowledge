@@ -3,24 +3,21 @@ package module
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"sync"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
 	actioncontract "github.com/domainry/domainry-foundation/action"
-	sharedartifact "github.com/domainry/domainry-foundation/artifact"
 	"github.com/domainry/domainry-foundation/modulehttp"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	application "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	documentsecurity "github.com/domainry/domainry-knowledge/internal/infrastructure/documentsecurity"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	modulehttptransport "github.com/domainry/domainry-knowledge/internal/transport/http/module"
-	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 
 type Runtime struct {
@@ -40,24 +37,7 @@ func (runtime Runtime) Validate(options *contract.Options) error {
 	return application.ValidateOptions(runtime.repository, options)
 }
 func (runtime Runtime) Activate(runtimeID string, options contract.Options) error {
-	if err := application.ActivateDocumentSources(runtime.repository, runtimeID, options); err != nil {
-		return err
-	}
-	if len(options.AttachmentKnowledge) == 0 {
-		return nil
-	}
-	repository, ok := runtime.repository.(persistence.ConversationAttachmentIndexRepository)
-	if !ok {
-		return fmt.Errorf("attachment knowledge requires durable index persistence")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	for _, binding := range options.AttachmentKnowledge {
-		if err := repository.ActivateAttachmentKnowledgeSource(ctx, runtimeID, binding.WorkspaceID, binding.Knowledge.AttachmentKnowledgeSourceIdentity()); err != nil {
-			return err
-		}
-	}
-	return nil
+	return application.ActivateDocumentSources(runtime.repository, runtimeID, options)
 }
 func (runtime Runtime) NewService(runtimeID string, options contract.Options) contract.Service {
 	service := newSupervisedService(application.NewService(runtime.repository, runtimeID, options))
@@ -66,10 +46,10 @@ func (runtime Runtime) NewService(runtimeID string, options contract.Options) co
 	}
 	return service
 }
-func (runtime Runtime) Prepare(runtimeID string, options contract.Options) (contract.ConversationKnowledge, error) {
+func (runtime Runtime) Prepare(runtimeID string, options contract.Options) (contract.Knowledge, error) {
 	if documents, ok := runtime.repository.(persistence.KnowledgeSourceRegistry); ok && options.Knowledge != nil {
 		if source, ok := options.Knowledge.(agentsdk.ManagedKnowledgeDocumentSource); ok {
-			if _, ok := options.Knowledge.(agentsdk.ConversationKnowledgeSource); !ok {
+			if _, ok := options.Knowledge.(agentsdk.Source); !ok {
 				return nil, fmt.Errorf("managed document source requires knowledge revalidation")
 			}
 			options.Knowledge = application.GuardManagedKnowledge(options.Knowledge, source, documents)
@@ -96,11 +76,7 @@ func (Factory) OpenModule(ctx context.Context, ref contract.ApplicationRef, host
 	if err := store.EnsureSchema(ctx, backend, host.Migrations()); err != nil {
 		return nil, fmt.Errorf("open Knowledge persistence: %w", err)
 	}
-	artifacts := store.ArtifactPersistence{}
-	if artifactHost, ok := host.(knowledgemodulehost.ArtifactHost); ok {
-		artifacts = store.ArtifactPersistence{Store: artifactHost.ArtifactStore(), Content: artifactHost.ArtifactContentStore(), Writer: artifactHost.ArtifactContentWriter()}
-	}
-	repository := store.New(backend, host, artifacts)
+	repository := store.New(backend)
 	workerContext, cancelWorkers := context.WithCancel(ctx)
 	binding := &Binding{runtimeID: ref.RuntimeID, repository: repository, workerContext: workerContext, cancelWorkers: cancelWorkers}
 	binding.runtime = Runtime{repository: repository, binding: binding}
@@ -162,14 +138,6 @@ func (binding *Binding) AuthorizationActions() ([]actioncontract.ActionDefinitio
 	}
 	return actions, nil
 }
-func (binding *Binding) ArtifactTransactions() knowledgemodulehost.ArtifactTransactions {
-	return artifactTransactions{repository: binding.repository}
-}
-func (binding *Binding) SubjectLifecycle(options contract.Options) lifecyclecontract.SubjectExecutionHandler {
-	return store.NewSubjectLifecycle(binding.repository, binding.runtimeID, store.SubjectLifecycleOptions{
-		ArtifactStorage: options.ArtifactStorage, DocumentStorage: options.DocumentStorage,
-	})
-}
 func (binding *Binding) Close(context.Context) error {
 	if binding == nil {
 		return nil
@@ -193,32 +161,4 @@ type knowledgeHTTPProvider struct{ adapters []modulehttp.Adapter }
 
 func (provider knowledgeHTTPProvider) HTTPAdapters() []modulehttp.Adapter {
 	return append([]modulehttp.Adapter(nil), provider.adapters...)
-}
-
-type artifactTransactions struct{ repository *store.Store }
-
-func (transactions artifactTransactions) ArtifactRecordInTransaction(ctx context.Context, tx *sql.Tx, id string, version int64, authority agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
-	return transactions.repository.ArtifactRecordInTransaction(ctx, tx, id, version, authority)
-}
-
-func (transactions artifactTransactions) SaveArtifactInTransaction(ctx context.Context, tx *sql.Tx, input persistence.ConversationArtifactWrite, authority agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
-	return transactions.repository.SaveArtifactInTransaction(ctx, tx, input, authority)
-}
-
-func (transactions artifactTransactions) SaveArtifactExportInTransaction(ctx context.Context, tx *sql.Tx, input persistence.ConversationArtifactExportWrite, authority agentsdk.ConversationAuthority) (any, error) {
-	return transactions.repository.SaveArtifactExportInTransaction(ctx, tx, input, authority)
-}
-
-func NewSubjectLifecycle(backend store.Backend, runtimeID string, options application.Options) lifecyclecontract.SubjectExecutionHandler {
-	artifacts := store.ArtifactPersistence{}
-	if host, ok := backend.(interface {
-		ArtifactStore() sharedartifact.ManagedStore
-		ArtifactContentStore() sharedartifact.ContentStore
-		ArtifactContentWriter() sharedartifact.ContentWriter
-	}); ok {
-		artifacts = store.ArtifactPersistence{Store: host.ArtifactStore(), Content: host.ArtifactContentStore(), Writer: host.ArtifactContentWriter()}
-	}
-	return store.NewSubjectLifecycle(store.New(backend, nil, artifacts), runtimeID, store.SubjectLifecycleOptions{
-		ArtifactStorage: options.ArtifactStorage, DocumentStorage: options.DocumentStorage,
-	})
 }

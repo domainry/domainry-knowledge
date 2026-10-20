@@ -10,4 +10,6 @@ bin/
 dist/
 !frontend/dist/
 !frontend/dist/**
+!frontend/app-dist/
+!frontend/app-dist/**
 data/

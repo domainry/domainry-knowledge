@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
 )
@@ -30,7 +30,7 @@ func (s *knowledgeEventSink) PublishKnowledgeCollaboration(_ context.Context, ev
 func TestKnowledgeEventsAreStableMinimalAndBestEffort(t *testing.T) {
 	sink := &knowledgeEventSink{err: errors.New("sink unavailable")}
 	service := &Service{options: contract.Options{AuditAppender: sink, CollaborationPublisher: sink}}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
 
 	service.appendKnowledgeAudit(t.Context(), knowledgesdk.ActionPagesPublish, "knowledge.page.published", "library-a", "page-a", "page-a", "publish-1", 3, nil, map[string]string{"content_sha256": "sha256"}, authority)
 	service.appendKnowledgeAudit(t.Context(), knowledgesdk.ActionPagesPublish, "knowledge.page.published", "library-a", "page-a", "page-a", "publish-1", 3, nil, map[string]string{"content_sha256": "sha256"}, authority)

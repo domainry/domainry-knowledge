@@ -7,21 +7,23 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strconv"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	knowledgehttpapi "github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
 	"github.com/domainry/domainry-foundation/processhost"
+	identitymodule "github.com/domainry/domainry-identity/module"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	knowledgeassembly "github.com/domainry/domainry-knowledge/internal/assembly/module"
-	saasservice "github.com/domainry/domainry-knowledge/internal/assembly/saas"
+	product "github.com/domainry/domainry-knowledge/internal/assembly/product"
 )
 
 func main() {
-	if run() != nil {
+	if err := run(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -34,21 +36,12 @@ func run() (runErr error) {
 		return err
 	}
 	defer func() { runErr = observability.Finish(context.Background(), nil, runErr) }()
-	runtimeID := strings.TrimSpace(os.Getenv("KNOWLEDGE_RUNTIME_ID"))
-	token := strings.TrimSpace(os.Getenv("KNOWLEDGE_SERVICE_ACCESS_TOKEN"))
-	databasePath := strings.TrimSpace(os.Getenv("KNOWLEDGE_DATABASE_PATH"))
-	storagePath := strings.TrimSpace(os.Getenv("KNOWLEDGE_STORAGE_PATH"))
-	fileStorage := saasservice.FileStorageOptions{
-		Driver: strings.TrimSpace(os.Getenv("KNOWLEDGE_FILE_STORAGE_DRIVER")), Region: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_REGION")),
-		Bucket: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_BUCKET")), Prefix: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_PREFIX")), Endpoint: strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_ENDPOINT")),
-	}
-	if raw := strings.TrimSpace(os.Getenv("KNOWLEDGE_S3_FORCE_PATH_STYLE")); raw != "" {
-		value, parseErr := strconv.ParseBool(raw)
-		if parseErr != nil {
-			return fmt.Errorf("KNOWLEDGE_S3_FORCE_PATH_STYLE must be a boolean: %w", parseErr)
-		}
-		fileStorage.ForcePathStyle = value
-	}
+	runtimeID := environmentValue("KNOWLEDGE_RUNTIME_ID", "knowledge")
+	workspaceID := environmentValue("KNOWLEDGE_WORKSPACE_ID", "knowledge-workspace")
+	applicationKey := environmentValue("KNOWLEDGE_APPLICATION_KEY", "knowledge")
+	databasePath := environmentValue("KNOWLEDGE_DATABASE_PATH", "data/knowledge.db")
+	storagePath := environmentValue("KNOWLEDGE_STORAGE_PATH", "data/knowledge-storage")
+	frontendPath := environmentValue("KNOWLEDGE_FRONTEND_PATH", "frontend/app-dist")
 	var documentUploadIdleTimeout time.Duration
 	if raw := strings.TrimSpace(os.Getenv("KNOWLEDGE_DOCUMENT_UPLOAD_IDLE_TIMEOUT")); raw != "" {
 		parsed, parseErr := time.ParseDuration(raw)
@@ -59,18 +52,39 @@ func run() (runErr error) {
 	}
 	address := strings.TrimSpace(os.Getenv("KNOWLEDGE_HTTP_ADDR"))
 	if address == "" {
-		address = ":8092"
+		address = "127.0.0.1:8092"
+	}
+	origin := environmentValue("KNOWLEDGE_ORIGIN", "http://127.0.0.1:8092")
+	adminPassword := strings.TrimSpace(os.Getenv("KNOWLEDGE_ADMIN_PASSWORD"))
+	if adminPassword == "" {
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+			return fmt.Errorf("KNOWLEDGE_ADMIN_PASSWORD is required in production")
+		}
+		adminPassword = "Knowledge@2026!"
+	}
+	if _, err = os.Stat(filepath.Join(frontendPath, "index.html")); err != nil {
+		return fmt.Errorf("Knowledge frontend is not built at %s: %w", frontendPath, err)
 	}
 	providerConfig := knowledgeprovider.ConfigFromEnvironment()
 	providerConfig.RuntimeID = runtimeID
-	providerFactory := knowledgeassembly.NewProviderFactory(knowledgehttpapi.New)
-	source, err := providerFactory.NewSource(providerConfig)
-	if err != nil {
-		return fmt.Errorf("configure Knowledge provider: %w", err)
+	var providerFactory knowledgeprovider.Factory
+	if providerConfig.Configured() {
+		if strings.TrimSpace(providerConfig.WorkspaceID) == "" {
+			providerConfig.WorkspaceID = workspaceID
+		}
+		providerFactory = knowledgeassembly.NewProviderFactory(knowledgehttpapi.New)
 	}
-	service, err := saasservice.Open(ctx, saasservice.Options{RuntimeID: runtimeID, ServiceAccessToken: token, DatabasePath: databasePath, StoragePath: storagePath, FileStorage: fileStorage, Knowledge: knowledgecontract.Options{Knowledge: source, DocumentUploadIdleTimeout: documentUploadIdleTimeout}})
+	service, err := product.Open(ctx, product.Options{
+		RuntimeID: runtimeID, WorkspaceID: workspaceID, ApplicationKey: applicationKey,
+		DatabasePath: databasePath, StoragePath: storagePath, Origin: origin, Files: os.DirFS(frontendPath),
+		Identity:       identitymodule.OptionsFromEnvironment(),
+		Knowledge:      knowledgecontract.Options{DocumentUploadIdleTimeout: documentUploadIdleTimeout},
+		ProviderConfig: providerConfig, ProviderFactory: providerFactory,
+		AdminLogin: environmentValue("KNOWLEDGE_ADMIN_LOGIN", "admin@knowledge.local"),
+		AdminName:  environmentValue("KNOWLEDGE_ADMIN_NAME", "Knowledge Admin"), AdminPassword: adminPassword,
+	})
 	if err != nil {
-		return fmt.Errorf("open Knowledge SaaS service: %w", err)
+		return fmt.Errorf("open Knowledge product: %w", err)
 	}
 	defer service.Close(context.Background())
 	server := &http.Server{Addr: address, Handler: observability.Handler("public", service.Handler()), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
@@ -89,4 +103,11 @@ func run() (runErr error) {
 		defer cancel()
 		return server.Shutdown(shutdown)
 	}
+}
+
+func environmentValue(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
 }

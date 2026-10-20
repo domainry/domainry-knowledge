@@ -15,9 +15,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
 	httpapi "github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 const (
@@ -60,9 +60,6 @@ func (k *Knowledge) KnowledgeDocumentManagementReady() error {
 // Policy changes must not alter physical identity: the durable source guard
 // must still recognize a managed KB after configuration is changed or removed.
 func (k *Knowledge) KnowledgeDocumentAccessPolicySHA256() string {
-	if len(k.config.DocumentPermissionIDs) == 0 {
-		return ""
-	}
 	raw, _ := json.Marshal([]any{"knowledge_document_access.v1", k.KnowledgeDocumentSourceIdentity(), k.config.DocumentPermissionIDs})
 	h := sha256.Sum256(raw)
 	return hex.EncodeToString(h[:])
@@ -74,12 +71,12 @@ func (k *Knowledge) documentProjectionReady() error {
 	}
 	return nil
 }
-func (k *Knowledge) SearchKnowledgeDocumentPassages(ctx context.Context, q string, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *Knowledge) SearchKnowledgeDocumentPassages(ctx context.Context, q string, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	result, err := k.SearchKnowledgeDocuments(ctx, q, a)
 	return result.Passages, err
 }
 
-func (k *Knowledge) SearchKnowledgeDocuments(ctx context.Context, q string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentSearch, error) {
+func (k *Knowledge) SearchKnowledgeDocuments(ctx context.Context, q string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentSearch, error) {
 	return k.SearchKnowledgeDocumentsWithPermissions(ctx, q, nil, a)
 }
 
@@ -152,7 +149,7 @@ func knowledgeQueryPermissionBatches(base, page []string) ([][]string, error) {
 	return batches, nil
 }
 
-func (k *Knowledge) searchKnowledgeDocumentsWithPermissionBatch(ctx context.Context, q string, permissionIDs []string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentSearch, error) {
+func (k *Knowledge) searchKnowledgeDocumentsWithPermissionBatch(ctx context.Context, q string, permissionIDs []string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentSearch, error) {
 	var result agentsdk.KnowledgeDocumentSearch
 	if e := k.documentProjectionReady(); e != nil {
 		return result, e
@@ -178,7 +175,7 @@ func (k *Knowledge) searchKnowledgeDocumentsWithPermissionBatch(ctx context.Cont
 	return result, e
 }
 
-func (k *Knowledge) SearchKnowledgeDocumentsWithPermissions(ctx context.Context, q string, pagePermissionIDs []string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentSearch, error) {
+func (k *Knowledge) SearchKnowledgeDocumentsWithPermissions(ctx context.Context, q string, pagePermissionIDs []string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentSearch, error) {
 	base, err := k.knowledgeAccessPolicy(ctx, a)
 	if err != nil {
 		return agentsdk.KnowledgeDocumentSearch{}, knowledgeFailure("access_denied")
@@ -224,11 +221,11 @@ func (k *Knowledge) SearchKnowledgeDocumentsWithPermissions(ctx context.Context,
 	}
 	return merged, nil
 }
-func (k *Knowledge) ReadKnowledgeDocumentPassages(ctx context.Context, id string, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *Knowledge) ReadKnowledgeDocumentPassages(ctx context.Context, id string, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	return k.ReadKnowledgeDocumentPassagesWithPermissions(ctx, id, nil, a)
 }
 
-func (k *Knowledge) ReadKnowledgeDocumentPassagesWithPermissions(ctx context.Context, id string, pagePermissionIDs []string, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *Knowledge) ReadKnowledgeDocumentPassagesWithPermissions(ctx context.Context, id string, pagePermissionIDs []string, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	if e := k.documentProjectionReady(); e != nil {
 		return nil, e
 	}

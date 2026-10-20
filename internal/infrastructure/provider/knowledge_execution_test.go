@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
@@ -42,7 +42,7 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 	}))
 	defer upstream.Close()
 	k := mustTestKnowledge(t, upstream)
-	k.config.PermissionIDs = func(context.Context, agentsdk.ConversationAuthority) ([]string, error) {
+	k.config.PermissionIDs = func(context.Context, agentsdk.Authority) ([]string, error) {
 		if permission.Load() {
 			return []string{"finance"}, nil
 		}
@@ -51,7 +51,7 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 	a := knowledgeAuthority()
 	for _, operation := range []string{"search", "fetch"} {
 		t.Run(operation, func(t *testing.T) {
-			var saved agentsdk.ConversationKnowledgeResult
+			var saved agentsdk.Result
 			var err error
 			if operation == "search" {
 				saved, err = k.SearchKnowledge(t.Context(), "费用规则", a)
@@ -66,18 +66,18 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 			if err = k.RevalidateKnowledge(t.Context(), saved, a); err != nil {
 				t.Fatal("unchanged persisted result rejected", err)
 			}
-			if err = agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); err != nil {
+			if err = k.AuthorizeKnowledgeResultRead(t.Context(), saved, a); err != nil {
 				t.Fatal("independent result read rejected", err)
 			}
 			for _, revoked := range []*atomic.Bool{&permission, &document} {
 				revoked.Store(false)
 				err = k.RevalidateKnowledge(t.Context(), saved, a)
-				if readErr := agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); readErr == nil {
+				if readErr := k.AuthorizeKnowledgeResultRead(t.Context(), saved, a); readErr == nil {
 					t.Fatal("independent read ignored revoked source")
 				}
 				revoked.Store(true)
 				var coded *agentsdk.Error
-				if !errors.As(err, &coded) || coded.Code != "agent.conversation.knowledge_source_changed" {
+				if !errors.As(err, &coded) || coded.Code != "knowledge.knowledge_source_changed" {
 					t.Fatal("revoked source reused", err)
 				}
 			}
@@ -97,13 +97,13 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 					copy.LibraryID = "lib_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				}
 				before := calls.Load()
-				if k.RevalidateKnowledge(t.Context(), copy, other) == nil || agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, copy, other) == nil || calls.Load() != before {
+				if k.RevalidateKnowledge(t.Context(), copy, other) == nil || k.AuthorizeKnowledgeResultRead(t.Context(), copy, other) == nil || calls.Load() != before {
 					t.Fatal("foreign receipt reached upstream")
 				}
 			}
 			fail.Store(true)
 			err = k.RevalidateKnowledge(t.Context(), saved, a)
-			if readErr := agentsdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); readErr == nil {
+			if readErr := k.AuthorizeKnowledgeResultRead(t.Context(), saved, a); readErr == nil {
 				t.Fatal("independent read hid source outage")
 			}
 			fail.Store(false)
@@ -130,7 +130,7 @@ func TestKnowledgeBusinessFailureCannotBecomeEvidence(t *testing.T) {
 			defer upstream.Close()
 			k := mustTestKnowledge(t, upstream)
 			a := knowledgeAuthority()
-			read := func() (agentsdk.ConversationKnowledgeResult, error) {
+			read := func() (agentsdk.Result, error) {
 				if operation == "search" {
 					return k.SearchKnowledge(t.Context(), "fixture", a)
 				}
@@ -143,13 +143,13 @@ func TestKnowledgeBusinessFailureCannotBecomeEvidence(t *testing.T) {
 			missing.Store(true)
 			result, err := read()
 			var coded *agentsdk.Error
-			if !errors.As(err, &coded) || coded.Code != "agent.conversation.knowledge_not_found" || coded.Class != "not_found" {
+			if !errors.As(err, &coded) || coded.Code != "knowledge.knowledge_not_found" || coded.Class != "not_found" {
 				t.Fatal("business failure not classified", err)
 			}
 			if len(result.Data) != 0 || len(result.Citations) != 0 || result.ScopeSHA256 != "" || strings.Contains(err.Error(), "PRIVATE") {
 				t.Fatal("business failure produced evidence or exposed upstream content")
 			}
-			if err = k.RevalidateKnowledge(t.Context(), saved, a); !errors.As(err, &coded) || coded.Code != "agent.conversation.knowledge_not_found" {
+			if err = k.RevalidateKnowledge(t.Context(), saved, a); !errors.As(err, &coded) || coded.Code != "knowledge.knowledge_not_found" {
 				t.Fatal("deleted source remained reusable", err)
 			}
 		})

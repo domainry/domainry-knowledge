@@ -8,7 +8,7 @@ authorized managed library; the host remains responsible for enforcing the
 requested `libraryID`.
 
 The package deliberately does not know any product route, cookie, access token,
-or Agent session. A consuming product implements `KnowledgeClient`, mounts the
+or external product session. A consuming product implements `KnowledgeClient`, mounts the
 component in its own shell, and imports the semantic stylesheet:
 
 ```tsx

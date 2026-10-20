@@ -18,7 +18,9 @@
   ],
   "scripts": {
     "build": "vite build && tsc -p tsconfig.build.json",
+    "build:app": "vite build --config app/vite.config.ts",
     "check": "tsc --noEmit",
+    "check:app": "tsc -p tsconfig.app.json --noEmit",
     "test": "npm run check && node --experimental-strip-types --test test/*.test.mjs test/*.test.ts",
     "prepack": "npm run build"
   },

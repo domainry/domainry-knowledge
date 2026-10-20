@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func DocumentStorageScope(library string, a agentsdk.ConversationAuthority) agentsdk.KnowledgeDocumentStorageScope {
+func DocumentStorageScope(library string, a agentsdk.Authority) agentsdk.KnowledgeDocumentStorageScope {
 	return agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: library}
 }
 
@@ -37,7 +37,7 @@ func DocumentIndexMaximumBytes(source any) int64 {
 	}
 	return maxBytes
 }
-func (s *Service) DocumentAccess(ctx context.Context, library, op string, a agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRepository, error) {
+func (s *Service) DocumentAccess(ctx context.Context, library, op string, a agentsdk.Authority) (persistence.KnowledgeDocumentRepository, error) {
 	libs, err := s.LibraryAccess(ctx, op, a)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (s *Service) DocumentAccess(ctx context.Context, library, op string, a agen
 	}
 	return repo, nil
 }
-func (s *Service) DocumentBinding(ctx context.Context, library string, a agentsdk.ConversationAuthority) (agentsdk.ManagedKnowledgeDocumentSource, error) {
+func (s *Service) DocumentBinding(ctx context.Context, library string, a agentsdk.Authority) (agentsdk.ManagedKnowledgeDocumentSource, error) {
 	if resolver, ok := s.options.Knowledge.(*LibraryKnowledgeSource); ok {
 		Binding, found, err := resolver.Binding(ctx, library, a)
 		if err != nil {
@@ -80,17 +80,17 @@ func (s *Service) DocumentBinding(ctx context.Context, library string, a agentsd
 	}
 	return nil, conversationFailure("unavailable", "document_management_unavailable")
 }
-func (s *Service) UploadKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
-	return s.uploadDocumentContent(ctx, library, in, nil, nil, nil, nil, a)
+func (s *Service) UploadKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
+	return s.uploadDocumentContent(ctx, library, in, nil, nil, nil, a)
 }
-func (s *Service) UploadKnowledgeDocumentForSource(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, source agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
-	return s.uploadDocumentContent(ctx, library, in, nil, nil, nil, &source, a)
+func (s *Service) UploadKnowledgeDocumentForSource(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, source agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
+	return s.uploadDocumentContent(ctx, library, in, nil, nil, &source, a)
 }
-func (s *Service) UploadDocumentContent(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, origin *persistence.KnowledgeAttachmentOrigin, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
-	return s.uploadDocumentContent(ctx, library, in, origin, documentOrigin, recheck, nil, a)
+func (s *Service) UploadDocumentContent(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
+	return s.uploadDocumentContent(ctx, library, in, documentOrigin, recheck, nil, a)
 }
-func (s *Service) uploadDocumentContent(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, origin *persistence.KnowledgeAttachmentOrigin, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
-	return s.commitDocumentContent(ctx, library, in.ClientID, in.Filename, in.Bytes, in.SHA256, origin, documentOrigin, recheck, sourceAccess, a, func(scope agentsdk.KnowledgeDocumentStorageScope, id string) (string, error) {
+func (s *Service) uploadDocumentContent(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
+	return s.commitDocumentContent(ctx, library, in.ClientID, in.Filename, in.Bytes, in.SHA256, documentOrigin, recheck, sourceAccess, a, func(scope agentsdk.KnowledgeDocumentStorageScope, id string) (string, error) {
 		return s.options.DocumentStorage.PutKnowledgeDocumentContent(ctx, scope, id, in.SHA256, in.Bytes, in.Content)
 	})
 }
@@ -113,7 +113,7 @@ func validKnowledgeDocumentChunk(in agentsdk.KnowledgeDocumentUploadChunk) bool 
 // UploadKnowledgeDocumentChunk is the resumable public upload boundary. The
 // document record is reserved on the first part, while BodyRef remains empty
 // until storage verifies the final part and complete-file digest.
-func (s *Service) UploadKnowledgeDocumentChunk(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUploadChunk, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentUploadProgress, error) {
+func (s *Service) UploadKnowledgeDocumentChunk(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUploadChunk, a agentsdk.Authority) (agentsdk.KnowledgeDocumentUploadProgress, error) {
 	var zero agentsdk.KnowledgeDocumentUploadProgress
 	if !validKnowledgeDocumentChunk(in) {
 		return zero, conversationFailure("bad_request", "document_chunk_invalid")
@@ -122,7 +122,7 @@ func (s *Service) UploadKnowledgeDocumentChunk(ctx context.Context, library stri
 	if !ok {
 		return zero, conversationFailure("unavailable", "document_chunk_upload_unavailable")
 	}
-	repo, record, err := s.reserveDocumentContent(ctx, library, in.ClientID, in.Filename, in.Bytes, in.SHA256, nil, nil, nil, a)
+	repo, record, err := s.reserveDocumentContent(ctx, library, in.ClientID, in.Filename, in.Bytes, in.SHA256, nil, nil, a)
 	if err != nil {
 		return zero, err
 	}
@@ -172,12 +172,12 @@ func (s *Service) UploadKnowledgeDocumentChunk(ctx context.Context, library stri
 	return agentsdk.KnowledgeDocumentUploadProgress{NextOffset: next, Complete: true, Document: &document}, nil
 }
 
-func (s *Service) commitDocumentContent(ctx context.Context, library, clientID, filename string, bytes int64, hash string, origin *persistence.KnowledgeAttachmentOrigin, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.ConversationAuthority, put func(agentsdk.KnowledgeDocumentStorageScope, string) (string, error)) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) commitDocumentContent(ctx context.Context, library, clientID, filename string, bytes int64, hash string, documentOrigin *persistence.KnowledgeDocumentOrigin, recheck func() error, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.Authority, put func(agentsdk.KnowledgeDocumentStorageScope, string) (string, error)) (agentsdk.KnowledgeDocument, error) {
 	var zero agentsdk.KnowledgeDocument
 	if put == nil {
 		return zero, conversationFailure("bad_request", "document_size_invalid")
 	}
-	repo, r, err := s.reserveDocumentContent(ctx, library, clientID, filename, bytes, hash, origin, documentOrigin, sourceAccess, a)
+	repo, r, err := s.reserveDocumentContent(ctx, library, clientID, filename, bytes, hash, documentOrigin, sourceAccess, a)
 	if err != nil {
 		return zero, err
 	}
@@ -213,10 +213,6 @@ func (s *Service) commitDocumentContent(ctx context.Context, library, clientID, 
 	s.WakeKnowledgeDocuments()
 	action, eventType := knowledgesdk.ActionDocumentsUpload, "knowledge.document.uploaded"
 	before := map[string]string(nil)
-	if origin != nil {
-		action, eventType = knowledgesdk.ActionDocumentsImportAttachment, "knowledge.document.attachment_imported"
-		before = map[string]string{"attachment_id": origin.AttachmentID, "attachment_revision": strconv.FormatInt(origin.Revision, 10)}
-	}
 	if documentOrigin != nil {
 		action, eventType = knowledgesdk.ActionDocumentsTransfer, "knowledge.document.transferred"
 		before = map[string]string{
@@ -230,7 +226,7 @@ func (s *Service) commitDocumentContent(ctx context.Context, library, clientID, 
 	return r.Document, nil
 }
 
-func (s *Service) reserveDocumentContent(ctx context.Context, library, clientID, filename string, bytes int64, hash string, origin *persistence.KnowledgeAttachmentOrigin, documentOrigin *persistence.KnowledgeDocumentOrigin, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRepository, persistence.KnowledgeDocumentRecord, error) {
+func (s *Service) reserveDocumentContent(ctx context.Context, library, clientID, filename string, bytes int64, hash string, documentOrigin *persistence.KnowledgeDocumentOrigin, sourceAccess *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.Authority) (persistence.KnowledgeDocumentRepository, persistence.KnowledgeDocumentRecord, error) {
 	var zero persistence.KnowledgeDocumentRecord
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsUpload, a)
 	if err != nil {
@@ -250,7 +246,7 @@ func (s *Service) reserveDocumentContent(ctx context.Context, library, clientID,
 	if !supported {
 		return nil, zero, conversationFailure("bad_request", "document_type_unsupported")
 	}
-	record, err := repo.ReserveKnowledgeDocument(ctx, persistence.KnowledgeDocumentReserve{AttachmentOrigin: origin, DocumentOrigin: documentOrigin, LibraryID: library, ClientID: clientID, Filename: filename, ContentType: format.ContentType, Bytes: bytes, SHA256: hash, SourceID: source.KnowledgeDocumentSourceIdentity(), AccessPolicySHA256: DocumentAccessPolicy(source), SourceAccess: cloneDocumentSourceAccess(sourceAccess)}, a)
+	record, err := repo.ReserveKnowledgeDocument(ctx, persistence.KnowledgeDocumentReserve{DocumentOrigin: documentOrigin, LibraryID: library, ClientID: clientID, Filename: filename, ContentType: format.ContentType, Bytes: bytes, SHA256: hash, SourceID: source.KnowledgeDocumentSourceIdentity(), AccessPolicySHA256: DocumentAccessPolicy(source), SourceAccess: cloneDocumentSourceAccess(sourceAccess)}, a)
 	if err != nil {
 		return nil, zero, err
 	}
@@ -273,7 +269,7 @@ func cloneDocumentSourceAccess(source *agentsdk.KnowledgeDocumentSourceAccess) *
 	return &copy
 }
 
-func (s *Service) authorizeDocumentSource(ctx context.Context, source *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.ConversationAuthority) error {
+func (s *Service) authorizeDocumentSource(ctx context.Context, source *agentsdk.KnowledgeDocumentSourceAccess, a agentsdk.Authority) error {
 	if source == nil {
 		return nil
 	}
@@ -285,7 +281,7 @@ func (s *Service) authorizeDocumentSource(ctx context.Context, source *agentsdk.
 	}
 	return s.options.SourceAuthorizer.AuthorizeKnowledgeDocumentSource(ctx, *source, a)
 }
-func (s *Service) KnowledgeDocumentRecord(ctx context.Context, repo persistence.KnowledgeDocumentRepository, library, id string, a agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRecord, error) {
+func (s *Service) KnowledgeDocumentRecord(ctx context.Context, repo persistence.KnowledgeDocumentRepository, library, id string, a agentsdk.Authority) (persistence.KnowledgeDocumentRecord, error) {
 	r, err := repo.KnowledgeDocumentRecord(ctx, id, a)
 	if err == nil && (r.Document.LibraryID != library || r.Document.State == "deleted") {
 		err = conversationFailure("not_found", "document_not_found")
@@ -295,7 +291,7 @@ func (s *Service) KnowledgeDocumentRecord(ctx context.Context, repo persistence.
 	}
 	return r, err
 }
-func (s *Service) KnowledgeDocuments(ctx context.Context, library, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentPage, error) {
+func (s *Service) KnowledgeDocuments(ctx context.Context, library, after string, limit int, a agentsdk.Authority) (agentsdk.KnowledgeDocumentPage, error) {
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsList, a)
 	if err != nil {
 		return agentsdk.KnowledgeDocumentPage{}, err
@@ -325,7 +321,7 @@ func (s *Service) KnowledgeDocuments(ctx context.Context, library, after string,
 	}
 	return out, nil
 }
-func (s *Service) KnowledgeDocument(ctx context.Context, library, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) KnowledgeDocument(ctx context.Context, library, id string, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsGet, a)
 	if err != nil {
 		return agentsdk.KnowledgeDocument{}, err
@@ -339,7 +335,7 @@ func (s *Service) KnowledgeDocument(ctx context.Context, library, id string, a a
 	}
 	return r.Document, nil
 }
-func (s *Service) DownloadKnowledgeDocument(ctx context.Context, library, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentDownload, error) {
+func (s *Service) DownloadKnowledgeDocument(ctx context.Context, library, id string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentDownload, error) {
 	var zero agentsdk.KnowledgeDocumentDownload
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsDownload, a)
 	if err != nil {
@@ -378,7 +374,7 @@ func (s *Service) DownloadKnowledgeDocument(ctx context.Context, library, id str
 	}
 	return agentsdk.KnowledgeDocumentDownload{Document: current.Document, Content: content}, nil
 }
-func (s *Service) DeleteKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) DeleteKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	var zero agentsdk.KnowledgeDocument
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsDelete, a)
 	if err != nil {
@@ -406,7 +402,7 @@ func (s *Service) DeleteKnowledgeDocument(ctx context.Context, library, id strin
 	return r.Document, nil
 }
 
-func (s *Service) RetryKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) RetryKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	var zero agentsdk.KnowledgeDocument
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsRetry, a)
 	if err != nil {
@@ -434,7 +430,7 @@ func (s *Service) RetryKnowledgeDocument(ctx context.Context, library, id string
 	return record.Document, nil
 }
 
-func (s *Service) ReindexKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) ReindexKnowledgeDocument(ctx context.Context, library, id string, expected int64, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	var zero agentsdk.KnowledgeDocument
 	repo, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsReindex, a)
 	if err != nil {

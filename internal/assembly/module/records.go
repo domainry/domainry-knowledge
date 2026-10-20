@@ -3,7 +3,7 @@ package module
 import (
 	"context"
 	"fmt"
-	"github.com/domainry/domainry-agent-sdk/modulehost"
+	"github.com/domainry/domainry-knowledge-sdk/modulehost"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	records "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/record"
 	"github.com/domainry/domainry-orm/dialect"

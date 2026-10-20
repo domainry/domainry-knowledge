@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	knowledgeremote "github.com/domainry/domainry-knowledge-sdk/remote"
@@ -18,7 +18,7 @@ import (
 
 type allowLibraries struct{}
 
-func (allowLibraries) AuthorizeKnowledgeLibrary(context.Context, string, agentsdk.KnowledgeLibrary, agentsdk.ConversationAuthority) error {
+func (allowLibraries) AuthorizeKnowledgeLibrary(context.Context, string, agentsdk.KnowledgeLibrary, agentsdk.Authority) error {
 	return nil
 }
 
@@ -64,7 +64,7 @@ func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 		t.Fatalf("delete err=%v", err)
 	}
 }
-func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.ConversationAuthority) error {
+func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.Authority) error {
 	return nil
 }
 
@@ -72,7 +72,7 @@ func TestRemoteKnowledgeOwnsDatabaseAndSurvivesRestart(t *testing.T) {
 	root := t.TempDir()
 	databasePath := filepath.Join(root, "knowledge.db")
 	storagePath := filepath.Join(root, "storage")
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
 	open := func() (*Service, *httptest.Server, knowledgecontract.Service) {
 		service, err := Open(t.Context(), Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", DatabasePath: databasePath, StoragePath: storagePath})
 		if err != nil {

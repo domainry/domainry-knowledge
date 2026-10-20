@@ -6,25 +6,24 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	persistence "github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
+	persistence "github.com/domainry/domainry-knowledge-sdk/persistence"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 )
 
-type ConversationKnowledge = contract.ConversationKnowledge
-type SourcePolicy = contract.SourcePolicy
+type Knowledge = contract.Knowledge
 type Options = contract.Options
 type Service struct {
-	repo                              any
-	options                           Options
-	runtimeID, owner                  string
-	attachmentIndexWake, documentWake chan struct{}
-	workerMu                          sync.Mutex
-	nextDocumentUploadExpirySweep     time.Time
+	repo                          any
+	options                       Options
+	runtimeID, owner              string
+	documentWake                  chan struct{}
+	workerMu                      sync.Mutex
+	nextDocumentUploadExpirySweep time.Time
 }
 
 func NewService(repo any, runtimeID string, options Options) *Service {
@@ -44,56 +43,22 @@ func NewService(repo any, runtimeID string, options Options) *Service {
 	if options.DocumentStorage != nil && options.DocumentSecurity == nil {
 		options.DocumentSecurity = builtinDocumentSecurity{}
 	}
-	if options.ArtifactExportTTL == 0 {
-		options.ArtifactExportTTL = time.Hour
-	}
-	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, attachmentIndexWake: make(chan struct{}, 1), documentWake: make(chan struct{}, 1)}
+	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, documentWake: make(chan struct{}, 1)}
 }
 
 // Start and Close are intentionally lifecycle-neutral. The assembly wrapper
 // owns goroutines and supervises every tick through Foundation worker.
 func (*Service) Start(context.Context) {}
 func (*Service) Close()                {}
-func (s *Service) authorize(a agentsdk.ConversationAuthority) error {
+func (s *Service) authorize(a agentsdk.Authority) error {
 	if !a.Known || a.RuntimeID != s.runtimeID || strings.TrimSpace(a.UserID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || len(a.UserID) > 255 || len(a.WorkspaceID) > 255 {
 		return conversationFailure("forbidden", "principal_required")
 	}
 	return nil
 }
 
-type conversationSourceAudit struct {
-	s        *Service
-	a        agentsdk.ConversationAuthority
-	consumer string
-}
-
-func (s *Service) sourceAudit(a agentsdk.ConversationAuthority, consumer ...string) *conversationSourceAudit {
-	c := ""
-	if len(consumer) > 0 {
-		c = consumer[0]
-	}
-	return &conversationSourceAudit{s: s, a: a, consumer: c}
-}
-func (a *conversationSourceAudit) sources(ctx context.Context, sources *agentsdk.ConversationSources) ([]agentsdk.ConversationRunReference, error) {
-	if a.s.options.Sources != nil {
-		return a.s.options.Sources.CheckSources(ctx, a.a, a.consumer, sources)
-	}
-	if sources == nil || sources.Version == 1 && len(sources.Runs) == 0 && len(sources.Omitted) == 0 {
-		return nil, nil
-	}
-	return nil, conversationFailure("unavailable", "source_access_unavailable")
-}
-func (a *conversationSourceAudit) run(ctx context.Context, ref agentsdk.ConversationRunReference) ([]agentsdk.ConversationRunReference, error) {
-	if a.s.options.Sources == nil {
-		return nil, conversationFailure("unavailable", "source_access_unavailable")
-	}
-	return a.s.options.Sources.CheckRun(ctx, a.a, a.consumer, ref)
-}
-func (s *Service) sourceAccessContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, 20*time.Second)
-}
 func conversationFailure(class, code string) error {
-	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}
+	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 
 func conversationText(v string, max int, required bool) bool {
@@ -124,29 +89,6 @@ func conversationJSONText(v any) string { raw, _ := json.Marshal(v); return stri
 // It bounds the complete serialized message array; provider token limits remain
 // independently Configured with headroom for output and protocol framing.
 
-func GuardManagedKnowledge(base ConversationKnowledge, source agentsdk.ManagedKnowledgeDocumentSource, repo persistence.KnowledgeSourceRegistry) ConversationKnowledge {
+func GuardManagedKnowledge(base Knowledge, source agentsdk.ManagedKnowledgeDocumentSource, repo persistence.KnowledgeSourceRegistry) Knowledge {
 	return &DocumentGuardedKnowledge{base: base, source: source, repo: repo}
-}
-
-// ContextReader is optional. Standalone Knowledge hosts need not implement
-// Agent's conversation mutation, memory or execution repository interfaces.
-type ContextReader interface {
-	Get(context.Context, string, agentsdk.ConversationAuthority) (agentsdk.Conversation, error)
-	Run(context.Context, string, string, agentsdk.ConversationAuthority) (agentsdk.ConversationRun, error)
-}
-
-func (s *Service) contextReader() ContextReader {
-	if r, ok := s.repo.(ContextReader); ok {
-		return r
-	}
-	return missingContext{}
-}
-
-type missingContext struct{}
-
-func (missingContext) Get(context.Context, string, agentsdk.ConversationAuthority) (agentsdk.Conversation, error) {
-	return agentsdk.Conversation{}, conversationFailure("unavailable", "source_access_unavailable")
-}
-func (missingContext) Run(context.Context, string, string, agentsdk.ConversationAuthority) (agentsdk.ConversationRun, error) {
-	return agentsdk.ConversationRun{}, conversationFailure("unavailable", "source_access_unavailable")
 }

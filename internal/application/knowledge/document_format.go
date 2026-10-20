@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 var knowledgeDocumentExtension = regexp.MustCompile(`^\.[a-z0-9]{1,8}$`)

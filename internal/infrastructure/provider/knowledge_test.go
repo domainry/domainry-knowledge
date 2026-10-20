@@ -12,11 +12,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func knowledgeAuthority() agentsdk.ConversationAuthority {
-	return agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
+func knowledgeAuthority() agentsdk.Authority {
+	return agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
 }
 
 func mustTestKnowledge(t *testing.T, server *httptest.Server) *Knowledge {
@@ -88,7 +88,7 @@ func TestKnowledgeScopeAndServerPermissions(t *testing.T) {
 	}))
 	defer server.Close()
 	k := mustTestKnowledge(t, server)
-	k.config.PermissionIDs = func(_ context.Context, a agentsdk.ConversationAuthority) ([]string, error) {
+	k.config.PermissionIDs = func(_ context.Context, a agentsdk.Authority) ([]string, error) {
 		if a != knowledgeAuthority() {
 			t.Error("wrong authority")
 		}
@@ -103,10 +103,10 @@ func TestKnowledgeScopeAndServerPermissions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, mutate := range []func(*agentsdk.ConversationAuthority){
-		func(a *agentsdk.ConversationAuthority) { a.Known = false },
-		func(a *agentsdk.ConversationAuthority) { a.WorkspaceID = "other-workspace" },
-		func(a *agentsdk.ConversationAuthority) { a.UserID = "" },
+	for _, mutate := range []func(*agentsdk.Authority){
+		func(a *agentsdk.Authority) { a.Known = false },
+		func(a *agentsdk.Authority) { a.WorkspaceID = "other-workspace" },
+		func(a *agentsdk.Authority) { a.UserID = "" },
 	} {
 		a := knowledgeAuthority()
 		mutate(&a)
@@ -114,7 +114,7 @@ func TestKnowledgeScopeAndServerPermissions(t *testing.T) {
 			t.Fatal("scope bypass")
 		}
 	}
-	k.config.PermissionIDs = func(context.Context, agentsdk.ConversationAuthority) ([]string, error) {
+	k.config.PermissionIDs = func(context.Context, agentsdk.Authority) ([]string, error) {
 		return nil, errors.New("private auth failure")
 	}
 	if _, err := k.Fetch(t.Context(), "doc", knowledgeAuthority()); err == nil || strings.Contains(err.Error(), "private") {
@@ -140,22 +140,22 @@ func TestKnowledgePersonalWorkspacesRequireCurrentHostAuthority(t *testing.T) {
 	defer server.Close()
 	k := mustTestKnowledge(t, server)
 	revoked := false
-	k.config.AuthorizeWorkspace = func(_ context.Context, a agentsdk.ConversationAuthority) error {
+	k.config.AuthorizeWorkspace = func(_ context.Context, a agentsdk.Authority) error {
 		if revoked || a.RuntimeID != "runtime" || (a.UserID != "a" && a.UserID != "b") || a.WorkspaceID != "personal-"+a.UserID {
 			return errors.New("denied")
 		}
 		return nil
 	}
-	k.config.PermissionIDs = func(_ context.Context, a agentsdk.ConversationAuthority) ([]string, error) {
+	k.config.PermissionIDs = func(_ context.Context, a agentsdk.Authority) ([]string, error) {
 		return []string{"document:" + a.UserID}, nil
 	}
 	for _, user := range []string{"a", "b"} {
-		a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "personal-" + user, UserID: user}
+		a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "personal-" + user, UserID: user}
 		if _, err := k.Search(t.Context(), "test", a); err != nil {
 			t.Fatal(err)
 		}
 	}
-	for _, a := range []agentsdk.ConversationAuthority{
+	for _, a := range []agentsdk.Authority{
 		{Known: true, RuntimeID: "runtime", WorkspaceID: "personal-b", UserID: "a"},
 		{Known: true, RuntimeID: "other", WorkspaceID: "personal-a", UserID: "a"},
 		{Known: false, RuntimeID: "runtime", WorkspaceID: "personal-a", UserID: "a"},
@@ -165,7 +165,7 @@ func TestKnowledgePersonalWorkspacesRequireCurrentHostAuthority(t *testing.T) {
 		}
 	}
 	revoked = true
-	if _, err := k.Search(t.Context(), "test", agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "personal-a", UserID: "a"}); err == nil {
+	if _, err := k.Search(t.Context(), "test", agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "personal-a", UserID: "a"}); err == nil {
 		t.Fatal("revoked owner reached knowledge service")
 	}
 	if calls.Load() != 2 {
@@ -194,7 +194,7 @@ func TestKnowledgeFailuresAreBoundedAndContentFree(t *testing.T) {
 			defer server.Close()
 			_, err := mustTestKnowledge(t, server).Search(t.Context(), "query", knowledgeAuthority())
 			var failure *agentsdk.Error
-			if !errors.As(err, &failure) || failure.Code != "agent.conversation.knowledge_"+tc.code || strings.Contains(err.Error(), "private-key") {
+			if !errors.As(err, &failure) || failure.Code != "knowledge.knowledge_"+tc.code || strings.Contains(err.Error(), "private-key") {
 				t.Fatalf("unsafe or incorrect error: %v", err)
 			}
 		})
@@ -221,20 +221,20 @@ func TestKnowledgeDoesNotFollowRedirectsAndHonorsCancellation(t *testing.T) {
 }
 
 func TestKnowledgeEnvironmentIsOptInAndValidatesPartialConfiguration(t *testing.T) {
-	for _, key := range []string{"AGENT_KNOWLEDGE_BASE_URL", "AGENT_KNOWLEDGE_API_KEY", "AGENT_KNOWLEDGE_TEAM_ID", "AGENT_KNOWLEDGE_KB_ID", "AGENT_KNOWLEDGE_WORKSPACE_ID", "AGENT_KNOWLEDGE_TOP_K", "AGENT_PROVIDER_API_KEY"} {
+	for _, key := range []string{"KNOWLEDGE_PROVIDER_BASE_URL", "KNOWLEDGE_PROVIDER_API_KEY", "KNOWLEDGE_PROVIDER_TEAM_ID", "KNOWLEDGE_PROVIDER_KB_ID", "KNOWLEDGE_PROVIDER_WORKSPACE_ID", "KNOWLEDGE_PROVIDER_TOP_K"} {
 		t.Setenv(key, "")
 	}
-	t.Setenv("AGENT_KNOWLEDGE_API_KEY", "configured-key")
+	t.Setenv("KNOWLEDGE_PROVIDER_API_KEY", "configured-key")
 	if k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment()); err != nil || k != nil {
 		t.Fatal("key alone enabled retrieval")
 	}
-	t.Setenv("AGENT_KNOWLEDGE_KB_ID", "kb")
+	t.Setenv("KNOWLEDGE_PROVIDER_KB_ID", "kb")
 	if _, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment()); err == nil {
 		t.Fatal("partial config accepted")
 	}
-	t.Setenv("AGENT_KNOWLEDGE_BASE_URL", "https://kb.example.com")
-	t.Setenv("AGENT_KNOWLEDGE_TEAM_ID", "team")
-	t.Setenv("AGENT_KNOWLEDGE_WORKSPACE_ID", "workspace")
+	t.Setenv("KNOWLEDGE_PROVIDER_BASE_URL", "https://kb.example.com")
+	t.Setenv("KNOWLEDGE_PROVIDER_TEAM_ID", "team")
+	t.Setenv("KNOWLEDGE_PROVIDER_WORKSPACE_ID", "workspace")
 	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment())
 	if err != nil || k.config.APIKey != "configured-key" || k.config.TopK != 5 {
 		t.Fatal("invalid defaults", err)
@@ -244,12 +244,12 @@ func TestKnowledgeEnvironmentIsOptInAndValidatesPartialConfiguration(t *testing.
 	if _, err := newKnowledgeWithOfficialAdapter(missingOrigin); err == nil {
 		t.Fatal("missing origin silently selected an unrelated knowledge service")
 	}
-	t.Setenv("AGENT_KNOWLEDGE_API_KEY", "kb-key")
+	t.Setenv("KNOWLEDGE_PROVIDER_API_KEY", "kb-key")
 	if KnowledgeConfigFromEnvironment().APIKey != "kb-key" {
 		t.Fatal("key precedence")
 	}
 	for _, value := range []string{"invalid", "0", "-1", "21"} {
-		t.Setenv("AGENT_KNOWLEDGE_TOP_K", value)
+		t.Setenv("KNOWLEDGE_PROVIDER_TOP_K", value)
 		if _, err := newKnowledgeWithOfficialAdapter(KnowledgeConfigFromEnvironment()); err == nil {
 			t.Fatal("invalid top_k accepted")
 		}

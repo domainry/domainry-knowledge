@@ -4,14 +4,14 @@ import (
 	"context"
 	"database/sql"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 func validKnowledgeDocumentOrigin(o persistence.KnowledgeDocumentOrigin) bool {
 	return validLibraryID(o.LibraryID) && validKnowledgeDocumentID(o.DocumentID) && o.Revision > 0 && (o.Mode == "copy" || o.Mode == "move")
 }
-func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, client string, origin persistence.KnowledgeDocumentOrigin, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, found bool, err error) {
+func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, client string, origin persistence.KnowledgeDocumentOrigin, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, found bool, err error) {
 	if conversationAuthority(a) != nil || !validLibraryID(library) || !personalMemoryKey(client) || !validKnowledgeDocumentOrigin(origin) || library == origin.LibraryID {
 		return out, false, conversationError("bad_request", "document_transfer_invalid")
 	}
@@ -32,7 +32,7 @@ func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, clie
 	return
 }
 
-func (s *Store) checkKnowledgeDocumentOrigin(ctx context.Context, tx *sql.Tx, origin *persistence.KnowledgeDocumentOrigin, target agentsdk.KnowledgeDocument, a agentsdk.ConversationAuthority) (source persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) checkKnowledgeDocumentOrigin(ctx context.Context, tx *sql.Tx, origin *persistence.KnowledgeDocumentOrigin, target agentsdk.KnowledgeDocument, a agentsdk.Authority) (source persistence.KnowledgeDocumentRecord, err error) {
 	if origin == nil {
 		return source, nil
 	}

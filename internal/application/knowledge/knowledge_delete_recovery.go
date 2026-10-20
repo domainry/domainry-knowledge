@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 // Only a trusted source with an explicit recovery contract may repeat a
 // deletion or look up its receipt. The application never derives this ability
 // from HTTP methods or from document visibility in an ACL-filtered query.
-func RecoverKnowledgeDocumentDelete(ctx context.Context, source agentsdk.KnowledgeDocumentSource, id string, a agentsdk.ConversationAuthority, leaseUntil time.Time) bool {
+func RecoverKnowledgeDocumentDelete(ctx context.Context, source agentsdk.KnowledgeDocumentSource, id string, a agentsdk.Authority, leaseUntil time.Time) bool {
 	recovery, ok := source.(agentsdk.KnowledgeDocumentDeleteRecoverySource)
 	if !ok {
 		return false

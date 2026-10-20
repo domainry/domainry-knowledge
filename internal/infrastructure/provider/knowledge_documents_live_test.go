@@ -12,9 +12,8 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/artifact"
 	httpapi "github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
 
@@ -22,7 +21,7 @@ import (
 // manifest is saved before every write; the existing acceptance cleanup helper
 // can recover this exact ID if a process is interrupted.
 func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
-	if os.Getenv("AGENT_KNOWLEDGE_DOCUMENTS_LIVE") != "1" {
+	if os.Getenv("KNOWLEDGE_PROVIDER_DOCUMENTS_LIVE") != "1" {
 		t.Skip("requires explicit synthetic-document live acceptance")
 	}
 	config := KnowledgeConfigFromEnvironment()
@@ -33,7 +32,7 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 	config.ResponseMapping = nil
 	config.InvalidResponseMapping = false
 	config.DocumentManagement = true
-	recoverDelete := os.Getenv("AGENT_KNOWLEDGE_DELETE_RECOVERY_LIVE") == "1"
+	recoverDelete := os.Getenv("KNOWLEDGE_PROVIDER_DELETE_RECOVERY_LIVE") == "1"
 	var probe *deleteRecoveryLiveProbe
 	var requestID string
 	if recoverDelete {
@@ -69,7 +68,7 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 	id := "domainry-agent-acceptance-" + time.Now().UTC().Format("20060102") + "-" + suffix
 	marker := "LIBRARY-DOCUMENT-" + strings.ToUpper(suffix)
 	content := "# 资料库文档生命周期合成验收\n\n本文件仅用于自动测试，不含真实个人或业务资料。\n\n验收标识：" + marker + "。\n\n费用规则：收到发票后 30 日付款；合成金额为 123.45 元。\n"
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "document-acceptance", WorkspaceID: config.WorkspaceID, UserID: "document-acceptance"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "document-acceptance", WorkspaceID: config.WorkspaceID, UserID: "document-acceptance"}
 	manifest := map[string]any{"origin": config.BaseURL, "team_id": config.TeamID, "kb_id": config.KBID, "doc_id": id, "marker": marker, "filename": "domainry-agent-synthetic-acceptance.md", "content": content, "preflight_missing": false, "upload_attempted": false, "cleanup_verified": false}
 	if recoverDelete {
 		manifest["visibility"], manifest["permission_id"], manifest["permission_ids"], manifest["upload_request_id"] = "private", config.DocumentPermissionIDs[0], config.DocumentPermissionIDs, requestID
@@ -191,7 +190,7 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	rawContent := []byte(content)
-	if err = source.PutKnowledgeDocument(ctx, agentsdk.KnowledgeDocumentContent{DocumentID: id, Filename: manifest["filename"].(string), Bytes: int64(len(rawContent)), SHA256: artifact.Hash(rawContent), Content: bytes.NewReader(rawContent), RequestID: requestID, AccessPolicySHA256: source.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
+	if err = source.PutKnowledgeDocument(ctx, agentsdk.KnowledgeDocumentIndexContent{DocumentID: id, Filename: manifest["filename"].(string), Bytes: int64(len(rawContent)), SHA256: testContentHash(rawContent), Content: bytes.NewReader(rawContent), RequestID: requestID, AccessPolicySHA256: source.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
 		t.Fatal("upload outcome requires inspection; no retry attempted", err)
 	}
 	manifest["upload_acknowledged"] = true

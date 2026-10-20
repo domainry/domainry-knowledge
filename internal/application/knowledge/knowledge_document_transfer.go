@@ -3,12 +3,12 @@ package application
 import (
 	"context"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentTransfer, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
+func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentTransfer, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	var zero agentsdk.KnowledgeDocument
 	if !conversationKey(in.ClientID) || !conversationKey(in.SourceLibraryID) || !conversationKey(in.SourceDocumentID) || library == in.SourceLibraryID || in.ExpectedRevision < 1 || in.Mode != "copy" && in.Mode != "move" {
 		return zero, conversationFailure("bad_request", "document_transfer_invalid")
@@ -75,7 +75,7 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 	if err != nil {
 		return zero, err
 	}
-	return s.uploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Bytes: source.Document.Bytes, SHA256: source.Document.SHA256, Content: source.Content}, nil, &origin, recheck, cloneDocumentSourceAccess(sourceRecord.SourceAccess), a)
+	return s.uploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Bytes: source.Document.Bytes, SHA256: source.Document.SHA256, Content: source.Content}, &origin, recheck, cloneDocumentSourceAccess(sourceRecord.SourceAccess), a)
 }
 
 var _ agentsdk.KnowledgeDocumentTransferService = (*Service)(nil)

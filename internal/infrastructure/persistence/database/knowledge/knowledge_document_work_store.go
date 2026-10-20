@@ -3,17 +3,20 @@ package store
 import (
 	"context"
 	"database/sql"
+	"regexp"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
 const knowledgeDocumentMaximumLease = 2 * time.Hour
 
-func documentLeaseAuthority(l persistence.KnowledgeDocumentLease) agentsdk.ConversationAuthority {
-	return agentsdk.ConversationAuthority{Known: true, RuntimeID: l.RuntimeID, WorkspaceID: l.WorkspaceID, UserID: "_worker"}
+var knowledgeErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,127}$`)
+
+func documentLeaseAuthority(l persistence.KnowledgeDocumentLease) agentsdk.Authority {
+	return agentsdk.Authority{Known: true, RuntimeID: l.RuntimeID, WorkspaceID: l.WorkspaceID, UserID: "_worker"}
 }
 func (s *Store) queueDocumentWork(ctx context.Context, tx *sql.Tx, r persistence.KnowledgeDocumentRecord) error {
 	l := persistence.KnowledgeDocumentLease{RuntimeID: r.Actor.RuntimeID, WorkspaceID: r.Actor.WorkspaceID, LibraryID: r.Document.LibraryID, DocumentID: r.Document.ID}
@@ -221,7 +224,7 @@ func (s *Store) StartKnowledgeDocumentDelete(ctx context.Context, l persistence.
 	})
 }
 func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistence.KnowledgeDocumentLease, in persistence.KnowledgeDocumentProgress) error {
-	if in.ErrorCode != "" && !attachmentErrorCodePattern.MatchString(in.ErrorCode) || !executionText(in.IndexStatus, 64, false) || !executionText(in.SecurityScanner, 128, false) || in.SecurityReportSHA256 != "" && !validArtifactSHA(in.SecurityReportSHA256) {
+	if in.ErrorCode != "" && !knowledgeErrorCodePattern.MatchString(in.ErrorCode) || !executionText(in.IndexStatus, 64, false) || !executionText(in.SecurityScanner, 128, false) || in.SecurityReportSHA256 != "" && !validArtifactSHA(in.SecurityReportSHA256) {
 		return conversationError("bad_request", "document_progress_invalid")
 	}
 	return s.transaction(ctx, func(tx *sql.Tx) error {

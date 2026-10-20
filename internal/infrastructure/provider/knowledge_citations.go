@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 )
 
@@ -319,7 +319,7 @@ func applyKnowledgeAnchor(raw string, out *agentsdk.DocumentLocation) {
 	}
 }
 
-func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, data any) ([]agentsdk.ConversationCitation, error) {
+func (k *Knowledge) citations(evidence agentsdk.Result, data any) ([]agentsdk.Citation, error) {
 	if k.config.ResponseMapping == nil {
 		return nil, nil
 	}
@@ -354,7 +354,7 @@ func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, dat
 			return nil, knowledgeFailure("citation_mapping_invalid")
 		}
 	}
-	out := make([]agentsdk.ConversationCitation, 0, len(items))
+	out := make([]agentsdk.Citation, 0, len(items))
 	dataHash := sha256.Sum256(evidence.Data)
 	for i, item := range items {
 		if _, ok := item.(map[string]any); !ok {
@@ -420,7 +420,7 @@ func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, dat
 		if err != nil {
 			return nil, err
 		}
-		citation := agentsdk.ConversationCitation{Provider: evidence.Provider, KBID: evidence.KBID, Operation: evidence.Operation, DocumentID: docID, ChunkID: chunkID, DocumentVersion: documentVersion, ContentSHA256: contentSHA256, SourceRevision: sourceRevision, Score: score, Title: title, URL: link, Excerpt: excerpt, ExcerptTruncated: truncated, Location: location}
+		citation := agentsdk.Citation{Provider: evidence.Provider, KBID: evidence.KBID, Operation: evidence.Operation, DocumentID: docID, ChunkID: chunkID, DocumentVersion: documentVersion, ContentSHA256: contentSHA256, SourceRevision: sourceRevision, Score: score, Title: title, URL: link, Excerpt: excerpt, ExcerptTruncated: truncated, Location: location}
 		raw, _ := json.Marshal([]any{evidence.ScopeSHA256, hex.EncodeToString(dataHash[:]), mapping.Items, i, citation})
 		sum := sha256.Sum256(raw)
 		citation.ID = "kc_" + hex.EncodeToString(sum[:16])

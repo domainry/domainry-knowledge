@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
 
@@ -92,7 +92,7 @@ func (p *permissionProbeTransport) RoundTripHTTP(ctx context.Context, in connect
 	return response, err
 }
 
-func probeSearch(e agentsdk.ConversationKnowledgeResult, doc, marker string, want bool) error {
+func probeSearch(e agentsdk.Result, doc, marker string, want bool) error {
 	var envelope struct {
 		Data struct {
 			Hits json.RawMessage `json:"hits"`
@@ -120,7 +120,7 @@ func probeSearch(e agentsdk.ConversationKnowledgeResult, doc, marker string, wan
 	}
 	return nil
 }
-func probeFetch(e agentsdk.ConversationKnowledgeResult, marker string) error {
+func probeFetch(e agentsdk.Result, marker string) error {
 	var envelope struct {
 		Data struct {
 			Chunks []struct {
@@ -167,7 +167,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 	config.InvalidResponseMapping = false
 	config.TopK = 20
 	ids := []string(nil)
-	config.PermissionIDs = func(_ context.Context, a agentsdk.ConversationAuthority) ([]string, error) {
+	config.PermissionIDs = func(_ context.Context, a agentsdk.Authority) ([]string, error) {
 		if a.UserID != "permission-probe" {
 			return nil, errors.New("unexpected test principal")
 		}
@@ -177,7 +177,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 	if e != nil {
 		return report, e
 	}
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "permission-probe", WorkspaceID: config.WorkspaceID, UserID: "permission-probe"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "permission-probe", WorkspaceID: config.WorkspaceID, UserID: "permission-probe"}
 	wrong := "domainry-probe-ungranted:" + fmt.Sprint(time.Now().UnixNano())
 	cases := []struct {
 		name         string
@@ -236,7 +236,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 				}
 			} else {
 				var coded *agentsdk.Error
-				if !errors.As(e, &coded) || coded.Code != "agent.conversation.knowledge_not_found" && coded.Code != "agent.conversation.knowledge_access_denied" {
+				if !errors.As(e, &coded) || coded.Code != "knowledge.knowledge_not_found" && coded.Code != "knowledge.knowledge_access_denied" {
 					return report, fmt.Errorf("%s: private fetch was not explicitly denied", item.name)
 				}
 				if len(fetched.Data) != 0 || len(fetched.Citations) != 0 {
@@ -254,7 +254,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 		}
 		ids, probe.Case = []string{wrong}, "saved_evidence_after_permission_change"
 		var coded *agentsdk.Error
-		if e = source.RevalidateKnowledge(ctx, saved, a); !errors.As(e, &coded) || coded.Code != "agent.conversation.knowledge_not_found" && coded.Code != "agent.conversation.knowledge_access_denied" {
+		if e = source.RevalidateKnowledge(ctx, saved, a); !errors.As(e, &coded) || coded.Code != "knowledge.knowledge_not_found" && coded.Code != "knowledge.knowledge_access_denied" {
 			return report, errors.New("saved evidence revalidation did not produce a verified access denial")
 		}
 		report.Passed = append(report.Passed, "saved_evidence_rejected_after_permission_change")
@@ -264,7 +264,7 @@ func runKnowledgePermissionProbe(ctx context.Context, config KnowledgeConfig, sp
 }
 
 func TestLiveKnowledgePermissionProbe(t *testing.T) {
-	if os.Getenv("AGENT_KNOWLEDGE_PERMISSION_PROBE_LIVE") != "1" {
+	if os.Getenv("KNOWLEDGE_PROVIDER_PERMISSION_PROBE_LIVE") != "1" {
 		t.Skip("requires explicit live read-only permission acceptance")
 	}
 	config := KnowledgeConfigFromEnvironment()
@@ -273,7 +273,7 @@ func TestLiveKnowledgePermissionProbe(t *testing.T) {
 		t.Fatal("verified Verdent origin required")
 	}
 	var spec permissionProbeSpec
-	if json.Unmarshal([]byte(os.Getenv("AGENT_KNOWLEDGE_PERMISSION_PROBE_SPEC")), &spec) != nil {
+	if json.Unmarshal([]byte(os.Getenv("KNOWLEDGE_PROVIDER_PERMISSION_PROBE_SPEC")), &spec) != nil {
 		t.Fatal("test references required")
 	}
 	dir := os.Getenv("AGENT_LIVE_EVIDENCE_DIR")

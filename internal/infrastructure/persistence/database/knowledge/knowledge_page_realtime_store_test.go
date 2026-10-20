@@ -9,11 +9,11 @@ import (
 	"sync"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func connectCollaborationFixture(t *testing.T, store *Store, libraryID, pageID, clientID string, authority agentsdk.ConversationAuthority) knowledgesdk.KnowledgeCollaborationSession {
+func connectCollaborationFixture(t *testing.T, store *Store, libraryID, pageID, clientID string, authority agentsdk.Authority) knowledgesdk.KnowledgeCollaborationSession {
 	t.Helper()
 	session, err := store.ConnectKnowledgeCollaboration(t.Context(), libraryID, pageID, knowledgesdk.KnowledgeCollaborationConnect{ClientID: clientID}, authority)
 	if err != nil {
@@ -37,7 +37,7 @@ func collaborationUpdateFixture(clientID, updateID, text string, title *string, 
 	}
 }
 
-func syncCollaborationFixture(t *testing.T, store *Store, libraryID, pageID string, session knowledgesdk.KnowledgeCollaborationSession, after int64, update *knowledgesdk.KnowledgeCollaborationUpdate, authority agentsdk.ConversationAuthority) knowledgesdk.KnowledgeCollaborationSyncResult {
+func syncCollaborationFixture(t *testing.T, store *Store, libraryID, pageID string, session knowledgesdk.KnowledgeCollaborationSession, after int64, update *knowledgesdk.KnowledgeCollaborationUpdate, authority agentsdk.Authority) knowledgesdk.KnowledgeCollaborationSyncResult {
 	t.Helper()
 	result, err := store.SyncKnowledgeCollaboration(t.Context(), libraryID, pageID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID, AfterClock: after, Update: update}, authority)
 	if err != nil {
@@ -59,7 +59,7 @@ func TestKnowledgeCollaborationBlockSnapshotSurvivesRestart(t *testing.T) {
 	if !result.Applied || result.Session.Snapshot.YjsState != update.YjsState {
 		t.Fatalf("Yjs checkpoint was not applied: %+v", result)
 	}
-	restarted := New(store.store, store.sources, store.artifacts)
+	restarted := New(store.store)
 	reconnected := connectCollaborationFixture(t, restarted, library.ID, page.Page.ID, "client-restart", authority)
 	if reconnected.Snapshot.Content != update.Content || reconnected.Snapshot.YjsState != update.YjsState || reconnected.Snapshot.DraftRevision != result.Session.Snapshot.DraftRevision {
 		t.Fatalf("collaboration checkpoint did not survive restart: %+v", reconnected.Snapshot)
@@ -147,7 +147,7 @@ func TestKnowledgeCollaborationSimultaneousWritersDoNotOverwrite(t *testing.T) {
 	var wait sync.WaitGroup
 	for _, item := range []struct {
 		session   knowledgesdk.KnowledgeCollaborationSession
-		authority agentsdk.ConversationAuthority
+		authority agentsdk.Authority
 		update    knowledgesdk.KnowledgeCollaborationUpdate
 	}{
 		{alice, authority, collaborationUpdateFixture("alice-concurrent", "alice-concurrent-update", "Alice", nil, "block-1")},

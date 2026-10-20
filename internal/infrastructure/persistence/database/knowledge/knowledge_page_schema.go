@@ -1,7 +1,7 @@
 package store
 
 import (
-	"github.com/domainry/domainry-agent-sdk/modulehost"
+	"github.com/domainry/domainry-knowledge-sdk/modulehost"
 	ormschema "github.com/domainry/domainry-orm/schema"
 )
 

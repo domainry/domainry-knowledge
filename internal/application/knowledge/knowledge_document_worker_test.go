@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 type uploadExpirySweep struct {
@@ -25,7 +25,7 @@ func (*uploadExpiryWorkerRepository) ClaimKnowledgeDocumentWork(context.Context,
 	return persistence.KnowledgeDocumentLease{}, false, nil
 }
 
-func (*uploadExpiryWorkerRepository) TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRecord, error) {
+func (*uploadExpiryWorkerRepository) TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.Authority) (persistence.KnowledgeDocumentRecord, error) {
 	return persistence.KnowledgeDocumentRecord{}, nil
 }
 

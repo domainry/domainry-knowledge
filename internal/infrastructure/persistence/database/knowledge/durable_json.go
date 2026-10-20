@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 // These are persistence shapes, not HTTP projections. Each owned instant is
@@ -97,32 +97,9 @@ type storedKnowledgeDocumentLease struct {
 	ExpiresAt int64 `json:"expires_at"`
 }
 
-type storedAttachmentIndexLease struct {
-	persistence.ConversationAttachmentIndexLease
-	ExpiresAt int64 `json:"expires_at"`
-}
-
 type storedKnowledgeDatasourceBinding struct {
 	persistence.KnowledgeDatasourceBinding
 	CreatedAt int64 `json:"created_at"`
-}
-
-type storedArtifact struct {
-	agentsdk.ConversationArtifact
-	CreatedAt int64 `json:"created_at"`
-	UpdatedAt int64 `json:"updated_at"`
-}
-
-type storedArtifactRecord struct {
-	persistence.ConversationArtifactRecord
-	Artifact storedArtifact `json:"artifact"`
-}
-
-type storedArtifactExport struct {
-	agentsdk.ConversationArtifactExport
-	CreatedAt        int64  `json:"created_at"`
-	ExpiresAt        int64  `json:"expires_at"`
-	LastDownloadedAt *int64 `json:"last_downloaded_at,omitempty"`
 }
 
 func durableMillis(value time.Time) int64 {
@@ -204,19 +181,6 @@ func storedPageAccessPolicy(value knowledgesdk.KnowledgePageAccessPolicy) stored
 	return out
 }
 
-func storedArtifactValue(value agentsdk.ConversationArtifact) storedArtifact {
-	return storedArtifact{ConversationArtifact: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
-}
-
-func storedExport(value agentsdk.ConversationArtifactExport) storedArtifactExport {
-	out := storedArtifactExport{ConversationArtifactExport: value, CreatedAt: durableMillis(value.CreatedAt), ExpiresAt: durableMillis(value.ExpiresAt)}
-	if value.LastDownloadedAt != nil {
-		last := durableMillis(*value.LastDownloadedAt)
-		out.LastDownloadedAt = &last
-	}
-	return out
-}
-
 // marshalDurableJSON has no timestamp-name inference and never opens a
 // json.RawMessage. Unregistered types containing time.Time fail closed.
 func marshalDurableJSON(value any) ([]byte, error) {
@@ -256,16 +220,8 @@ func marshalDurableJSON(value any) ([]byte, error) {
 		return json.Marshal(storedPageProjectionJob{pageProjectionJob: item, NotBefore: durableMillis(item.NotBefore), LeaseUntil: durableMillis(item.LeaseUntil)})
 	case persistence.KnowledgeDocumentLease:
 		return json.Marshal(storedKnowledgeDocumentLease{KnowledgeDocumentLease: item, ExpiresAt: durableMillis(item.ExpiresAt)})
-	case persistence.ConversationAttachmentIndexLease:
-		return json.Marshal(storedAttachmentIndexLease{ConversationAttachmentIndexLease: item, ExpiresAt: durableMillis(item.ExpiresAt)})
 	case persistence.KnowledgeDatasourceBinding:
 		return json.Marshal(storedKnowledgeDatasourceBinding{KnowledgeDatasourceBinding: item, CreatedAt: durableMillis(item.CreatedAt)})
-	case agentsdk.ConversationArtifact:
-		return json.Marshal(storedArtifactValue(item))
-	case persistence.ConversationArtifactRecord:
-		return json.Marshal(storedArtifactRecord{ConversationArtifactRecord: item, Artifact: storedArtifactValue(item.Artifact)})
-	case agentsdk.ConversationArtifactExport:
-		return json.Marshal(storedExport(item))
 	default:
 		if containsUnregisteredTime(reflect.ValueOf(value), map[uintptr]bool{}) {
 			return nil, fmt.Errorf("durable JSON type %T has unregistered time fields", value)
@@ -401,13 +357,6 @@ func unmarshalDurableJSON(raw []byte, destination any) error {
 		}
 		*out = stored.KnowledgeDocumentLease
 		out.ExpiresAt = durableTime(stored.ExpiresAt)
-	case *persistence.ConversationAttachmentIndexLease:
-		var stored storedAttachmentIndexLease
-		if err := json.Unmarshal(raw, &stored); err != nil {
-			return err
-		}
-		*out = stored.ConversationAttachmentIndexLease
-		out.ExpiresAt = durableTime(stored.ExpiresAt)
 	case *persistence.KnowledgeDatasourceBinding:
 		var stored storedKnowledgeDatasourceBinding
 		if err := json.Unmarshal(raw, &stored); err != nil {
@@ -415,32 +364,6 @@ func unmarshalDurableJSON(raw []byte, destination any) error {
 		}
 		*out = stored.KnowledgeDatasourceBinding
 		out.CreatedAt = durableTime(stored.CreatedAt)
-	case *agentsdk.ConversationArtifact:
-		var stored storedArtifact
-		if err := json.Unmarshal(raw, &stored); err != nil {
-			return err
-		}
-		*out = stored.ConversationArtifact
-		out.CreatedAt, out.UpdatedAt = durableTime(stored.CreatedAt), durableTime(stored.UpdatedAt)
-	case *persistence.ConversationArtifactRecord:
-		var stored storedArtifactRecord
-		if err := json.Unmarshal(raw, &stored); err != nil {
-			return err
-		}
-		*out = stored.ConversationArtifactRecord
-		out.Artifact = stored.Artifact.ConversationArtifact
-		out.Artifact.CreatedAt, out.Artifact.UpdatedAt = durableTime(stored.Artifact.CreatedAt), durableTime(stored.Artifact.UpdatedAt)
-	case *agentsdk.ConversationArtifactExport:
-		var stored storedArtifactExport
-		if err := json.Unmarshal(raw, &stored); err != nil {
-			return err
-		}
-		*out = stored.ConversationArtifactExport
-		out.CreatedAt, out.ExpiresAt = durableTime(stored.CreatedAt), durableTime(stored.ExpiresAt)
-		if stored.LastDownloadedAt != nil {
-			last := durableTime(*stored.LastDownloadedAt)
-			out.LastDownloadedAt = &last
-		}
 	default:
 		return json.Unmarshal(raw, destination)
 	}

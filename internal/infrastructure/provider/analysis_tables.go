@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
 	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	reportsdk "github.com/domainry/domainry-report-sdk"
 	reportmodel "github.com/domainry/domainry-report-sdk/model"
 	"github.com/domainry/domainry-report-sdk/modulehost"
@@ -16,8 +16,8 @@ import (
 
 const analysisTablePageSize = 100
 
-func (k *Knowledge) reportAuthority(subject reportmodel.ReportSubject) agentsdk.ConversationAuthority {
-	return agentsdk.ConversationAuthority{
+func (k *Knowledge) reportAuthority(subject reportmodel.ReportSubject) agentsdk.Authority {
+	return agentsdk.Authority{
 		Known: subject.Principal.Known, RuntimeID: k.config.RuntimeID,
 		WorkspaceID: subject.Principal.WorkspaceID, UserID: subject.Principal.UserID,
 		RoleKey: subject.Principal.RoleKey,

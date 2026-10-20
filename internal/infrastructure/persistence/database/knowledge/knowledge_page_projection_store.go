@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
-func knowledgePageProjectionDocumentID(a agentsdk.ConversationAuthority, pageID string) string {
+func knowledgePageProjectionDocumentID(a agentsdk.Authority, pageID string) string {
 	return "kdoc_" + conversationHash([]string{libraryScope(a), pageID})[:32]
 }
 
@@ -204,7 +204,7 @@ func (s *Store) RetryKnowledgePageProjection(ctx context.Context, lease knowledg
 	})
 }
 
-func (s *Store) setPageProjectionStatus(ctx context.Context, tx *sql.Tx, page knowledgesdk.KnowledgePage, status string, accessRevision int64, authority agentsdk.ConversationAuthority) error {
+func (s *Store) setPageProjectionStatus(ctx context.Context, tx *sql.Tx, page knowledgesdk.KnowledgePage, status string, accessRevision int64, authority agentsdk.Authority) error {
 	access, err := s.knowledgePageAccessPolicy(ctx, tx, page.LibraryID, page.ID, authority)
 	if err != nil {
 		return err
@@ -222,7 +222,7 @@ func (s *Store) setPageProjectionStatus(ctx context.Context, tx *sql.Tx, page kn
 	return conversationCAS(ctx, tx, q, args, err)
 }
 
-func (s *Store) ValidateKnowledgePageProjection(ctx context.Context, origin persistence.KnowledgePageProjectionOrigin, libraryID string, authority agentsdk.ConversationAuthority) error {
+func (s *Store) ValidateKnowledgePageProjection(ctx context.Context, origin persistence.KnowledgePageProjectionOrigin, libraryID string, authority agentsdk.Authority) error {
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, err := s.libraryRecord(ctx, tx, libraryID, authority); err != nil {
 			return err

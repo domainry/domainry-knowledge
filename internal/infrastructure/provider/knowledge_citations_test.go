@@ -8,8 +8,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func citationFixtureMapping() *KnowledgeResponseMapping {
@@ -33,7 +33,7 @@ func TestKnowledgeFetchChunkCitationsUseVerifiedDocumentMetadata(t *testing.T) {
 	// Field layout observed on the real API push document, with synthetic IDs
 	// and a non-public storage URL. The two excerpts must remain separate.
 	raw := `{"err_code":0,"data":{"doc_id":"doc-1","title":"验收指南.md","status":"INDEXED","doc_version":1,"source":{"source_url":"s3://private-storage/content.md"},"chunks":[{"record_id":"part-1","content":"收到发票后30日付款。"},{"record_id":"part-2","content":"费用合计200.00元。"}]}}`
-	read := func(body, id string) (agentsdk.ConversationKnowledgeResult, error) {
+	read := func(body, id string) (agentsdk.Result, error) {
 		envelope, _ := json.Marshal(httpapi.Output{Provider: httpapi.ProviderKey, KBID: "kb", Result: json.RawMessage(body)})
 		return k.knowledgeEvidence(envelope, nil, "fetch", "", id, knowledgeAuthority())
 	}
@@ -70,8 +70,8 @@ func TestKnowledgeFetchChunkCitationsUseVerifiedDocumentMetadata(t *testing.T) {
 }
 func TestKnowledgeCitationsBindActualResponseWithoutGuessingFields(t *testing.T) {
 	k := &Knowledge{config: KnowledgeConfig{KBID: "kb", BaseURL: "https://example.test", TeamID: "team", WorkspaceID: "workspace", ResponseMapping: citationFixtureMapping()}}
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
-	response := func(raw string, owner agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+	a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
+	response := func(raw string, owner agentsdk.Authority) (agentsdk.Result, error) {
 		envelope, _ := json.Marshal(httpapi.Output{Provider: httpapi.ProviderKey, KBID: "kb", Result: json.RawMessage(raw)})
 		return k.knowledgeEvidence(envelope, nil, "search", "query", "", owner)
 	}
@@ -135,7 +135,7 @@ func TestKnowledgeCitationMappingsAndReceiptsAreRevalidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	mapping.Search.Title = "/forged" // caller mutation cannot change source configuration
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
 	saved, err := k.SearchKnowledge(t.Context(), "query", a)
 	if err != nil || saved.Citations[0].Title != "Original" {
 		t.Fatal("mutable source mapping", err)
@@ -144,7 +144,7 @@ func TestKnowledgeCitationMappingsAndReceiptsAreRevalidated(t *testing.T) {
 		t.Fatal(err)
 	}
 	forged := saved
-	forged.Citations = append([]agentsdk.ConversationCitation(nil), saved.Citations...)
+	forged.Citations = append([]agentsdk.Citation(nil), saved.Citations...)
 	forged.Citations[0].Excerpt = "Invented evidence"
 	if k.RevalidateKnowledge(t.Context(), forged, a) == nil {
 		t.Fatal("forged source excerpt accepted")

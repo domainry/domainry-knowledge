@@ -8,12 +8,12 @@ import (
 	"strconv"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func (s *Service) DatasourceAccess(ctx context.Context, id, op string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) DatasourceAccess(ctx context.Context, id, op string, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	repo, err := s.LibraryAccess(ctx, op, a)
 	if err != nil {
 		return agentsdk.KnowledgeLibrary{}, err
@@ -37,7 +37,7 @@ func DatasourceIdentity(value string) bool {
 	raw, err := hex.DecodeString(value)
 	return err == nil && len(raw) == 32 && value == strings.ToLower(value)
 }
-func (s *Service) DatasourceDefinitions(ctx context.Context, library string, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDatasourceDefinition, error) {
+func (s *Service) DatasourceDefinitions(ctx context.Context, library string, a agentsdk.Authority) ([]agentsdk.KnowledgeDatasourceDefinition, error) {
 	if s.options.KnowledgeDatasources == nil {
 		return []agentsdk.KnowledgeDatasourceDefinition{}, nil
 	}
@@ -59,7 +59,7 @@ func (s *Service) DatasourceDefinitions(ctx context.Context, library string, a a
 	slices.SortFunc(items, func(a, b agentsdk.KnowledgeDatasourceDefinition) int { return strings.Compare(a.Key, b.Key) })
 	return items, nil
 }
-func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrarySources, error) {
+func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string, limit int, a agentsdk.Authority) (agentsdk.KnowledgeLibrarySources, error) {
 	var zero agentsdk.KnowledgeLibrarySources
 	library, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesList, a)
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string,
 	}
 	return out, nil
 }
-func (s *Service) BindKnowledgeLibrarySource(ctx context.Context, id string, in agentsdk.KnowledgeLibrarySourceWrite, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Service) BindKnowledgeLibrarySource(ctx context.Context, id string, in agentsdk.KnowledgeLibrarySourceWrite, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	var zero agentsdk.KnowledgeLibrary
 	if !conversationKey(in.DatasourceKey) || in.ExpectedRevision < 1 {
 		return zero, conversationFailure("bad_request", "datasource_binding_invalid")

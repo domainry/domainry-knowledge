@@ -4,24 +4,6 @@ import "github.com/domainry/domainry-foundation/schemaownership"
 
 var schemaOwnership = []schemaownership.Table{
 	{
-		Name: conversationArtifactVersionTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
-		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"owner_key", "artifact_id", "version"},
-		BoundedQueryPath: "owner/artifact/version identity and bounded descending version history",
-		DeletionPolicy:   "artifact deletion and subject erasure remove immutable logical versions after shared blob and binding revocation",
-	},
-	{
-		Name: conversationArtifactTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
-		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"owner_key", "artifact_id"},
-		BoundedQueryPath: "owner/artifact identity and bounded owner creation cursor",
-		DeletionPolicy:   "artifact deletion and subject erasure remove logical metadata after shared Artifact content and bindings are revoked",
-	},
-	{
-		Name: attachmentIndexJobTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
-		RetentionClass: schemaownership.RetentionTechnicalTTL, PrimaryKey: []string{"owner_key", "attachment_id"},
-		BoundedQueryPath: "owner/attachment work identity and runtime/due/lease claim index",
-		DeletionPolicy:   "successful or terminal indexing removes the work row; subject erasure cancels and removes owner work",
-	},
-	{
 		Name: knowledgeDocumentJobTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
 		RetentionClass: schemaownership.RetentionTechnicalTTL, PrimaryKey: []string{"scope_key", "document_id"},
 		BoundedQueryPath: "knowledge scope/document work identity and runtime/due/lease claim index",
@@ -114,7 +96,7 @@ var schemaOwnership = []schemaownership.Table{
 	{
 		Name: knowledgeSourceTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
 		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "binding_key"},
-		BoundedQueryPath: "knowledge scope/binding identity and globally unique source-key lookup across document, datasource and attachment kinds",
+		BoundedQueryPath: "knowledge scope/binding identity and globally unique source-key lookup across document and datasource kinds",
 		DeletionPolicy:   "source unbinding, library deletion and subject erasure remove the typed source registration after dependent work is fenced",
 	},
 }

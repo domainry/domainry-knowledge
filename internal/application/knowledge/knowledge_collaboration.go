@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
@@ -48,7 +48,7 @@ func validateSearchedKnowledgePrincipals(page knowledgesdk.KnowledgePrincipalPag
 	return nil
 }
 
-func (s *Service) KnowledgePageComments(ctx context.Context, libraryID, pageID, after string, limit int, unresolvedOnly bool, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageCommentPage, error) {
+func (s *Service) KnowledgePageComments(ctx context.Context, libraryID, pageID, after string, limit int, unresolvedOnly bool, a agentsdk.Authority) (knowledgesdk.KnowledgePageCommentPage, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsList, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageCommentPage{}, err
@@ -60,7 +60,7 @@ func (s *Service) KnowledgePageComments(ctx context.Context, libraryID, pageID, 
 	return result, err
 }
 
-func (s *Service) CreateKnowledgePageComment(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageCommentCreate, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Service) CreateKnowledgePageComment(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageCommentCreate, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsCreate, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
@@ -78,7 +78,7 @@ func (s *Service) CreateKnowledgePageComment(ctx context.Context, libraryID, pag
 	return result, err
 }
 
-func (s *Service) UpdateKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentUpdate, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Service) UpdateKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentUpdate, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsUpdate, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
@@ -96,7 +96,7 @@ func (s *Service) UpdateKnowledgePageComment(ctx context.Context, libraryID, pag
 	return result, err
 }
 
-func (s *Service) ResolveKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentResolve, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Service) ResolveKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentResolve, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsResolve, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
@@ -113,7 +113,7 @@ func (s *Service) ResolveKnowledgePageComment(ctx context.Context, libraryID, pa
 	return result, err
 }
 
-func (s *Service) DeleteKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentDelete, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Service) DeleteKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentDelete, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsDelete, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
@@ -130,7 +130,7 @@ func (s *Service) DeleteKnowledgePageComment(ctx context.Context, libraryID, pag
 	return result, err
 }
 
-func (s *Service) KnowledgePageAttachments(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAttachmentPage, error) {
+func (s *Service) KnowledgePageAttachments(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageAttachmentPage, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageAttachmentsList, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageAttachmentPage{}, err
@@ -142,7 +142,7 @@ func (s *Service) KnowledgePageAttachments(ctx context.Context, libraryID, pageI
 	return result, err
 }
 
-func (s *Service) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, input knowledgesdk.KnowledgePageAttachmentWrite, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAttachment, error) {
+func (s *Service) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, input knowledgesdk.KnowledgePageAttachmentWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePageAttachment, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageAttachmentsSet, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageAttachment{}, err
@@ -159,7 +159,7 @@ func (s *Service) SetKnowledgePageAttachment(ctx context.Context, libraryID, pag
 	return result, err
 }
 
-func (s *Service) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, input knowledgesdk.KnowledgePageAttachmentRemove, a agentsdk.ConversationAuthority) error {
+func (s *Service) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, input knowledgesdk.KnowledgePageAttachmentRemove, a agentsdk.Authority) error {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageAttachmentsRemove, a)
 	if err != nil {
 		return err
@@ -174,7 +174,7 @@ func (s *Service) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, 
 	return nil
 }
 
-func (s *Service) SearchKnowledgePrincipals(ctx context.Context, query, after string, limit int, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePrincipalPage, error) {
+func (s *Service) SearchKnowledgePrincipals(ctx context.Context, query, after string, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePrincipalPage, error) {
 	if err := s.authorize(a); err != nil {
 		return knowledgesdk.KnowledgePrincipalPage{}, err
 	}
@@ -200,7 +200,7 @@ func (s *Service) SearchKnowledgePrincipals(ctx context.Context, query, after st
 	return result, err
 }
 
-func (s *Service) ResolveKnowledgePrincipals(ctx context.Context, userIDs []string, a agentsdk.ConversationAuthority) ([]knowledgesdk.KnowledgePrincipal, error) {
+func (s *Service) ResolveKnowledgePrincipals(ctx context.Context, userIDs []string, a agentsdk.Authority) ([]knowledgesdk.KnowledgePrincipal, error) {
 	if err := s.authorize(a); err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func (s *Service) ResolveKnowledgePrincipals(ctx context.Context, userIDs []stri
 	return result, nil
 }
 
-func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, query, after string, limit int, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePrincipalPage, error) {
+func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, query, after string, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePrincipalPage, error) {
 	libraries, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersSearch, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePrincipalPage{}, err
@@ -255,7 +255,7 @@ func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, 
 		limit = 20
 	}
 	members, ok := s.repo.(interface {
-		KnowledgeLibraryMemberIDs(context.Context, string, agentsdk.ConversationAuthority) ([]string, error)
+		KnowledgeLibraryMemberIDs(context.Context, string, agentsdk.Authority) ([]string, error)
 	})
 	if !ok {
 		return knowledgesdk.KnowledgePrincipalPage{}, conversationFailure("unavailable", "library_members_unavailable")
@@ -296,7 +296,7 @@ func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, 
 	return result, nil
 }
 
-func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, input knowledgesdk.KnowledgeAccessExplainRequest, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeAccessExplanation, error) {
+func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, input knowledgesdk.KnowledgeAccessExplainRequest, a agentsdk.Authority) (knowledgesdk.KnowledgeAccessExplanation, error) {
 	repository, library, err := s.pageAccess(ctx, libraryID, knowledgesdk.ActionAccessExplain, a)
 	if err != nil {
 		return knowledgesdk.KnowledgeAccessExplanation{}, err
@@ -309,9 +309,9 @@ func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, 
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("bad_request", "knowledge_access_invalid")
 	}
 	roleReader, ok := s.repo.(interface {
-		KnowledgeLibraryRoleForUser(context.Context, string, string, agentsdk.ConversationAuthority) (string, error)
-		KnowledgeLibraryPageCount(context.Context, string, agentsdk.ConversationAuthority) (int, error)
-		EvaluateKnowledgePageAccessForUser(context.Context, string, string, string, agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageEffectiveAccess, error)
+		KnowledgeLibraryRoleForUser(context.Context, string, string, agentsdk.Authority) (string, error)
+		KnowledgeLibraryPageCount(context.Context, string, agentsdk.Authority) (int, error)
+		EvaluateKnowledgePageAccessForUser(context.Context, string, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error)
 	})
 	if !ok {
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("unavailable", "access_explainer_unavailable")

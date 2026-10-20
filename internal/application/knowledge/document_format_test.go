@@ -3,7 +3,7 @@ package application
 import (
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type documentFormatTestSource struct{}

@@ -8,14 +8,14 @@ import (
 	"slices"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
 	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
 
-// KnowledgeConfig binds one Agent workspace to one remote team/knowledge base.
+// KnowledgeConfig binds one Knowledge workspace to one remote team/knowledge base.
 // PermissionIDs, when provided, must derive access from the authenticated
 // authority. Browser input and model output must never supply permissions.
 type KnowledgeConfig = knowledgeprovider.Config
@@ -91,7 +91,7 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
 	c.APIKey, c.TeamID, c.KBID, c.WorkspaceID = strings.TrimSpace(c.APIKey), strings.TrimSpace(c.TeamID), strings.TrimSpace(c.KBID), strings.TrimSpace(c.WorkspaceID)
 	if c.BaseURL == "" || c.APIKey == "" || c.TeamID == "" || c.KBID == "" || c.WorkspaceID == "" {
-		return nil, fmt.Errorf("knowledge API origin, API key, team ID, knowledge base ID and Agent workspace ID are required")
+		return nil, fmt.Errorf("knowledge API origin, API key, team ID, knowledge base ID and Knowledge workspace ID are required")
 	}
 	if c.TopK == 0 {
 		c.TopK = 5
@@ -163,7 +163,7 @@ func validKnowledgeRecordKind(value string) bool {
 }
 
 func (k *Knowledge) connection() connector.Connection {
-	c := connector.Connection{Key: "agent_knowledge", WorkspaceID: k.config.WorkspaceID, ConnectorKey: httpapi.ConnectorKey, ProviderKey: httpapi.ProviderKey, Config: map[string]any{"base_url": k.config.BaseURL, "team_id": k.config.TeamID, "kb_id": k.config.KBID}}
+	c := connector.Connection{Key: "knowledge_primary", WorkspaceID: k.config.WorkspaceID, ConnectorKey: httpapi.ConnectorKey, ProviderKey: httpapi.ProviderKey, Config: map[string]any{"base_url": k.config.BaseURL, "team_id": k.config.TeamID, "kb_id": k.config.KBID}}
 	if k.config.DocumentPermissionIDs != nil {
 		c.Config["document_permission_ids"] = slices.Clone(k.config.DocumentPermissionIDs)
 	}
@@ -181,7 +181,7 @@ func knowledgeFailure(code string) error {
 	if code == "not_found" {
 		class = "not_found"
 	}
-	return &agentsdk.Error{Class: class, Code: "agent.conversation.knowledge_" + code}
+	return &agentsdk.Error{Class: class, Code: "knowledge.knowledge_" + code}
 }
 func knowledgeConnectorError(err error) error {
 	if errors.Is(err, context.Canceled) {
@@ -193,7 +193,7 @@ func knowledgeConnectorError(err error) error {
 	return knowledgeFailure("failed")
 }
 
-func (k *Knowledge) Search(ctx context.Context, query string, authority agentsdk.ConversationAuthority) (json.RawMessage, error) {
+func (k *Knowledge) Search(ctx context.Context, query string, authority agentsdk.Authority) (json.RawMessage, error) {
 	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: authority}, httpapi.Search, httpapi.SearchInput{Query: query, TopK: k.config.TopK, RecordKinds: slices.Clone(k.config.SearchRecordKinds), Mode: k.config.SearchMode, Rerank: k.config.SearchRerank})
 	if err != nil {
 		return nil, knowledgeConnectorError(err)
@@ -202,7 +202,7 @@ func (k *Knowledge) Search(ctx context.Context, query string, authority agentsdk
 }
 
 // Fetch exposes the same shared Connector operation with the same host policy.
-func (k *Knowledge) Fetch(ctx context.Context, docID string, authority agentsdk.ConversationAuthority) (json.RawMessage, error) {
+func (k *Knowledge) Fetch(ctx context.Context, docID string, authority agentsdk.Authority) (json.RawMessage, error) {
 	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: authority}, httpapi.Fetch, httpapi.FetchInput{DocID: docID})
 	if err != nil {
 		return nil, knowledgeConnectorError(err)
@@ -212,7 +212,7 @@ func (k *Knowledge) Fetch(ctx context.Context, docID string, authority agentsdk.
 
 type knowledgeGateway struct {
 	knowledge           *Knowledge
-	authority           agentsdk.ConversationAuthority
+	authority           agentsdk.Authority
 	permissionIDs       []string
 	overridePermissions bool
 }

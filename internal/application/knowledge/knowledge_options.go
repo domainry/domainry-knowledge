@@ -2,7 +2,7 @@ package application
 
 import (
 	"fmt"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"time"
 )
 
@@ -15,11 +15,6 @@ func ValidateOptions(repo any, options *Options) error {
 			return fmt.Errorf("knowledge library authorization requires library persistence")
 		}
 	}
-	if options.AttachmentAuthorizer != nil {
-		if _, ok := repo.(persistence.ConversationAttachmentRepository); !ok {
-			return fmt.Errorf("attachment authorization requires shared Artifact persistence")
-		}
-	}
 	if options.DocumentStorage != nil {
 		if _, ok := repo.(persistence.KnowledgeDocumentRepository); !ok || options.LibraryAuthorizer == nil {
 			return fmt.Errorf("document storage requires document persistence and library authorization")
@@ -30,9 +25,6 @@ func ValidateOptions(repo any, options *Options) error {
 		if options.DocumentSecurity == nil {
 			options.DocumentSecurity = builtinDocumentSecurity{}
 		}
-	}
-	if err := ValidateAttachmentKnowledge(repo, options); err != nil {
-		return err
 	}
 	if options.DocumentPoll == 0 {
 		options.DocumentPoll = 2 * time.Second
@@ -52,12 +44,5 @@ func ValidateOptions(repo any, options *Options) error {
 	if options.DocumentUploadIdleTimeout < 5*time.Minute || options.DocumentUploadIdleTimeout > 30*24*time.Hour || options.DocumentUploadIdleTimeout%time.Second != 0 {
 		return fmt.Errorf("invalid document upload idle timeout")
 	}
-	if options.ArtifactExportTTL == 0 {
-		options.ArtifactExportTTL = time.Hour
-	}
-	if options.ArtifactExportTTL < time.Second || options.ArtifactExportTTL > 24*time.Hour || options.ArtifactExportTTL%time.Second != 0 {
-		return fmt.Errorf("invalid artifact export lifetime")
-	}
-
 	return nil
 }

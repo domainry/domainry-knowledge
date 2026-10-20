@@ -1,4 +1,4 @@
-// Package connectortransport supplies the standalone Agent host's bounded
+// Package connectortransport supplies the standalone Knowledge host's bounded
 // outbound capability. Runtime embeddings can instead inject their Transport.
 package connectortransport
 

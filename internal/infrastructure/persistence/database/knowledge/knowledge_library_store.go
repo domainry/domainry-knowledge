@@ -6,15 +6,15 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
-func libraryScope(a agentsdk.ConversationAuthority) string {
+func libraryScope(a agentsdk.Authority) string {
 	return conversationHash([]string{a.RuntimeID, a.WorkspaceID})
 }
-func libraryPredicate(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func libraryPredicate(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", id))
 }
 func validLibraryID(id string) bool {
@@ -27,7 +27,7 @@ func validLibraryRole(role string) bool {
 	return role == "reader" || role == "editor" || role == "manager"
 }
 
-func (s *Store) libraryRecord(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Store) libraryRecord(ctx context.Context, db conversationDB, id string, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	var out agentsdk.KnowledgeLibrary
 	if err := conversationAuthority(a); err != nil {
 		return out, err
@@ -50,12 +50,12 @@ func (s *Store) libraryRecord(ctx context.Context, db conversationDB, id string,
 	out.Role = member.Role
 	return out, err
 }
-func (s *Store) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+func (s *Store) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error { var e error; out, e = s.libraryRecord(ctx, tx, id, a); return e })
 	return
 }
 
-func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.KnowledgeLibraryCreate, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.KnowledgeLibraryCreate, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -127,7 +127,7 @@ func libraryPageLimit(after string, limit int, users bool) (int, error) {
 	}
 	return limit, nil
 }
-func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibraryPage, err error) {
+func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.Authority) (out agentsdk.KnowledgeLibraryPage, err error) {
 	out.Items = []agentsdk.KnowledgeLibrary{}
 	out.Complete = true
 	if err = conversationAuthority(a); err != nil {
@@ -178,7 +178,7 @@ func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int,
 	return
 }
 
-func (s *Store) saveLibraryRecord(ctx context.Context, tx *sql.Tx, item *agentsdk.KnowledgeLibrary, expected int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) saveLibraryRecord(ctx context.Context, tx *sql.Tx, item *agentsdk.KnowledgeLibrary, expected int64, a agentsdk.Authority) error {
 	if expected < 1 || item.Revision != expected {
 		return conversationError("conflict", "revision_conflict")
 	}
@@ -189,7 +189,7 @@ func (s *Store) saveLibraryRecord(ctx context.Context, tx *sql.Tx, item *agentsd
 	q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeLibraryTable).Set("revision", item.Revision).Set("payload_json", conversationJSON(stored)).Where(query.And(libraryPredicate(a, item.ID), query.Equal("revision", expected))).Build()
 	return conversationCAS(ctx, tx, q, args, e)
 }
-func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	if !executionText(in.Name, 128, true) || !executionText(in.Description, 1024, false) {
 		return out, conversationError("bad_request", "library_invalid")
 	}
@@ -207,7 +207,7 @@ func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agents
 	})
 	return
 }
-func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibraryMembers, err error) {
+func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.Authority) (out agentsdk.KnowledgeLibraryMembers, err error) {
 	out.Items = []agentsdk.KnowledgeLibraryMember{}
 	out.Complete = true
 	if limit, err = libraryPageLimit(after, limit, true); err != nil {
@@ -259,7 +259,7 @@ func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, l
 // KnowledgeLibraryMemberIDs is the narrow mention-picker projection. Any
 // current member may resolve the members of this one library, but roles and
 // the workspace-wide directory remain hidden.
-func (s *Store) KnowledgeLibraryMemberIDs(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out []string, err error) {
+func (s *Store) KnowledgeLibraryMemberIDs(ctx context.Context, id string, a agentsdk.Authority) (out []string, err error) {
 	out = []string{}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, readErr := s.libraryRecord(ctx, tx, id, a); readErr != nil {
@@ -300,7 +300,7 @@ func (s *Store) KnowledgeLibraryMemberIDs(ctx context.Context, id string, a agen
 // KnowledgeLibraryRoleForUser resolves current membership for an access
 // explanation after the caller has already passed manager authorization. It
 // returns no cached Identity profile and never mutates membership.
-func (s *Store) KnowledgeLibraryRoleForUser(ctx context.Context, id, user string, a agentsdk.ConversationAuthority) (role string, err error) {
+func (s *Store) KnowledgeLibraryRoleForUser(ctx context.Context, id, user string, a agentsdk.Authority) (role string, err error) {
 	if !validLibraryUser(user) {
 		return "", conversationError("bad_request", "library_member_invalid")
 	}
@@ -331,7 +331,7 @@ func (s *Store) KnowledgeLibraryRoleForUser(ctx context.Context, id, user string
 	return role, err
 }
 
-func (s *Store) KnowledgeLibraryPageCount(ctx context.Context, id string, a agentsdk.ConversationAuthority) (count int, err error) {
+func (s *Store) KnowledgeLibraryPageCount(ctx context.Context, id string, a agentsdk.Authority) (count int, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -347,16 +347,16 @@ func (s *Store) KnowledgeLibraryPageCount(ctx context.Context, id string, a agen
 	})
 	return
 }
-func (s *Store) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Store) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	if !validLibraryRole(in.Role) {
 		return agentsdk.KnowledgeLibrary{}, conversationError("bad_request", "library_role_invalid")
 	}
 	return s.mutateLibraryMember(ctx, id, user, in.Role, in.ExpectedRevision, a)
 }
-func (s *Store) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Store) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, expected int64, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
 	return s.mutateLibraryMember(ctx, id, user, "", expected, a)
 }
-func (s *Store) mutateLibraryMember(ctx context.Context, id, user, role string, expected int64, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+func (s *Store) mutateLibraryMember(ctx context.Context, id, user, role string, expected int64, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	if !validLibraryUser(user) {
 		return out, conversationError("bad_request", "library_member_invalid")
 	}

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
 )
@@ -37,7 +37,7 @@ type knowledgeCollaborationUpdateRecord struct {
 	Update    knowledgesdk.KnowledgeCollaborationUpdate
 }
 
-func knowledgeCollaborationSessionScope(a agentsdk.ConversationAuthority, sessionID string) query.Predicate {
+func knowledgeCollaborationSessionScope(a agentsdk.Authority, sessionID string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("session_id", sessionID))
 }
 
@@ -111,7 +111,7 @@ func mergeKnowledgeCollaborationBlockIDs(current, changed []string) []string {
 	return out
 }
 
-func (s *Store) authorizeKnowledgeCollaboration(ctx context.Context, tx *sql.Tx, libraryID, pageID string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, knowledgesdk.KnowledgePage, knowledgesdk.KnowledgePageDraft, error) {
+func (s *Store) authorizeKnowledgeCollaboration(ctx context.Context, tx *sql.Tx, libraryID, pageID string, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, knowledgesdk.KnowledgePage, knowledgesdk.KnowledgePageDraft, error) {
 	library, err := s.libraryRecord(ctx, tx, libraryID, a)
 	if err != nil {
 		return library, knowledgesdk.KnowledgePage{}, knowledgesdk.KnowledgePageDraft{}, err
@@ -140,7 +140,7 @@ func (s *Store) authorizeKnowledgeCollaboration(ctx context.Context, tx *sql.Tx,
 	return library, page, draft, nil
 }
 
-func (s *Store) knowledgeCollaborationSnapshot(ctx context.Context, tx *sql.Tx, pageID string, draft knowledgesdk.KnowledgePageDraft, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeCollaborationSnapshot, bool, error) {
+func (s *Store) knowledgeCollaborationSnapshot(ctx context.Context, tx *sql.Tx, pageID string, draft knowledgesdk.KnowledgePageDraft, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSnapshot, bool, error) {
 	var snapshot knowledgesdk.KnowledgeCollaborationSnapshot
 	found, err := s.executionRead(ctx, tx, knowledgePageCollaborationSnapshotTable, pageScope(a, pageID), &snapshot)
 	if err != nil {
@@ -178,7 +178,7 @@ func collaborationSessionAPI(record knowledgeCollaborationSessionRecord, snapsho
 	}
 }
 
-func (s *Store) knowledgeCollaborationPresence(ctx context.Context, tx *sql.Tx, pageID string, now time.Time, a agentsdk.ConversationAuthority) ([]knowledgesdk.KnowledgeCollaborationPresence, error) {
+func (s *Store) knowledgeCollaborationPresence(ctx context.Context, tx *sql.Tx, pageID string, now time.Time, a agentsdk.Authority) ([]knowledgesdk.KnowledgeCollaborationPresence, error) {
 	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Columns("payload_json").Where(query.And(pageScope(a, pageID), query.Equal("state", "connected"), query.GreaterThan("lease_until", now.UnixMilli()))).OrderBy(query.Ascending("session_id")).Limit(1000).Build()
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (s *Store) knowledgeCollaborationPresence(ctx context.Context, tx *sql.Tx, 
 	return out, rows.Err()
 }
 
-func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationConnect, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgeCollaborationSession, err error) {
+func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationConnect, a agentsdk.Authority) (out knowledgesdk.KnowledgeCollaborationSession, err error) {
 	if !validateKnowledgeCollaborationClientID(input.ClientID) || conversationAuthority(a) != nil {
 		return out, conversationError("bad_request", "collaboration_connect_invalid")
 	}
@@ -239,7 +239,7 @@ func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pa
 	return
 }
 
-func (s *Store) collaborationSession(ctx context.Context, tx *sql.Tx, libraryID, pageID, sessionID string, a agentsdk.ConversationAuthority) (knowledgeCollaborationSessionRecord, error) {
+func (s *Store) collaborationSession(ctx context.Context, tx *sql.Tx, libraryID, pageID, sessionID string, a agentsdk.Authority) (knowledgeCollaborationSessionRecord, error) {
 	var record knowledgeCollaborationSessionRecord
 	if !personalMemoryKey(sessionID) {
 		return record, conversationError("bad_request", "collaboration_session_invalid")
@@ -260,7 +260,7 @@ func (s *Store) collaborationSession(ctx context.Context, tx *sql.Tx, libraryID,
 	return record, nil
 }
 
-func (s *Store) collaborationEvents(ctx context.Context, tx *sql.Tx, pageID string, afterClock int64, snapshot knowledgesdk.KnowledgeCollaborationSnapshot, a agentsdk.ConversationAuthority) ([]knowledgesdk.KnowledgeCollaborationUpdateEvent, error) {
+func (s *Store) collaborationEvents(ctx context.Context, tx *sql.Tx, pageID string, afterClock int64, snapshot knowledgesdk.KnowledgeCollaborationSnapshot, a agentsdk.Authority) ([]knowledgesdk.KnowledgeCollaborationUpdateEvent, error) {
 	if afterClock >= snapshot.ServerClock {
 		return nil, nil
 	}
@@ -300,7 +300,7 @@ func (s *Store) collaborationEvents(ctx context.Context, tx *sql.Tx, pageID stri
 	return events, nil
 }
 
-func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationSync, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgeCollaborationSyncResult, err error) {
+func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationSync, a agentsdk.Authority) (out knowledgesdk.KnowledgeCollaborationSyncResult, err error) {
 	if input.AfterClock < 0 || !validKnowledgeCollaborationBlockID(input.CursorBlockID) || !validKnowledgeCollaborationBlockID(input.SelectionBlockID) {
 		return out, conversationError("bad_request", "collaboration_sync_invalid")
 	}
@@ -391,7 +391,7 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 	return
 }
 
-func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.ConversationAuthority) (err error) {
+func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.Authority) (err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, _, _, authorizeErr := s.authorizeKnowledgeCollaboration(ctx, tx, libraryID, pageID, a); authorizeErr != nil {
 			return authorizeErr
@@ -407,7 +407,7 @@ func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, page
 	return
 }
 
-func (s *Store) PublishKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationPublish, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) PublishKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationPublish, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	var page knowledgesdk.KnowledgePage
 	var draft knowledgesdk.KnowledgePageDraft
 	var snapshot knowledgesdk.KnowledgeCollaborationSnapshot
@@ -476,7 +476,7 @@ func (s *Store) revokeKnowledgeCollaborationSessions(ctx context.Context, tx *sq
 	return nil
 }
 
-func (s *Store) resetKnowledgeCollaborationState(ctx context.Context, tx *sql.Tx, pageID string, a agentsdk.ConversationAuthority) error {
+func (s *Store) resetKnowledgeCollaborationState(ctx context.Context, tx *sql.Tx, pageID string, a agentsdk.Authority) error {
 	if err := s.revokeKnowledgeCollaborationSessions(ctx, tx, pageScope(a, pageID)); err != nil {
 		return err
 	}

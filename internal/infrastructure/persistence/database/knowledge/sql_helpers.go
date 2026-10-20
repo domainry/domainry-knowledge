@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
 	ormschema "github.com/domainry/domainry-orm/schema"
 	"strings"
@@ -56,21 +56,21 @@ func conversationHash(v any) string {
 func conversationJSON(v any) []byte { b, _ := marshalDurableJSON(v); return b }
 
 func conversationError(class, code string) error {
-	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}
+	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 
-func conversationAuthority(a agentsdk.ConversationAuthority) error {
+func conversationAuthority(a agentsdk.Authority) error {
 	if !a.Known || strings.TrimSpace(a.RuntimeID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || strings.TrimSpace(a.UserID) == "" || len(a.RuntimeID) > 255 || len(a.WorkspaceID) > 255 || len(a.UserID) > 255 {
 		return conversationError("forbidden", "principal_required")
 	}
 	return nil
 }
 
-func conversationOwner(a agentsdk.ConversationAuthority) string {
+func conversationOwner(a agentsdk.Authority) string {
 	return conversationHash([]string{a.RuntimeID, a.WorkspaceID, a.UserID})
 }
 
-func conversationScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func conversationScope(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("owner_key", conversationOwner(a)), query.Equal("conversation_id", id))
 }
 

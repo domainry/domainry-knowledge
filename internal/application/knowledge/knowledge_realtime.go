@@ -4,11 +4,11 @@ import (
 	"context"
 	"strconv"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func (s *Service) realtimeCollaborationAccess(ctx context.Context, libraryID, pageID, action string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeRealtimeCollaborationService, error) {
+func (s *Service) realtimeCollaborationAccess(ctx context.Context, libraryID, pageID, action string, a agentsdk.Authority) (knowledgesdk.KnowledgeRealtimeCollaborationService, error) {
 	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, action, a); err != nil {
 		return nil, err
 	}
@@ -19,7 +19,7 @@ func (s *Service) realtimeCollaborationAccess(ctx context.Context, libraryID, pa
 	return repository, nil
 }
 
-func (s *Service) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationConnect, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeCollaborationSession, error) {
+func (s *Service) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationConnect, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSession, error) {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationConnect, a)
 	if err != nil {
 		return knowledgesdk.KnowledgeCollaborationSession{}, err
@@ -34,7 +34,7 @@ func (s *Service) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, 
 	return result, err
 }
 
-func (s *Service) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationSync, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgeCollaborationSyncResult, error) {
+func (s *Service) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationSync, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSyncResult, error) {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationSync, a)
 	if err != nil {
 		return knowledgesdk.KnowledgeCollaborationSyncResult{}, err
@@ -56,7 +56,7 @@ func (s *Service) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pag
 	return result, err
 }
 
-func (s *Service) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.ConversationAuthority) error {
+func (s *Service) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.Authority) error {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationClose, a)
 	if err != nil {
 		return err
@@ -71,7 +71,7 @@ func (s *Service) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pa
 	return nil
 }
 
-func (s *Service) PublishKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationPublish, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Service) PublishKnowledgeCollaboration(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationPublish, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationPublish, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageView{}, err

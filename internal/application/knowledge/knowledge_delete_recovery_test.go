@@ -6,19 +6,19 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type deletionRecoveryProbe struct {
 	agentsdk.KnowledgeDocumentSource
 	calls    int
 	id       string
-	a        agentsdk.ConversationAuthority
+	a        agentsdk.Authority
 	err      error
 	deadline time.Time
 }
 
-func (p *deletionRecoveryProbe) RecoverKnowledgeDocumentDelete(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
+func (p *deletionRecoveryProbe) RecoverKnowledgeDocumentDelete(ctx context.Context, id string, a agentsdk.Authority) error {
 	p.calls++
 	p.id = id
 	p.a = a
@@ -27,7 +27,7 @@ func (p *deletionRecoveryProbe) RecoverKnowledgeDocumentDelete(ctx context.Conte
 }
 
 func TestKnowledgeDeleteRecoveryNeedsExplicitSourceAndUsableLease(t *testing.T) {
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "owner"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "owner"}
 	// An old source cannot be promoted to retryable by its ordinary Delete method.
 	var unsupported struct {
 		agentsdk.KnowledgeDocumentSource

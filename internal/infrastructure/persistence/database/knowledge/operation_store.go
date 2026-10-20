@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func knowledgeOperationCommand(kind, action, clientID string, input any, a agentsdk.ConversationAuthority) sharedoperation.Command {
+func knowledgeOperationCommand(kind, action, clientID string, input any, a agentsdk.Authority) sharedoperation.Command {
 	key := conversationOwner(a) + ":" + conversationHash(clientID)
 	id := "knowledge-operation:" + conversationHash([]string{a.WorkspaceID, kind, key})
 	return sharedoperation.Command{
@@ -29,7 +29,7 @@ func knowledgeOperationError(err error) error {
 	return err
 }
 
-func (s *Store) mutateKnowledgeOperation(ctx context.Context, kind, action, resource, clientID string, input any, a agentsdk.ConversationAuthority, apply func(*sql.Tx) (any, error), out any) error {
+func (s *Store) mutateKnowledgeOperation(ctx context.Context, kind, action, resource, clientID string, input any, a agentsdk.Authority, apply func(*sql.Tx) (any, error), out any) error {
 	if err := conversationAuthority(a); err != nil {
 		return err
 	}

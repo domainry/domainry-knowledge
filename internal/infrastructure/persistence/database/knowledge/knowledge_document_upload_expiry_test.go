@@ -4,12 +4,11 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/artifact"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func reserveUploadingDocument(t *testing.T, store *Store, client string, authority agentsdk.ConversationAuthority) persistence.KnowledgeDocumentRecord {
+func reserveUploadingDocument(t *testing.T, store *Store, client string, authority agentsdk.Authority) persistence.KnowledgeDocumentRecord {
 	t.Helper()
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: client + "-library", Kind: "personal", Name: "Uploads"}, authority)
 	if err != nil {
@@ -20,7 +19,7 @@ func reserveUploadingDocument(t *testing.T, store *Store, client string, authori
 		t.Fatal(err)
 	}
 	body := []byte("partial upload")
-	record, err := store.ReserveKnowledgeDocument(t.Context(), persistence.KnowledgeDocumentReserve{LibraryID: library.ID, ClientID: client, Filename: "partial.txt", ContentType: "text/plain", SHA256: artifact.Hash(body), Bytes: int64(len(body)), SourceID: source}, authority)
+	record, err := store.ReserveKnowledgeDocument(t.Context(), persistence.KnowledgeDocumentReserve{LibraryID: library.ID, ClientID: client, Filename: "partial.txt", ContentType: "text/plain", SHA256: knowledgeTestDigest(body), Bytes: int64(len(body)), SourceID: source}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +37,7 @@ func setKnowledgeDocumentUpdatedAt(t *testing.T, store *Store, record persistenc
 
 func TestKnowledgeDocumentUploadActivityRenewsExpiryAndIdleUploadQueuesDeletion(t *testing.T) {
 	store, _ := openSubjectKnowledgeStore(t)
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
 	record := reserveUploadingDocument(t, store, "idle-upload", authority)
 	old := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Millisecond)
 	record = setKnowledgeDocumentUpdatedAt(t, store, record, old)

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	connector "github.com/domainry/domainry-connector-sdk"
 	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.KnowledgeDocumentContent, a agentsdk.ConversationAuthority) error {
+func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.KnowledgeDocumentIndexContent, a agentsdk.Authority) error {
 	if !k.config.DocumentManagement {
 		return knowledgeFailure("document_management_unavailable")
 	}
@@ -63,7 +63,7 @@ var knowledgeWireFilename = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,25
 var knowledgeWireExtension = regexp.MustCompile(`^\.[a-z0-9]{1,16}$`)
 
 // Upstream only accepts ASCII filenames. Keep the user's original name in
-// Agent storage; send a stable transport name with the original parser suffix.
+// Knowledge storage; send a stable transport name with the original parser suffix.
 func knowledgeUploadFilename(name string) (string, error) {
 	if knowledgeWireFilename.MatchString(name) && strings.TrimSpace(name) == name {
 		return name, nil
@@ -93,7 +93,7 @@ func (k *Knowledge) KnowledgeDocumentFormats() []agentsdk.KnowledgeDocumentForma
 	return formats
 }
 
-func (k *Knowledge) InspectKnowledgeDocument(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentState, error) {
+func (k *Knowledge) InspectKnowledgeDocument(ctx context.Context, id string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
 	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: a}, httpapi.DocumentStatus, httpapi.DocumentInput{DocID: id})
 	if err != nil {
 		return agentsdk.KnowledgeDocumentState{}, knowledgeConnectorError(err)
@@ -104,7 +104,7 @@ func (k *Knowledge) InspectKnowledgeDocument(ctx context.Context, id string, a a
 	return agentsdk.KnowledgeDocumentState{DocumentID: id, Exists: out.Exists, IndexStatus: out.IndexStatus}, nil
 }
 
-func (k *Knowledge) DeleteKnowledgeDocument(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
+func (k *Knowledge) DeleteKnowledgeDocument(ctx context.Context, id string, a agentsdk.Authority) error {
 	if !k.config.DocumentManagement {
 		return knowledgeFailure("document_management_unavailable")
 	}
@@ -115,7 +115,7 @@ func (k *Knowledge) DeleteKnowledgeDocument(ctx context.Context, id string, a ag
 	return nil
 }
 
-func (k *Knowledge) RecoverKnowledgeDocumentDelete(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
+func (k *Knowledge) RecoverKnowledgeDocumentDelete(ctx context.Context, id string, a agentsdk.Authority) error {
 	if httpapi.DeleteDocument.Reliability.Idempotency.Strategy != connector.IdempotencyNatural {
 		return knowledgeFailure("delete_recovery_unavailable")
 	}

@@ -7,18 +7,18 @@ import (
 	"sort"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
 )
 
 const knowledgePageMaximumGrants = 1000
 
-func knowledgePagePermissionToken(a agentsdk.ConversationAuthority, pageID string) string {
+func knowledgePagePermissionToken(a agentsdk.Authority, pageID string) string {
 	return "scope:knowledge:page:" + conversationHash([]string{"knowledge-page.v1", a.RuntimeID, a.WorkspaceID, pageID})
 }
 
-func defaultKnowledgePageAccess(page knowledgesdk.KnowledgePage, a agentsdk.ConversationAuthority) knowledgesdk.KnowledgePageAccessPolicy {
+func defaultKnowledgePageAccess(page knowledgesdk.KnowledgePage, a agentsdk.Authority) knowledgesdk.KnowledgePageAccessPolicy {
 	status := "ready"
 	if page.PublishedVersion > 0 {
 		status = "queued"
@@ -30,7 +30,7 @@ func defaultKnowledgePageAccess(page knowledgesdk.KnowledgePage, a agentsdk.Conv
 	}
 }
 
-func (s *Store) insertKnowledgePageAccess(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, requestKey, requestHash string, a agentsdk.ConversationAuthority) error {
+func (s *Store) insertKnowledgePageAccess(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, requestKey, requestHash string, a agentsdk.Authority) error {
 	policy := defaultKnowledgePageAccess(*page, a)
 	page.AccessMode, page.AccessRevision, page.AccessStatus = policy.Mode, policy.Revision, policy.ProjectionStatus
 	q, args, err := query.NewInsertBuilder(s.store.Renderer(), knowledgePageAccessTable).
@@ -47,7 +47,7 @@ func validKnowledgePageGrantScope(scope string) bool {
 	return scope == knowledgesdk.KnowledgePageGrantPage || scope == knowledgesdk.KnowledgePageGrantSubtree
 }
 
-func (s *Store) knowledgePageAccessPolicy(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
+func (s *Store) knowledgePageAccessPolicy(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	var out knowledgesdk.KnowledgePageAccessPolicy
 	found, err := s.executionRead(ctx, db, knowledgePageAccessTable, pageScope(a, pageID), &out)
 	if err != nil {
@@ -88,7 +88,7 @@ func (s *Store) knowledgePageAccessPolicy(ctx context.Context, db conversationDB
 	return out, nil
 }
 
-func (s *Store) KnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageAccessPolicy, err error) {
+func (s *Store) KnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageAccessPolicy, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		library, readErr := s.libraryRecord(ctx, tx, libraryID, a)
 		if readErr != nil {
@@ -106,7 +106,7 @@ func (s *Store) KnowledgePageAccess(ctx context.Context, libraryID, pageID strin
 	return
 }
 
-func (s *Store) libraryRoleForUser(ctx context.Context, db conversationDB, libraryID, userID string, a agentsdk.ConversationAuthority) (string, error) {
+func (s *Store) libraryRoleForUser(ctx context.Context, db conversationDB, libraryID, userID string, a agentsdk.Authority) (string, error) {
 	var member agentsdk.KnowledgeLibraryMember
 	found, err := s.executionRead(ctx, db, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, libraryID), query.Equal("user_id", userID)), &member)
 	if err != nil {
@@ -138,7 +138,7 @@ func lesserRole(one, two string) string {
 	return two
 }
 
-func (s *Store) pageAncestors(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.ConversationAuthority) ([]string, error) {
+func (s *Store) pageAncestors(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.Authority) ([]string, error) {
 	out := []string{}
 	seen := map[string]bool{}
 	current := pageID
@@ -160,7 +160,7 @@ func (s *Store) pageAncestors(ctx context.Context, db conversationDB, libraryID,
 	return out, nil
 }
 
-func (s *Store) evaluateKnowledgePageAccess(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
+func (s *Store) evaluateKnowledgePageAccess(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error) {
 	library, err := s.libraryRecord(ctx, db, libraryID, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageEffectiveAccess{}, err
@@ -228,7 +228,7 @@ func (s *Store) evaluateKnowledgePageAccess(ctx context.Context, db conversation
 	return knowledgesdk.KnowledgePageEffectiveAccess{Allowed: true, Role: lesserRole(library.Role, bestRole), Mode: policy.Mode, Source: source, GrantPageID: bestPage, GrantScope: bestScope}, nil
 }
 
-func (s *Store) EvaluateKnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
+func (s *Store) EvaluateKnowledgePageAccess(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		var readErr error
 		out, readErr = s.evaluateKnowledgePageAccess(ctx, tx, libraryID, pageID, a)
@@ -237,7 +237,7 @@ func (s *Store) EvaluateKnowledgePageAccess(ctx context.Context, libraryID, page
 	return
 }
 
-func (s *Store) EvaluateKnowledgePageAccessForUser(ctx context.Context, libraryID, pageID, userID string, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
+func (s *Store) EvaluateKnowledgePageAccessForUser(ctx context.Context, libraryID, pageID, userID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
 	if !validLibraryUser(userID) {
 		return out, conversationError("bad_request", "library_member_invalid")
 	}
@@ -282,7 +282,7 @@ func validatePageAccessWrite(in knowledgesdk.KnowledgePageAccessWrite) error {
 	return nil
 }
 
-func (s *Store) queueCurrentPageProjection(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, accessRevision int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) queueCurrentPageProjection(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, accessRevision int64, a agentsdk.Authority) error {
 	if page.PublishedVersion == 0 {
 		page.AccessStatus = "ready"
 		return nil
@@ -301,7 +301,7 @@ func (s *Store) queueCurrentPageProjection(ctx context.Context, tx *sql.Tx, page
 	return conversationExec(ctx, tx, q, args, err)
 }
 
-func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageAccessWrite, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageAccessPolicy, err error) {
+func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageAccessWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePageAccessPolicy, err error) {
 	if err = validatePageAccessWrite(in); err != nil {
 		return
 	}
@@ -399,7 +399,7 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 	return
 }
 
-func (s *Store) KnowledgePageProjectionPermission(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (token string, revision int64, err error) {
+func (s *Store) KnowledgePageProjectionPermission(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (token string, revision int64, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, readErr := s.libraryRecord(ctx, tx, libraryID, a); readErr != nil {
 			return readErr
@@ -415,7 +415,7 @@ func (s *Store) KnowledgePageProjectionPermission(ctx context.Context, libraryID
 	return
 }
 
-func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID string, a agentsdk.ConversationAuthority) (out []string, err error) {
+func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID string, a agentsdk.Authority) (out []string, err error) {
 	out = []string{}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, readErr := s.libraryRecord(ctx, tx, libraryID, a); readErr != nil {
@@ -461,7 +461,7 @@ func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID str
 	return
 }
 
-func (s *Store) restrictedSubtreeExists(ctx context.Context, db conversationDB, libraryID, rootID string, a agentsdk.ConversationAuthority) (int, bool, string, error) {
+func (s *Store) restrictedSubtreeExists(ctx context.Context, db conversationDB, libraryID, rootID string, a agentsdk.Authority) (int, bool, string, error) {
 	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID))).Limit(knowledgeLibraryMaximumPages + 1).Build()
 	if err != nil {
 		return 0, false, "", err
@@ -513,7 +513,7 @@ func (s *Store) restrictedSubtreeExists(ctx context.Context, db conversationDB, 
 	return count, restricted, conversationHash(accessState), nil
 }
 
-func (s *Store) ancestorSubtreeGrantUsers(ctx context.Context, db conversationDB, libraryID, parentID string, a agentsdk.ConversationAuthority) (map[string]string, error) {
+func (s *Store) ancestorSubtreeGrantUsers(ctx context.Context, db conversationDB, libraryID, parentID string, a agentsdk.Authority) (map[string]string, error) {
 	out := map[string]string{}
 	current := parentID
 	for depth := 0; current != "" && depth < knowledgePageMaximumDepth; depth++ {
@@ -552,7 +552,7 @@ func (s *Store) ancestorSubtreeGrantUsers(ctx context.Context, db conversationDB
 	return out, nil
 }
 
-func (s *Store) pageMoveImpact(ctx context.Context, tx *sql.Tx, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageMoveImpact, error) {
+func (s *Store) pageMoveImpact(ctx context.Context, tx *sql.Tx, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.Authority) (knowledgesdk.KnowledgePageMoveImpact, error) {
 	page, err := s.pageRecord(ctx, tx, libraryID, pageID, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
@@ -604,7 +604,7 @@ func compactStrings(values []string) []string {
 	return out
 }
 
-func (s *Store) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageMoveImpact, err error) {
+func (s *Store) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.Authority) (out knowledgesdk.KnowledgePageMoveImpact, err error) {
 	if !validPageRank(in.Rank, true) {
 		return out, conversationError("bad_request", "page_move_invalid")
 	}

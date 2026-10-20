@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
 )
@@ -16,11 +16,11 @@ const (
 	knowledgePageCommentMaximumMentions = 20
 )
 
-func commentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func commentScope(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("comment_id", id))
 }
 
-func (s *Store) commentRecord(ctx context.Context, db conversationDB, libraryID, pageID, commentID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Store) commentRecord(ctx context.Context, db conversationDB, libraryID, pageID, commentID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	var comment knowledgesdk.KnowledgePageComment
 	if !validKnowledgeCommentID(commentID) {
 		return comment, conversationError("bad_request", "page_comment_invalid")
@@ -55,7 +55,7 @@ func normalizedMentions(values []string) ([]string, error) {
 	return result, nil
 }
 
-func (s *Store) validateMentionedMembers(ctx context.Context, tx *sql.Tx, libraryID string, users []string, a agentsdk.ConversationAuthority) error {
+func (s *Store) validateMentionedMembers(ctx context.Context, tx *sql.Tx, libraryID string, users []string, a agentsdk.Authority) error {
 	for _, user := range users {
 		var member agentsdk.KnowledgeLibraryMember
 		found, err := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, libraryID), query.Equal("user_id", user)), &member)
@@ -79,7 +79,7 @@ func commentPageLimit(after string, limit int) (int, error) {
 	return limit, nil
 }
 
-func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, after string, limit int, unresolvedOnly bool, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageCommentPage, err error) {
+func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, after string, limit int, unresolvedOnly bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePageCommentPage, err error) {
 	out = knowledgesdk.KnowledgePageCommentPage{Items: []knowledgesdk.KnowledgePageComment{}, Complete: true}
 	if limit, err = commentPageLimit(after, limit); err != nil {
 		return
@@ -132,7 +132,7 @@ func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, af
 	return
 }
 
-func (s *Store) CreateKnowledgePageComment(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageCommentCreate, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageComment, err error) {
+func (s *Store) CreateKnowledgePageComment(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageCommentCreate, a agentsdk.Authority) (out knowledgesdk.KnowledgePageComment, err error) {
 	if !executionText(in.Body, knowledgePageCommentMaximumBytes, true) || in.PublishedVersion < 1 || !validCommentAnchor(in.Anchor) {
 		return out, conversationError("bad_request", "page_comment_invalid")
 	}
@@ -213,7 +213,7 @@ func (s *Store) CreateKnowledgePageComment(ctx context.Context, libraryID, pageI
 	return
 }
 
-func (s *Store) saveComment(ctx context.Context, tx *sql.Tx, comment *knowledgesdk.KnowledgePageComment, expected int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) saveComment(ctx context.Context, tx *sql.Tx, comment *knowledgesdk.KnowledgePageComment, expected int64, a agentsdk.Authority) error {
 	if expected < 1 || comment.Revision != expected {
 		return conversationError("conflict", "page_comment_revision_conflict")
 	}
@@ -226,7 +226,7 @@ func (s *Store) saveComment(ctx context.Context, tx *sql.Tx, comment *knowledges
 	return nil
 }
 
-func (s *Store) mutatePageComment(ctx context.Context, libraryID, pageID, commentID, kind, action, clientID string, input any, expected int64, a agentsdk.ConversationAuthority, mutate func(*sql.Tx, *knowledgesdk.KnowledgePageComment, agentsdk.KnowledgeLibrary) error) (out knowledgesdk.KnowledgePageComment, err error) {
+func (s *Store) mutatePageComment(ctx context.Context, libraryID, pageID, commentID, kind, action, clientID string, input any, expected int64, a agentsdk.Authority, mutate func(*sql.Tx, *knowledgesdk.KnowledgePageComment, agentsdk.KnowledgeLibrary) error) (out knowledgesdk.KnowledgePageComment, err error) {
 	err = s.mutateKnowledgeOperation(ctx, kind, action, libraryID+":"+pageID+":"+commentID, clientID, input, a, func(tx *sql.Tx) (any, error) {
 		library, e := s.libraryRecord(ctx, tx, libraryID, a)
 		if e != nil {
@@ -260,7 +260,7 @@ func (s *Store) mutatePageComment(ctx context.Context, libraryID, pageID, commen
 	return
 }
 
-func (s *Store) UpdateKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentUpdate, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Store) UpdateKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentUpdate, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	if !executionText(in.Body, knowledgePageCommentMaximumBytes, true) {
 		return knowledgesdk.KnowledgePageComment{}, conversationError("bad_request", "page_comment_invalid")
 	}
@@ -283,7 +283,7 @@ func (s *Store) UpdateKnowledgePageComment(ctx context.Context, libraryID, pageI
 	})
 }
 
-func (s *Store) ResolveKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentResolve, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Store) ResolveKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentResolve, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	if _, err := pageRequestKey("comment_resolve", libraryID, commentID, in.ClientID, a); err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
 	}
@@ -301,7 +301,7 @@ func (s *Store) ResolveKnowledgePageComment(ctx context.Context, libraryID, page
 	})
 }
 
-func (s *Store) DeleteKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentDelete, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageComment, error) {
+func (s *Store) DeleteKnowledgePageComment(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentDelete, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
 	if _, err := pageRequestKey("comment_delete", libraryID, commentID, in.ClientID, a); err != nil {
 		return knowledgesdk.KnowledgePageComment{}, err
 	}

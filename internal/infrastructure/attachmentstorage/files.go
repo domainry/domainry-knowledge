@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type Files struct{ root *os.Root }
@@ -42,7 +42,7 @@ func NewFiles(directory string) (*Files, error) {
 func (f *Files) Close() error { return f.root.Close() }
 
 func failure(class, code string) error {
-	return &agentsdk.Error{Class: class, Code: "agent.conversation." + code}
+	return &agentsdk.Error{Class: class, Code: "knowledge.document_storage." + code}
 }
 
 func hash(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
@@ -50,7 +50,7 @@ func hash(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToStr
 var idPattern = regexp.MustCompile(`^att_[a-f0-9]{32}$`)
 var hashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
-func (f *Files) owner(a agentsdk.ConversationAuthority) (*os.Root, error) {
+func (f *Files) owner(a agentsdk.Authority) (*os.Root, error) {
 	if !a.Known || strings.TrimSpace(a.RuntimeID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || strings.TrimSpace(a.UserID) == "" || len(a.RuntimeID) > 255 || len(a.WorkspaceID) > 255 || len(a.UserID) > 255 {
 		return nil, failure("forbidden", "attachment_storage_denied")
 	}
@@ -72,7 +72,7 @@ func (f *Files) owner(a agentsdk.ConversationAuthority) (*os.Root, error) {
 
 // OS locks are released on process death. The persistent lock inode is never
 // replaced/unlinked, so two hosts cannot lock different inodes for one object.
-func (f *Files) locked(ctx context.Context, id string, a agentsdk.ConversationAuthority, fn func(*os.Root) error) error {
+func (f *Files) locked(ctx context.Context, id string, a agentsdk.Authority, fn func(*os.Root) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -165,24 +165,24 @@ func read(root *os.Root, id, expected string) ([]byte, error) {
 		return nil, failure("unavailable", "attachment_storage_unavailable")
 	}
 	defer file.Close()
-	raw, err := io.ReadAll(io.LimitReader(file, agentsdk.ConversationAttachmentMaxBytes+1))
-	if err != nil || len(raw) == 0 || int64(len(raw)) > agentsdk.ConversationAttachmentMaxBytes || hash(raw) != expected {
+	raw, err := io.ReadAll(io.LimitReader(file, agentsdk.KnowledgeDocumentMaximumBytes+1))
+	if err != nil || len(raw) == 0 || int64(len(raw)) > agentsdk.KnowledgeDocumentMaximumBytes || hash(raw) != expected {
 		return nil, failure("unavailable", "attachment_content_mismatch")
 	}
 	return raw, nil
 }
 
-func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, raw []byte, a agentsdk.ConversationAuthority) (string, error) {
-	if !hashPattern.MatchString(expected) || len(raw) == 0 || int64(len(raw)) > agentsdk.ConversationAttachmentMaxBytes || hash(raw) != expected {
+func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, raw []byte, a agentsdk.Authority) (string, error) {
+	if !hashPattern.MatchString(expected) || len(raw) == 0 || int64(len(raw)) > agentsdk.KnowledgeDocumentMaximumBytes || hash(raw) != expected {
 		return "", failure("bad_request", "attachment_content_mismatch")
 	}
-	return f.PutAttachmentContentStream(ctx, id, expected, int64(len(raw)), agentsdk.ConversationAttachmentMaxBytes, bytes.NewReader(raw), a)
+	return f.PutAttachmentContentStream(ctx, id, expected, int64(len(raw)), agentsdk.KnowledgeDocumentMaximumBytes, bytes.NewReader(raw), a)
 }
 
 // PutAttachmentContentStream writes one immutable object through a bounded
 // reader, verifies its declared size and SHA-256 before the atomic rename, and
 // never retains the complete body in memory.
-func (f *Files) PutAttachmentContentStream(ctx context.Context, id, expected string, expectedBytes, maxBytes int64, content io.Reader, a agentsdk.ConversationAuthority) (string, error) {
+func (f *Files) PutAttachmentContentStream(ctx context.Context, id, expected string, expectedBytes, maxBytes int64, content io.Reader, a agentsdk.Authority) (string, error) {
 	if !hashPattern.MatchString(expected) || expectedBytes < 1 || maxBytes < expectedBytes || content == nil {
 		return "", failure("bad_request", "attachment_content_mismatch")
 	}
@@ -257,7 +257,7 @@ func verifiedChunk(content io.Reader, expectedBytes int64, expectedHash string) 
 // staged object. Replaying a previously acknowledged part is idempotent after
 // both the request body and already-stored range are hashed. The final rename
 // occurs only after the complete-file digest matches.
-func (f *Files) PutAttachmentContentChunk(ctx context.Context, id, expected string, expectedBytes, maxBytes, offset int64, expectedChunk string, chunkBytes int64, content io.Reader, a agentsdk.ConversationAuthority) (nextOffset int64, reference string, resultErr error) {
+func (f *Files) PutAttachmentContentChunk(ctx context.Context, id, expected string, expectedBytes, maxBytes, offset int64, expectedChunk string, chunkBytes int64, content io.Reader, a agentsdk.Authority) (nextOffset int64, reference string, resultErr error) {
 	if !hashPattern.MatchString(expected) || !hashPattern.MatchString(expectedChunk) || expectedBytes < 1 || expectedBytes > maxBytes || offset < 0 || chunkBytes < 1 || offset+chunkBytes > expectedBytes || content == nil {
 		return 0, "", failure("bad_request", "attachment_content_mismatch")
 	}
@@ -365,7 +365,7 @@ func (f *Files) PutAttachmentContentChunk(ctx context.Context, id, expected stri
 	return nextOffset, reference, nil
 }
 
-func (f *Files) ReadAttachmentContent(ctx context.Context, id, reference string, a agentsdk.ConversationAuthority) ([]byte, error) {
+func (f *Files) ReadAttachmentContent(ctx context.Context, id, reference string, a agentsdk.Authority) ([]byte, error) {
 	prefix := id + ":"
 	if !strings.HasPrefix(reference, prefix) || !hashPattern.MatchString(strings.TrimPrefix(reference, prefix)) {
 		return nil, failure("bad_request", "attachment_reference_invalid")
@@ -387,7 +387,7 @@ func (f *Files) ReadAttachmentContent(ctx context.Context, id, reference string,
 // in PutAttachmentContent; reads revalidate the fenced reference, file type,
 // private mode and exact byte count before exposing the descriptor. Callers
 // must close the returned file.
-func (f *Files) OpenAttachmentContent(ctx context.Context, id, reference string, expectedBytes, maxBytes int64, a agentsdk.ConversationAuthority) (io.ReadSeekCloser, error) {
+func (f *Files) OpenAttachmentContent(ctx context.Context, id, reference string, expectedBytes, maxBytes int64, a agentsdk.Authority) (io.ReadSeekCloser, error) {
 	prefix := id + ":"
 	if !strings.HasPrefix(reference, prefix) || !hashPattern.MatchString(strings.TrimPrefix(reference, prefix)) || expectedBytes < 1 || maxBytes < expectedBytes {
 		return nil, failure("bad_request", "attachment_reference_invalid")
@@ -423,7 +423,7 @@ func (f *Files) OpenAttachmentContent(ctx context.Context, id, reference string,
 	return content, nil
 }
 
-func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
+func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agentsdk.Authority) error {
 	return f.locked(ctx, id, a, func(root *os.Root) error {
 		marker := id + ".deleted"
 		if info, err := root.Lstat(marker); err == nil && (!info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0) {
@@ -454,5 +454,3 @@ func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agents
 		return nil
 	})
 }
-
-var _ agentsdk.TaskAttachmentStorage = (*Files)(nil)

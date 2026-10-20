@@ -4,14 +4,14 @@ import (
 	"context"
 	"encoding/json"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func (k *DocumentGuardedKnowledge) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *DocumentGuardedKnowledge) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	if err := k.Check(ctx); err != nil {
 		return nil, err
 	}
-	source, ok := k.base.(agentsdk.KnowledgeExtractionContentSource)
+	source, ok := k.base.(agentsdk.ExtractionContentSource)
 	if !ok {
 		return nil, conversationFailure("unavailable", "knowledge_extraction_content_unavailable")
 	}
@@ -25,12 +25,12 @@ func (k *DocumentGuardedKnowledge) KnowledgeExtractionPassages(ctx context.Conte
 	return passages, nil
 }
 
-func (k *LibraryKnowledgeSource) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *LibraryKnowledgeSource) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	if saved.Operation != "fetch" || saved.DocumentID == "" || saved.Query != "" {
 		return nil, conversationFailure("bad_request", "knowledge_response_invalid")
 	}
 	if saved.LibraryID == "" {
-		source, ok := k.defaultSource.(agentsdk.KnowledgeExtractionContentSource)
+		source, ok := k.defaultSource.(agentsdk.ExtractionContentSource)
 		if !ok {
 			return nil, conversationFailure("unavailable", "knowledge_extraction_content_unavailable")
 		}
@@ -63,13 +63,13 @@ func (k *LibraryKnowledgeSource) KnowledgeExtractionPassages(ctx context.Context
 		}
 		return data.Passages, nil
 	}
-	normalizer, ok := Binding.Source.(agentsdk.KnowledgeExtractionContentSource)
+	normalizer, ok := Binding.Source.(agentsdk.ExtractionContentSource)
 	if !ok {
 		return nil, conversationFailure("unavailable", "knowledge_extraction_content_unavailable")
 	}
 	unwrapped := saved
 	unwrapped.LibraryID = ""
-	unwrapped.Citations = append([]agentsdk.ConversationCitation(nil), saved.Citations...)
+	unwrapped.Citations = append([]agentsdk.Citation(nil), saved.Citations...)
 	for i := range unwrapped.Citations {
 		unwrapped.Citations[i].LibraryID = ""
 	}

@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-foundation/telemetry"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
@@ -27,7 +27,7 @@ func (server *Server) uploadDocument(writer http.ResponseWriter, request *http.R
 		Library   string                                  `json:"library"`
 		Input     json.RawMessage                         `json:"input"`
 		Source    *agentsdk.KnowledgeDocumentSourceAccess `json:"source,omitempty"`
-		Authority agentsdk.ConversationAuthority          `json:"authority"`
+		Authority agentsdk.Authority                      `json:"authority"`
 		Grants    []knowledgecontract.SaaSGrant           `json:"grants,omitempty"`
 	}
 	multipartReader, content, err := readStreamRequest(writer, request, &metadata)

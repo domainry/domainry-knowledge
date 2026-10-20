@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
@@ -15,7 +15,7 @@ const knowledgeDocumentUploadExpiryMaximumBatch = 500
 // TouchKnowledgeDocumentUpload records durable activity only after storage has
 // accepted a part. It deliberately has no caller-supplied revision: replayed
 // parts are idempotent and must be able to renew the same upload concurrently.
-func (s *Store) TouchKnowledgeDocumentUpload(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) TouchKnowledgeDocumentUpload(ctx context.Context, id string, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return out, err
 	}

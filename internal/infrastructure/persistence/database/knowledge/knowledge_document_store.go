@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
@@ -17,10 +17,10 @@ const (
 	knowledgeLibraryMaximumBytes     = int64(1 << 40) // 1 TiB aggregate; each immutable original is capped by the SDK contract.
 )
 
-func documentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func documentScope(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("document_id", id))
 }
-func knowledgeSourcePredicate(a agentsdk.ConversationAuthority, binding string) query.Predicate {
+func knowledgeSourcePredicate(a agentsdk.Authority, binding string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("binding_key", binding))
 }
 func (s *Store) knowledgeSourceClaimed(ctx context.Context, db conversationDB, source string) (bool, error) {
@@ -45,7 +45,7 @@ func requireDocumentWriting(l agentsdk.KnowledgeLibrary) error {
 	return nil
 }
 func (s *Store) ActivateKnowledgeDocumentSource(ctx context.Context, scope agentsdk.KnowledgeDocumentStorageScope, source string) error {
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
+	a := agentsdk.Authority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
 	if conversationAuthority(a) != nil || !validLibraryID(scope.LibraryID) || !validArtifactSHA(source) {
 		return conversationError("bad_request", "document_source_invalid")
 	}
@@ -54,7 +54,7 @@ func (s *Store) ActivateKnowledgeDocumentSource(ctx context.Context, scope agent
 	})
 }
 func (s *Store) activateDocumentSource(ctx context.Context, tx *sql.Tx, scope agentsdk.KnowledgeDocumentStorageScope, source string) error {
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
+	a := agentsdk.Authority{Known: true, RuntimeID: scope.RuntimeID, WorkspaceID: scope.WorkspaceID, UserID: "_host"}
 	var library agentsdk.KnowledgeLibrary
 	found, e := s.executionRead(ctx, tx, knowledgeLibraryTable, libraryPredicate(a, scope.LibraryID), &library)
 	if e != nil {
@@ -83,7 +83,7 @@ func (s *Store) activateDocumentSource(ctx context.Context, tx *sql.Tx, scope ag
 	q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(libraryScope(a), scope.LibraryID, knowledgeDocumentSourceKind, source, "{}").Build()
 	return conversationExec(ctx, tx, q, args, e)
 }
-func (s *Store) documentLibrarySource(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (string, error) {
+func (s *Store) documentLibrarySource(ctx context.Context, db conversationDB, id string, a agentsdk.Authority) (string, error) {
 	q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("source_key").Where(knowledgeSourcePredicate(a, id)).Build()
 	if e != nil {
 		return "", e
@@ -95,7 +95,7 @@ func (s *Store) documentLibrarySource(ctx context.Context, db conversationDB, id
 	}
 	return out, e
 }
-func (s *Store) KnowledgeDocumentLibrarySource(ctx context.Context, id string, a agentsdk.ConversationAuthority) (string, error) {
+func (s *Store) KnowledgeDocumentLibrarySource(ctx context.Context, id string, a agentsdk.Authority) (string, error) {
 	if _, e := s.KnowledgeLibrary(ctx, id, a); e != nil {
 		return "", e
 	}
@@ -107,7 +107,7 @@ func (s *Store) KnowledgeSourceManaged(ctx context.Context, source string) (bool
 	}
 	return s.knowledgeSourceClaimed(ctx, s.store.Database(), source)
 }
-func (s *Store) documentRecord(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) documentRecord(ctx context.Context, db conversationDB, id string, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if !validKnowledgeDocumentID(id) {
 		return out, conversationError("bad_request", "document_invalid")
 	}
@@ -117,7 +117,7 @@ func (s *Store) documentRecord(ctx context.Context, db conversationDB, id string
 	}
 	return
 }
-func (s *Store) KnowledgeDocumentRecord(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) KnowledgeDocumentRecord(ctx context.Context, id string, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -132,7 +132,7 @@ func (s *Store) KnowledgeDocumentRecord(ctx context.Context, id string, a agents
 	})
 	return
 }
-func (s *Store) KnowledgeDocumentByRemoteID(ctx context.Context, library, source, remote string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) KnowledgeDocumentByRemoteID(ctx context.Context, library, source, remote string, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if !validArtifactSHA(source) || !executionText(remote, 96, true) {
 		return out, conversationError("not_found", "document_not_found")
 	}
@@ -174,18 +174,15 @@ func cloneDocumentSourceAccess(source *agentsdk.KnowledgeDocumentSourceAccess) *
 	return &copy
 }
 
-func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.KnowledgeDocumentReserve, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.KnowledgeDocumentReserve, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
-	valid := validAttachmentReserve(persistence.ConversationAttachmentReserve{ClientID: in.ClientID, ConversationID: in.LibraryID, Filename: in.Filename, ContentType: in.ContentType, SHA256: in.SHA256, Bytes: in.Bytes})
-	if in.AttachmentOrigin != nil && in.DocumentOrigin != nil || !valid || !validLibraryID(in.LibraryID) || !validArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !validArtifactSHA(in.AccessPolicySHA256) || !validDocumentSourceAccess(in.SourceAccess) {
+	valid := personalMemoryKey(in.ClientID) && executionText(in.Filename, 255, true) && executionText(in.ContentType, 255, true) && validArtifactSHA(in.SHA256) && in.Bytes > 0 && in.Bytes <= agentsdk.KnowledgeDocumentMaximumBytes
+	if !valid || !validLibraryID(in.LibraryID) || !validArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !validArtifactSHA(in.AccessPolicySHA256) || !validDocumentSourceAccess(in.SourceAccess) {
 		return out, conversationError("bad_request", "document_invalid")
 	}
 	namespace := ""
-	if in.AttachmentOrigin != nil {
-		namespace = "conversation_attachment_import.v1"
-	}
 	if in.DocumentOrigin != nil {
 		namespace = "knowledge_document_transfer.v1"
 	}
@@ -215,9 +212,6 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 				return conversationError("conflict", "idempotency_conflict")
 			}
 			return nil
-		}
-		if e = s.checkDocumentAttachmentOrigin(ctx, tx, in.AttachmentOrigin, agentsdk.KnowledgeDocument{Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256}, a); e != nil {
-			return e
 		}
 		if _, e = s.checkKnowledgeDocumentOrigin(ctx, tx, in.DocumentOrigin, agentsdk.KnowledgeDocument{LibraryID: in.LibraryID, Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256}, a); e != nil {
 			return e
@@ -250,8 +244,8 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 			return conversationError("conflict", "document_storage_limit")
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
-		actor := agentsdk.ConversationAuthority{Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: a.UserID, RoleKey: a.RoleKey}
-		out = persistence.KnowledgeDocumentRecord{AttachmentOrigin: in.AttachmentOrigin, DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, ProjectionKind: "file", Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, ContentVersion: 1, IndexGeneration: 1, CreatedByUserID: a.UserID, State: "uploading", ProcessingStage: "upload", SecurityStatus: "pending", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: source, SourceAccess: cloneDocumentSourceAccess(in.SourceAccess), RemoteID: "dka_" + conversationHash([]string{source, libraryScope(a), id, in.SHA256})}
+		actor := agentsdk.Authority{Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: a.UserID, RoleKey: a.RoleKey}
+		out = persistence.KnowledgeDocumentRecord{DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, ProjectionKind: "file", Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, ContentVersion: 1, IndexGeneration: 1, CreatedByUserID: a.UserID, State: "uploading", ProcessingStage: "upload", SecurityStatus: "pending", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: source, SourceAccess: cloneDocumentSourceAccess(in.SourceAccess), RemoteID: "dka_" + conversationHash([]string{source, libraryScope(a), id, in.SHA256})}
 		out.AccessPolicySHA256 = in.AccessPolicySHA256
 		out.PutRequestID = knowledgeDocumentPutRequestID(out)
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgeDocumentTable).Columns("scope_key", "document_id", "runtime_id", "library_id", "projection_kind", "source_key", "remote_id", "state", "revision", "bytes", "updated_at", "payload_json").Values(libraryScope(a), id, a.RuntimeID, in.LibraryID, "file", source, out.RemoteID, out.Document.State, 1, in.Bytes, now.UnixMilli(), conversationJSON(out)).Build()
@@ -259,7 +253,7 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 	})
 	return
 }
-func (s *Store) CommitKnowledgeDocumentContent(ctx context.Context, id string, expected int64, ref string, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) CommitKnowledgeDocumentContent(ctx context.Context, id string, expected int64, ref string, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if !executionText(ref, 1024, true) {
 		return out, conversationError("bad_request", "document_reference_invalid")
 	}
@@ -288,9 +282,6 @@ func (s *Store) CommitKnowledgeDocumentContent(ctx context.Context, id string, e
 		if out.Document.State != "uploading" {
 			return conversationError("conflict", "document_state_conflict")
 		}
-		if e = s.checkDocumentAttachmentOrigin(ctx, tx, out.AttachmentOrigin, out.Document, a); e != nil {
-			return e
-		}
 		transferSource, e := s.checkKnowledgeDocumentOrigin(ctx, tx, out.DocumentOrigin, out.Document, a)
 		if e != nil {
 			return e
@@ -310,7 +301,7 @@ func (s *Store) CommitKnowledgeDocumentContent(ctx context.Context, id string, e
 	})
 	return
 }
-func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, limit int, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeDocumentPage, err error) {
+func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, limit int, a agentsdk.Authority) (out agentsdk.KnowledgeDocumentPage, err error) {
 	if limit == 0 {
 		limit = 20
 	}
@@ -354,7 +345,7 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 	})
 	return
 }
-func (s *Store) RequestKnowledgeDocumentDeletion(ctx context.Context, id string, expected int64, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) RequestKnowledgeDocumentDeletion(ctx context.Context, id string, expected int64, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		var e error
 		out, e = s.documentRecord(ctx, tx, id, a)
@@ -373,7 +364,7 @@ func (s *Store) RequestKnowledgeDocumentDeletion(ctx context.Context, id string,
 	return
 }
 
-func (s *Store) RequestKnowledgeDocumentRetry(ctx context.Context, id string, expected int64, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) RequestKnowledgeDocumentRetry(ctx context.Context, id string, expected int64, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if expected < 1 {
 		return out, conversationError("bad_request", "revision_required")
 	}
@@ -441,7 +432,7 @@ func (s *Store) RequestKnowledgeDocumentRetry(ctx context.Context, id string, ex
 	return
 }
 
-func (s *Store) RequestKnowledgeDocumentReindex(ctx context.Context, id string, expected int64, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) RequestKnowledgeDocumentReindex(ctx context.Context, id string, expected int64, a agentsdk.Authority) (out persistence.KnowledgeDocumentRecord, err error) {
 	if expected < 1 {
 		return out, conversationError("bad_request", "revision_required")
 	}

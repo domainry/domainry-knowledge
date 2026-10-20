@@ -13,13 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	agentmodulehost "github.com/domainry/domainry-agent-sdk/modulehost"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
-	knowledgeapp "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	knowledgemodule "github.com/domainry/domainry-knowledge/internal/assembly/module"
 	artifactstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/artifactstorage"
 	documentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
@@ -54,20 +52,10 @@ type Service struct {
 	server          *saashttp.Server
 	knowledge       knowledgecontract.Service
 	database        *sql.DB
-	artifacts       *artifactstorage.Files
 	shared          artifactstorage.SharedStorage
-	documents       agentsdk.KnowledgeDocumentStorage
+	documents       knowledgesdk.KnowledgeDocumentStorage
 	documentsCloser io.Closer
 	files           knowledgefiles.Service
-}
-
-type grantSourceReader struct{ bridge saashttp.GrantBridge }
-
-func (value grantSourceReader) Conversation(ctx context.Context, _ knowledgemodulehost.DB, id string, authority agentsdk.ConversationAuthority) (agentsdk.Conversation, error) {
-	return value.bridge.Conversation(ctx, id, authority)
-}
-func (value grantSourceReader) Run(ctx context.Context, _ knowledgemodulehost.DB, conversationID, runID string, authority agentsdk.ConversationAuthority) (agentsdk.ConversationRun, error) {
-	return value.bridge.Run(ctx, conversationID, runID, authority)
 }
 
 func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
@@ -127,11 +115,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	if err != nil {
 		return nil, err
 	}
-	service.artifacts, err = artifactstorage.NewFiles(filepath.Join(storagePath, "artifact-bodies"))
-	if err != nil {
-		return nil, err
-	}
-	if documents, ok := service.shared.(agentsdk.KnowledgeDocumentStorage); ok {
+	if documents, ok := service.shared.(knowledgesdk.KnowledgeDocumentStorage); ok {
 		service.documents = documents
 	} else {
 		localDocuments, openErr := documentstorage.NewFiles(filepath.Join(storagePath, "documents"))
@@ -142,20 +126,14 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 		service.documentsCloser = localDocuments
 	}
 	bridge := saashttp.GrantBridge{}
-	repository := store.New(backend, grantSourceReader{bridge: bridge}, store.ArtifactPersistence{Store: artifactStore, Content: service.shared, Writer: service.shared})
+	repository := store.New(backend)
 	service.files, err = filestore.New(options.RuntimeID, artifactStore, service.shared, service.shared)
 	if err != nil {
 		return nil, err
 	}
 	knowledgeOptions := options.Knowledge
-	knowledgeOptions.AttachmentAuthorizer = bridge
 	knowledgeOptions.LibraryAuthorizer = bridge
 	knowledgeOptions.SourceAuthorizer = bridge
-	knowledgeOptions.PersonalAuthorizer = bridge
-	knowledgeOptions.Sources = bridge
-	if knowledgeOptions.ArtifactStorage == nil {
-		knowledgeOptions.ArtifactStorage = service.artifacts
-	}
 	if knowledgeOptions.DocumentStorage == nil {
 		knowledgeOptions.DocumentStorage = service.documents
 	}
@@ -172,8 +150,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	}
 	service.knowledge = runtime.NewService(options.RuntimeID, knowledgeOptions)
 	service.knowledge.Start(ctx)
-	subjects := store.NewSubjectLifecycle(repository, options.RuntimeID, store.SubjectLifecycleOptions{ArtifactStorage: knowledgeOptions.ArtifactStorage, DocumentStorage: knowledgeOptions.DocumentStorage})
-	server, err := saashttp.New(saashttp.Dependencies{Audience: options.RuntimeID, ServiceAccessToken: options.ServiceAccessToken, Runtime: runtime, Knowledge: service.knowledge, Files: service.files, ConversationKnowledge: prepared, Artifacts: repository, Subjects: subjects, Repository: repository})
+	server, err := saashttp.New(saashttp.Dependencies{Audience: options.RuntimeID, ServiceAccessToken: options.ServiceAccessToken, Runtime: runtime, Knowledge: service.knowledge, Retrieval: prepared, Files: service.files, Repository: repository})
 	if err != nil {
 		return nil, err
 	}
@@ -198,9 +175,6 @@ func (service *Service) Close(context.Context) error {
 	if service.documentsCloser != nil {
 		values = append(values, service.documentsCloser.Close())
 	}
-	if service.artifacts != nil {
-		values = append(values, service.artifacts.Close())
-	}
 	if service.shared != nil {
 		values = append(values, service.shared.Close())
 	}
@@ -210,5 +184,4 @@ func (service *Service) Close(context.Context) error {
 	return errors.Join(values...)
 }
 
-var _ agentmodulehost.MigrationRegistrar = (*migrationhost.Registrar)(nil)
-var _ knowledgeapp.ContextReader = (*store.Store)(nil)
+var _ knowledgemodulehost.MigrationRegistrar = (*migrationhost.Registrar)(nil)

@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 )
 
 type knowledgeDocumentUploadRepository interface {
-	TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.ConversationAuthority) (persistence.KnowledgeDocumentRecord, error)
+	TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.Authority) (persistence.KnowledgeDocumentRecord, error)
 	ExpireKnowledgeDocumentUploads(context.Context, string, time.Time, int) (int, error)
 }
 
@@ -212,7 +212,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		if startedRecord.PageProjection != nil && startedRecord.PageProjection.PermissionID != "" {
 			permissionIDs = []string{startedRecord.PageProjection.PermissionID}
 		}
-		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
+		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_put_uncertain"
 			return
 		}
@@ -335,7 +335,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 		} else if startedRecord.PageProjection != nil && startedRecord.PageProjection.PermissionID != "" {
 			permissionIDs = []string{startedRecord.PageProjection.PermissionID}
 		}
-		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
+		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_reindex_put_uncertain"
 			return
 		}

@@ -2,8 +2,8 @@ package store
 
 import (
 	"database/sql"
-	sdk "github.com/domainry/domainry-agent-sdk"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	sdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
 	"path/filepath"
@@ -33,8 +33,8 @@ func TestKnowledgeRunsWithoutAgentTables(t *testing.T) {
 			}
 		}
 	}
-	s := New(SQLBackend{DB: db, Dialect: d.WithSchema("")}, nil, ArtifactPersistence{})
-	a := sdk.ConversationAuthority{Known: true, RuntimeID: "knowledge-host", WorkspaceID: "one", UserID: "a"}
+	s := New(SQLBackend{DB: db, Dialect: d.WithSchema("")})
+	a := sdk.Authority{Known: true, RuntimeID: "knowledge-host", WorkspaceID: "one", UserID: "a"}
 	library, err := s.CreateKnowledgeLibrary(t.Context(), sdk.KnowledgeLibraryCreate{ClientID: "library", Kind: "personal", Name: "Independent Knowledge"}, a)
 	if err != nil {
 		t.Fatal(err)

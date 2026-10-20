@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
-func addPageMember(t *testing.T, store *Store, library agentsdk.KnowledgeLibrary, user, role string, manager agentsdk.ConversationAuthority) agentsdk.KnowledgeLibrary {
+func addPageMember(t *testing.T, store *Store, library agentsdk.KnowledgeLibrary, user, role string, manager agentsdk.Authority) agentsdk.KnowledgeLibrary {
 	t.Helper()
 	updated, err := store.SetKnowledgeLibraryMember(t.Context(), library.ID, user, agentsdk.KnowledgeLibraryMemberWrite{Role: role, ExpectedRevision: library.Revision}, manager)
 	if err != nil {
@@ -20,7 +20,7 @@ func addPageMember(t *testing.T, store *Store, library agentsdk.KnowledgeLibrary
 	return updated
 }
 
-func setPageAccessFixture(t *testing.T, store *Store, libraryID, pageID, client string, revision int64, mode string, grants []knowledgesdk.KnowledgePageAccessGrant, manager agentsdk.ConversationAuthority) knowledgesdk.KnowledgePageAccessPolicy {
+func setPageAccessFixture(t *testing.T, store *Store, libraryID, pageID, client string, revision int64, mode string, grants []knowledgesdk.KnowledgePageAccessGrant, manager agentsdk.Authority) knowledgesdk.KnowledgePageAccessPolicy {
 	t.Helper()
 	policy, err := store.SetKnowledgePageAccess(t.Context(), libraryID, pageID, knowledgesdk.KnowledgePageAccessWrite{ClientID: client, ExpectedRevision: revision, Mode: mode, Grants: grants}, manager)
 	if err != nil {
@@ -29,7 +29,7 @@ func setPageAccessFixture(t *testing.T, store *Store, libraryID, pageID, client 
 	return policy
 }
 
-func markPageProjectionReady(t *testing.T, store *Store, libraryID, pageID string, authority agentsdk.ConversationAuthority) {
+func markPageProjectionReady(t *testing.T, store *Store, libraryID, pageID string, authority agentsdk.Authority) {
 	t.Helper()
 	if err := store.transaction(t.Context(), func(tx *sql.Tx) error {
 		page, err := store.pageRecord(t.Context(), tx, libraryID, pageID, authority)
@@ -54,7 +54,7 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 	}
 
 	for _, tc := range []struct {
-		authority agentsdk.ConversationAuthority
+		authority agentsdk.Authority
 		role      string
 	}{
 		{bob, "editor"}, {carol, "reader"}, {manager, "manager"},

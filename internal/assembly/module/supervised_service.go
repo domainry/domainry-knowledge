@@ -35,7 +35,7 @@ func (service *supervisedService) Start(parent context.Context) {
 		}
 		ctx, cancel := context.WithCancel(parent)
 		service.cancel = cancel
-		done := make([]<-chan struct{}, 0, 3)
+		done := make([]<-chan struct{}, 0, 1)
 		interval := service.implementation.DocumentWorkerInterval()
 		if interval <= 0 {
 			interval = 2 * time.Second
@@ -53,30 +53,6 @@ func (service *supervisedService) Start(parent context.Context) {
 				service.implementation.DocumentWorkerWakeups(),
 				func(tickCtx context.Context) (workerplatform.TickResult, error) {
 					result, err := service.implementation.KnowledgeDocumentWorkerTick(tickCtx)
-					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
-				},
-			))
-		}
-		if service.implementation.AttachmentIndexWorkerEnabled() {
-			done = append(done, workerplatform.StartWakeableAdaptiveLoop(
-				ctx,
-				workerplatform.Identity{Owner: "knowledge", Name: "attachment_index"},
-				interval,
-				maxInterval,
-				service.implementation.AttachmentIndexWorkerWakeups(),
-				func(tickCtx context.Context) (workerplatform.TickResult, error) {
-					result, err := service.implementation.AttachmentIndexWorkerTick(tickCtx)
-					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
-				},
-			))
-		}
-		if service.implementation.GeneratedArtifactCleanupWorkerEnabled() {
-			done = append(done, workerplatform.StartNamedLoop(
-				ctx,
-				workerplatform.Identity{Owner: "knowledge", Name: "generated_artifact_cleanup"},
-				service.implementation.GeneratedArtifactCleanupWorkerInterval(),
-				func(tickCtx context.Context) (workerplatform.TickResult, error) {
-					result, err := service.implementation.GeneratedArtifactCleanupWorkerTick(tickCtx)
 					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
 				},
 			))

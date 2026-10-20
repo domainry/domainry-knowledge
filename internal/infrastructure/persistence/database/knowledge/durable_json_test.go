@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 func TestDurableJSONUsesUnixMillisecondsAndRejectsStringTime(t *testing.T) {
@@ -33,29 +33,8 @@ func TestDurableJSONUsesUnixMillisecondsAndRejectsStringTime(t *testing.T) {
 	}
 }
 
-func TestDurableJSONPreservesOpaqueArtifactBodyBytes(t *testing.T) {
-	body := json.RawMessage(`{"z":1,"created_at":"user-authored text","a":{"last":2,"first":1}}`)
-	want := persistence.ConversationArtifactRecord{Artifact: agentsdk.ConversationArtifact{CreatedAt: time.Date(2026, 9, 25, 0, 0, 0, 123_000_000, time.UTC)}, Body: body}
-	raw, err := marshalDurableJSON(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(raw, []byte(`"created_at":1790294400123`)) || !bytes.Contains(raw, body) {
-		t.Fatalf("durable metadata or immutable body changed: %s", raw)
-	}
-	var got persistence.ConversationArtifactRecord
-	if err := unmarshalDurableJSON(raw, &got); err != nil {
-		t.Fatal(err)
-	}
-	if !got.Artifact.CreatedAt.Equal(want.Artifact.CreatedAt) || !bytes.Equal(got.Body, body) {
-		t.Fatalf("artifact body did not survive exact round trip: %+v", got)
-	}
-}
-
 func TestOwnedKnowledgeStorageShapesUseNumericInstants(t *testing.T) {
 	instant := time.Date(2026, 9, 25, 0, 0, 0, 123_000_000, time.UTC)
-	artifact := agentsdk.ConversationArtifact{CreatedAt: instant, UpdatedAt: instant}
-	last := instant
 	tests := []struct {
 		name   string
 		value  any
@@ -65,13 +44,9 @@ func TestOwnedKnowledgeStorageShapesUseNumericInstants(t *testing.T) {
 		{"member", agentsdk.KnowledgeLibraryMember{UpdatedAt: instant}, &agentsdk.KnowledgeLibraryMember{}},
 		{"document", persistence.KnowledgeDocumentRecord{Document: agentsdk.KnowledgeDocument{CreatedAt: instant, UpdatedAt: instant}}, &persistence.KnowledgeDocumentRecord{}},
 		{"document lease", persistence.KnowledgeDocumentLease{ExpiresAt: instant}, &persistence.KnowledgeDocumentLease{}},
-		{"attachment lease", persistence.ConversationAttachmentIndexLease{ExpiresAt: instant}, &persistence.ConversationAttachmentIndexLease{}},
 		{"datasource", persistence.KnowledgeDatasourceBinding{CreatedAt: instant}, &persistence.KnowledgeDatasourceBinding{}},
 		{"page view", knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Published: &knowledgesdk.KnowledgePageVersion{PublishedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}}, &knowledgesdk.KnowledgePageView{}},
 		{"page page", knowledgesdk.KnowledgePagePage{Items: []knowledgesdk.KnowledgePage{{CreatedAt: instant, UpdatedAt: instant}}, Complete: true}, &knowledgesdk.KnowledgePagePage{}},
-		{"artifact", artifact, &agentsdk.ConversationArtifact{}},
-		{"artifact record", persistence.ConversationArtifactRecord{Artifact: artifact, Body: json.RawMessage(`{"updated_at":"author text"}`)}, &persistence.ConversationArtifactRecord{}},
-		{"export", agentsdk.ConversationArtifactExport{CreatedAt: instant, ExpiresAt: instant, LastDownloadedAt: &last}, &agentsdk.ConversationArtifactExport{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

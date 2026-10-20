@@ -12,9 +12,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
@@ -24,11 +24,11 @@ const (
 	knowledgePageMaximumDepth    = 256
 )
 
-func pageScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func pageScope(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("page_id", id))
 }
 
-func pageVersionScope(a agentsdk.ConversationAuthority, id string, version int64) query.Predicate {
+func pageVersionScope(a agentsdk.Authority, id string, version int64) query.Predicate {
 	return query.And(pageScope(a, id), query.Equal("version", version))
 }
 
@@ -56,7 +56,7 @@ func defaultPageRank(now time.Time, id string) string {
 	return fmt.Sprintf("%020d:%s", now.UTC().UnixMilli(), id)
 }
 
-func pageRequestKey(kind, library, page, client string, a agentsdk.ConversationAuthority) (string, error) {
+func pageRequestKey(kind, library, page, client string, a agentsdk.Authority) (string, error) {
 	if !personalMemoryKey(client) {
 		return "", conversationError("bad_request", "page_client_id_invalid")
 	}
@@ -86,7 +86,7 @@ func emptyPageContent() knowledgesdk.PageContent {
 	return emptyPageContentForType(knowledgesdk.KnowledgePageTypeDocument)
 }
 
-func (s *Store) pageRecord(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePage, error) {
+func (s *Store) pageRecord(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePage, error) {
 	var page knowledgesdk.KnowledgePage
 	if !validKnowledgePageID(pageID) || !validLibraryID(libraryID) {
 		return page, conversationError("bad_request", "page_invalid")
@@ -101,13 +101,13 @@ func (s *Store) pageRecord(ctx context.Context, db conversationDB, libraryID, pa
 	return page, nil
 }
 
-func (s *Store) pageDraft(ctx context.Context, db conversationDB, pageID string, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageDraft, bool, error) {
+func (s *Store) pageDraft(ctx context.Context, db conversationDB, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageDraft, bool, error) {
 	var draft knowledgesdk.KnowledgePageDraft
 	found, err := s.executionRead(ctx, db, knowledgePageDraftTable, pageScope(a, pageID), &draft)
 	return draft, found, err
 }
 
-func (s *Store) pageVersion(ctx context.Context, db conversationDB, pageID string, version int64, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageVersion, error) {
+func (s *Store) pageVersion(ctx context.Context, db conversationDB, pageID string, version int64, a agentsdk.Authority) (knowledgesdk.KnowledgePageVersion, error) {
 	var out knowledgesdk.KnowledgePageVersion
 	if version < 1 {
 		return out, conversationError("bad_request", "page_version_invalid")
@@ -119,7 +119,7 @@ func (s *Store) pageVersion(ctx context.Context, db conversationDB, pageID strin
 	return out, err
 }
 
-func (s *Store) pageBreadcrumbs(ctx context.Context, db conversationDB, page knowledgesdk.KnowledgePage, publishedOnly bool, a agentsdk.ConversationAuthority) ([]knowledgesdk.KnowledgePageBreadcrumb, error) {
+func (s *Store) pageBreadcrumbs(ctx context.Context, db conversationDB, page knowledgesdk.KnowledgePage, publishedOnly bool, a agentsdk.Authority) ([]knowledgesdk.KnowledgePageBreadcrumb, error) {
 	chain := []knowledgesdk.KnowledgePageBreadcrumb{{PageID: page.ID, Title: page.Title}}
 	seen := map[string]bool{page.ID: true}
 	parent := page.ParentPageID
@@ -160,7 +160,7 @@ func (s *Store) pageBreadcrumbs(ctx context.Context, db conversationDB, page kno
 	return chain, nil
 }
 
-func (s *Store) pageView(ctx context.Context, db conversationDB, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePage, includeDraft bool, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Store) pageView(ctx context.Context, db conversationDB, library agentsdk.KnowledgeLibrary, page knowledgesdk.KnowledgePage, includeDraft bool, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	view := knowledgesdk.KnowledgePageView{Page: page, Breadcrumbs: []knowledgesdk.KnowledgePageBreadcrumb{}}
 	publishedOnly := library.Role == "reader" || !includeDraft
 	if page.PublishedVersion > 0 {
@@ -193,7 +193,7 @@ func (s *Store) pageView(ctx context.Context, db conversationDB, library agentsd
 	return view, nil
 }
 
-func (s *Store) KnowledgePage(ctx context.Context, libraryID, pageID string, includeDraft bool, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) KnowledgePage(ctx context.Context, libraryID, pageID string, includeDraft bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -222,7 +222,7 @@ func pageListLimit(after string, limit int) (int, error) {
 	return limit, nil
 }
 
-func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePagePage, err error) {
+func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePagePage, err error) {
 	out = knowledgesdk.KnowledgePagePage{Items: []knowledgesdk.KnowledgePage{}, Complete: true}
 	if err = conversationAuthority(a); err != nil {
 		return
@@ -337,7 +337,7 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 	return
 }
 
-func (s *Store) validatePageParent(ctx context.Context, tx *sql.Tx, libraryID, pageID, parentID string, a agentsdk.ConversationAuthority) error {
+func (s *Store) validatePageParent(ctx context.Context, tx *sql.Tx, libraryID, pageID, parentID string, a agentsdk.Authority) error {
 	if parentID == "" {
 		return nil
 	}
@@ -366,7 +366,7 @@ func (s *Store) validatePageParent(ctx context.Context, tx *sql.Tx, libraryID, p
 	return nil
 }
 
-func (s *Store) validatePublishedPageParent(ctx context.Context, tx *sql.Tx, libraryID, pageID, parentID string, a agentsdk.ConversationAuthority) error {
+func (s *Store) validatePublishedPageParent(ctx context.Context, tx *sql.Tx, libraryID, pageID, parentID string, a agentsdk.Authority) error {
 	seen := map[string]bool{pageID: true}
 	current := parentID
 	for depth := 0; current != "" && depth < knowledgePageMaximumDepth; depth++ {
@@ -390,7 +390,7 @@ func (s *Store) validatePublishedPageParent(ctx context.Context, tx *sql.Tx, lib
 	return nil
 }
 
-func (s *Store) CreateKnowledgePage(ctx context.Context, libraryID string, in knowledgesdk.KnowledgePageCreate, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) CreateKnowledgePage(ctx context.Context, libraryID string, in knowledgesdk.KnowledgePageCreate, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -472,7 +472,7 @@ func (s *Store) CreateKnowledgePage(ctx context.Context, libraryID string, in kn
 	return
 }
 
-func (s *Store) updatePage(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, expected int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) updatePage(ctx context.Context, tx *sql.Tx, page *knowledgesdk.KnowledgePage, expected int64, a agentsdk.Authority) error {
 	if expected < 1 || page.Revision != expected {
 		return conversationError("conflict", "page_revision_conflict")
 	}
@@ -489,7 +489,7 @@ func (s *Store) updatePage(ctx context.Context, tx *sql.Tx, page *knowledgesdk.K
 	return nil
 }
 
-func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageDraftWrite, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageDraftWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -578,7 +578,7 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 	return
 }
 
-func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMove, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePage, err error) {
+func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMove, a agentsdk.Authority) (out knowledgesdk.KnowledgePage, err error) {
 	if !validPageRank(in.Rank, true) || in.ExpectedRevision < 1 {
 		return out, conversationError("bad_request", "page_move_invalid")
 	}
@@ -640,7 +640,7 @@ func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string,
 	return
 }
 
-func (s *Store) ReorderKnowledgePages(ctx context.Context, libraryID string, in knowledgesdk.KnowledgePageReorder, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePagePage, err error) {
+func (s *Store) ReorderKnowledgePages(ctx context.Context, libraryID string, in knowledgesdk.KnowledgePageReorder, a agentsdk.Authority) (out knowledgesdk.KnowledgePagePage, err error) {
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
@@ -744,7 +744,7 @@ func (s *Store) ReorderKnowledgePages(ctx context.Context, libraryID string, in 
 	return
 }
 
-func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageCopy, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageView, error) {
+func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageCopy, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	var out knowledgesdk.KnowledgePageView
 	if in.Rank != "" && !validPageRank(in.Rank, true) || !executionText(in.Title, 256, false) {
 		return out, conversationError("bad_request", "page_invalid")
@@ -822,7 +822,7 @@ func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string,
 	return out, err
 }
 
-func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID string, archived bool, in knowledgesdk.KnowledgePageStateWrite, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePage, err error) {
+func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID string, archived bool, in knowledgesdk.KnowledgePageStateWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePage, err error) {
 	if in.ExpectedRevision < 1 {
 		return out, conversationError("bad_request", "page_revision_invalid")
 	}
@@ -934,7 +934,7 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 	return
 }
 
-func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePagePublish, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePagePublish, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if in.ExpectedPageRevision < 1 || in.ExpectedDraftRevision < 1 || !executionText(in.PublishNote, 2048, false) {
 		return out, conversationError("bad_request", "page_publish_invalid")
 	}
@@ -1017,13 +1017,13 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 type pageProjectionJob struct {
 	PageID, LibraryID, ContentSHA256 string
 	Version, AccessRevision          int64
-	Actor                            agentsdk.ConversationAuthority
+	Actor                            agentsdk.Authority
 	NotBefore                        time.Time
 	LeaseUntil                       time.Time
 	Fence                            int64
 }
 
-func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID string, before int64, limit int, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageVersionPage, err error) {
+func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID string, before int64, limit int, a agentsdk.Authority) (out knowledgesdk.KnowledgePageVersionPage, err error) {
 	out = knowledgesdk.KnowledgePageVersionPage{Items: []knowledgesdk.KnowledgePageVersion{}, Complete: true}
 	if limit == 0 {
 		limit = 20
@@ -1075,7 +1075,7 @@ func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID str
 	return
 }
 
-func (s *Store) KnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageVersion, err error) {
+func (s *Store) KnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, a agentsdk.Authority) (out knowledgesdk.KnowledgePageVersion, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, e := s.libraryRecord(ctx, tx, libraryID, a); e != nil {
 			return e
@@ -1136,7 +1136,7 @@ func diffText(from, to string) []knowledgesdk.KnowledgeDiffOp {
 	return operations
 }
 
-func (s *Store) DiffKnowledgePageVersions(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageVersionDiffInput, a agentsdk.ConversationAuthority) (knowledgesdk.KnowledgePageVersionDiff, error) {
+func (s *Store) DiffKnowledgePageVersions(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageVersionDiffInput, a agentsdk.Authority) (knowledgesdk.KnowledgePageVersionDiff, error) {
 	from, err := s.KnowledgePageVersion(ctx, libraryID, pageID, in.FromVersion, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageVersionDiff{}, err
@@ -1148,7 +1148,7 @@ func (s *Store) DiffKnowledgePageVersions(ctx context.Context, libraryID, pageID
 	return knowledgesdk.KnowledgePageVersionDiff{FromVersion: from.Version, ToVersion: to.Version, Title: diffText(from.Title, to.Title), Parent: diffText(from.ParentPageID, to.ParentPageID), Content: diffText(from.Body.Content, to.Body.Content)}, nil
 }
 
-func (s *Store) RestoreKnowledgePageVersion(ctx context.Context, libraryID, pageID string, versionNumber int64, in knowledgesdk.KnowledgePageRestoreVersion, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageView, err error) {
+func (s *Store) RestoreKnowledgePageVersion(ctx context.Context, libraryID, pageID string, versionNumber int64, in knowledgesdk.KnowledgePageRestoreVersion, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if in.ExpectedPageRevision < 1 || in.ExpectedDraftRevision < 1 {
 		return out, conversationError("bad_request", "page_restore_invalid")
 	}

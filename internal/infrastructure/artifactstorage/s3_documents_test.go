@@ -10,8 +10,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	knowledgeartifact "github.com/domainry/domainry-agent-sdk/artifact"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type deleteAfterKnowledgeChunkS3 struct {
@@ -43,7 +42,7 @@ func TestS3KnowledgeDocumentsStreamSeekAndKeepDeletionFence(t *testing.T) {
 	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("a", 32)}
 	documentID := "kdoc_" + strings.Repeat("b", 32)
 	raw := bytes.Repeat([]byte("0123456789abcdef"), 16*1024)
-	digest := knowledgeartifact.Hash(raw)
+	digest := testContentHash(raw)
 	reference, err := store.PutKnowledgeDocumentContent(t.Context(), scope, documentID, digest, int64(len(raw)), bytes.NewReader(raw))
 	if err != nil || reference != "s3_document_"+digest {
 		t.Fatalf("reference=%q err=%v", reference, err)
@@ -102,7 +101,7 @@ func TestS3KnowledgeDocumentRejectsBodyMismatchWithoutLeavingContent(t *testing.
 	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("c", 32)}
 	documentID := "kdoc_" + strings.Repeat("d", 32)
 	raw := []byte("declared content")
-	digest := knowledgeartifact.Hash(raw)
+	digest := testContentHash(raw)
 	if _, err = store.PutKnowledgeDocumentContent(t.Context(), scope, documentID, digest, int64(len(raw)), bytes.NewReader(append(raw, '!'))); err == nil {
 		t.Fatal("long body was accepted")
 	}
@@ -120,7 +119,7 @@ func TestS3KnowledgeDocumentRejectsBodyMismatchWithoutLeavingContent(t *testing.
 		t.Fatal("short body was accepted")
 	}
 	var coded *agentsdk.Error
-	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_content_mismatch" {
+	if !errors.As(err, &coded) || coded.Code != "knowledge.document_content_mismatch" {
 		t.Fatalf("short body err=%v", err)
 	}
 }
@@ -134,7 +133,7 @@ func TestS3KnowledgeDocumentUsesMultipartAndPublishesOnlyVerifiedContent(t *test
 	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("e", 32)}
 	documentID := "kdoc_" + strings.Repeat("f", 32)
 	raw := bytes.Repeat([]byte("multipart-original"), int(knowledgeDocumentMultipartPartBytes/18)+100)
-	digest := knowledgeartifact.Hash(raw)
+	digest := testContentHash(raw)
 	reference, err := store.PutKnowledgeDocumentContent(t.Context(), scope, documentID, digest, int64(len(raw)), bytes.NewReader(raw))
 	if err != nil || reference != "s3_document_"+digest || backend.uploadedParts != 2 || backend.completedUploads != 1 || backend.abortedUploads != 0 {
 		t.Fatalf("reference=%q parts=%d completed=%d aborted=%d err=%v", reference, backend.uploadedParts, backend.completedUploads, backend.abortedUploads, err)
@@ -178,35 +177,35 @@ func TestS3KnowledgeDocumentChunkUploadResumesAndRemovesStagingObjects(t *testin
 	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]
 	second := raw[agentsdk.KnowledgeDocumentUploadChunkBytes : 2*agentsdk.KnowledgeDocumentUploadChunkBytes]
 	last := raw[2*agentsdk.KnowledgeDocumentUploadChunkBytes:]
-	digest := knowledgeartifact.Hash(raw)
-	next, reference, err := store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, knowledgeartifact.Hash(first), int64(len(first)), bytes.NewReader(first))
+	digest := testContentHash(raw)
+	next, reference, err := store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, testContentHash(first), int64(len(first)), bytes.NewReader(first))
 	if err != nil || next != int64(len(first)) || reference != "" {
 		t.Fatalf("first next=%d ref=%q err=%v", next, reference, err)
 	}
 	wrong := append([]byte(nil), first...)
 	wrong[0] ^= 0xff
-	if _, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, knowledgeartifact.Hash(wrong), int64(len(wrong)), bytes.NewReader(wrong)); err == nil {
+	if _, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, testContentHash(wrong), int64(len(wrong)), bytes.NewReader(wrong)); err == nil {
 		t.Fatal("conflicting replay was accepted")
 	}
 	var coded *agentsdk.Error
-	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_upload_content_conflict" {
+	if !errors.As(err, &coded) || coded.Code != "knowledge.document_upload_content_conflict" {
 		t.Fatalf("conflicting replay err=%v", err)
 	}
-	if _, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)+len(second)), knowledgeartifact.Hash(last), int64(len(last)), bytes.NewReader(last)); err == nil {
+	if _, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)+len(second)), testContentHash(last), int64(len(last)), bytes.NewReader(last)); err == nil {
 		t.Fatal("upload gap was accepted")
 	}
-	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_upload_offset_conflict" {
+	if !errors.As(err, &coded) || coded.Code != "knowledge.document_upload_offset_conflict" {
 		t.Fatalf("upload gap err=%v", err)
 	}
-	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)), knowledgeartifact.Hash(second), int64(len(second)), bytes.NewReader(second))
+	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)), testContentHash(second), int64(len(second)), bytes.NewReader(second))
 	if err != nil || next != int64(len(first)+len(second)) || reference != "" {
 		t.Fatalf("second next=%d ref=%q err=%v", next, reference, err)
 	}
-	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, knowledgeartifact.Hash(first), int64(len(first)), bytes.NewReader(first))
+	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), 0, testContentHash(first), int64(len(first)), bytes.NewReader(first))
 	if err != nil || next != int64(len(first)+len(second)) || reference != "" {
 		t.Fatalf("replay next=%d ref=%q err=%v", next, reference, err)
 	}
-	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)+len(second)), knowledgeartifact.Hash(last), int64(len(last)), bytes.NewReader(last))
+	next, reference, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, digest, int64(len(raw)), int64(len(first)+len(second)), testContentHash(last), int64(len(last)), bytes.NewReader(last))
 	if err != nil || next != int64(len(raw)) || reference != "s3_document_"+digest {
 		t.Fatalf("final next=%d ref=%q err=%v", next, reference, err)
 	}
@@ -241,9 +240,9 @@ func TestS3KnowledgeDocumentChunkUploadRemovesPartWhenDeleteRacesWrite(t *testin
 	backend.deletedKey = deletedKey
 	raw := bytes.Repeat([]byte("x"), int(agentsdk.KnowledgeDocumentUploadChunkBytes+1))
 	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]
-	_, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, knowledgeartifact.Hash(raw), int64(len(raw)), 0, knowledgeartifact.Hash(first), int64(len(first)), bytes.NewReader(first))
+	_, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, testContentHash(raw), int64(len(raw)), 0, testContentHash(first), int64(len(first)), bytes.NewReader(first))
 	var coded *agentsdk.Error
-	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_not_found" {
+	if !errors.As(err, &coded) || coded.Code != "knowledge.document_not_found" {
 		t.Fatalf("race err=%v", err)
 	}
 	base.mu.Lock()

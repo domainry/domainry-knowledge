@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 )
 
 func saveRetryFixture(t *testing.T, db interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, record persistence.KnowledgeDocumentRecord, authority agentsdk.ConversationAuthority) {
+}, record persistence.KnowledgeDocumentRecord, authority agentsdk.Authority) {
 	t.Helper()
 	if _, err := db.ExecContext(t.Context(), `UPDATE _knowledge_documents SET state=?, revision=?, payload_json=? WHERE scope_key=? AND document_id=?`, record.Document.State, record.Document.Revision, conversationJSON(record), libraryScope(authority), record.Document.ID); err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestKnowledgeDocumentRetryResetsOnlySafeStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "retry-library", Kind: "personal", Name: "Retry"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestKnowledgeDocumentRetryRejectsQuarantinedThreat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "rejected-library", Kind: "personal", Name: "Rejected"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestKnowledgeDocumentRetryRejectsQuarantinedThreat(t *testing.T) {
 
 	_, err = store.RequestKnowledgeDocumentRetry(t.Context(), record.Document.ID, record.Document.Revision, authority)
 	var failure *agentsdk.Error
-	if !errors.As(err, &failure) || failure.Code != "agent.conversation.document_security_rejected" {
+	if !errors.As(err, &failure) || failure.Code != "knowledge.document_security_rejected" {
 		t.Fatalf("retry rejected threat err=%v", err)
 	}
 }

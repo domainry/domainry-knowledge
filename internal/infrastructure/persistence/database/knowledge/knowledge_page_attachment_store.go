@@ -6,16 +6,16 @@ import (
 	"errors"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
 )
 
-func pageAttachmentScope(a agentsdk.ConversationAuthority, pageID, documentID string) query.Predicate {
+func pageAttachmentScope(a agentsdk.Authority, pageID, documentID string) query.Predicate {
 	return query.And(pageScope(a, pageID), query.Equal("document_id", documentID))
 }
 
-func (s *Store) KnowledgePageAttachments(ctx context.Context, libraryID, pageID string, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageAttachmentPage, err error) {
+func (s *Store) KnowledgePageAttachments(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageAttachmentPage, err error) {
 	out.Items = []knowledgesdk.KnowledgePageAttachment{}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, e := s.libraryRecord(ctx, tx, libraryID, a); e != nil {
@@ -55,7 +55,7 @@ func (s *Store) KnowledgePageAttachments(ctx context.Context, libraryID, pageID 
 	return
 }
 
-func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, in knowledgesdk.KnowledgePageAttachmentWrite, a agentsdk.ConversationAuthority) (out knowledgesdk.KnowledgePageAttachment, err error) {
+func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, in knowledgesdk.KnowledgePageAttachmentWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePageAttachment, err error) {
 	if !executionText(in.Title, 256, false) || !validPageRank(in.Rank, true) {
 		return out, conversationError("bad_request", "page_attachment_invalid")
 	}
@@ -107,7 +107,7 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 	return
 }
 
-func (s *Store) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, in knowledgesdk.KnowledgePageAttachmentRemove, a agentsdk.ConversationAuthority) (err error) {
+func (s *Store) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pageID, documentID string, in knowledgesdk.KnowledgePageAttachmentRemove, a agentsdk.Authority) (err error) {
 	if _, err = pageRequestKey("attachment_remove", libraryID, pageID+":"+documentID, in.ClientID, a); err != nil {
 		return err
 	}

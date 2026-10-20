@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 )
 
@@ -26,7 +26,7 @@ func TestKnowledgeDocumentReindexCutsOverOnlyAfterShadowIndexIsReady(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-library", Kind: "personal", Name: "Reindex"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestKnowledgeDocumentReindexRejectsConcurrentDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
 	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-delete-library", Kind: "personal", Name: "Reindex delete"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestKnowledgeDocumentReindexRejectsConcurrentDelete(t *testing.T) {
 	}
 	_, err = store.RequestKnowledgeDocumentDeletion(t.Context(), record.Document.ID, requested.Document.Revision, authority)
 	var failure *agentsdk.Error
-	if !errors.As(err, &failure) || failure.Code != "agent.conversation.document_reindex_in_progress" {
+	if !errors.As(err, &failure) || failure.Code != "knowledge.document_reindex_in_progress" {
 		t.Fatalf("delete during reindex err=%v", err)
 	}
 }

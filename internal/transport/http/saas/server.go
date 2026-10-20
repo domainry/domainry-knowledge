@@ -11,27 +11,24 @@ import (
 	"strings"
 	"sync"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-foundation/telemetry"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	"github.com/domainry/domainry-knowledge-sdk/saashost"
-	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
 )
 
 const maxEnvelopeBytes = 40 << 20
 
 type Dependencies struct {
-	Audience              string
-	ServiceAccessToken    string
-	Runtime               knowledgecontract.Runtime
-	Knowledge             knowledgecontract.Service
-	Files                 knowledgefiles.Service
-	ConversationKnowledge knowledgecontract.ConversationKnowledge
-	Artifacts             knowledgecontract.ArtifactMutationService
-	Subjects              lifecyclecontract.SubjectExecutionHandler
-	Repository            any
+	Audience           string
+	ServiceAccessToken string
+	Runtime            knowledgecontract.Runtime
+	Knowledge          knowledgecontract.Service
+	Retrieval          knowledgecontract.Knowledge
+	Files              knowledgefiles.Service
+	Repository         any
 }
 
 type Server struct {
@@ -42,7 +39,7 @@ type Server struct {
 }
 
 func New(dependencies Dependencies) (*Server, error) {
-	if strings.TrimSpace(dependencies.Audience) == "" || strings.TrimSpace(dependencies.ServiceAccessToken) == "" || dependencies.Runtime == nil || dependencies.Knowledge == nil || dependencies.Files == nil || dependencies.Artifacts == nil || dependencies.Subjects == nil || dependencies.Repository == nil {
+	if strings.TrimSpace(dependencies.Audience) == "" || strings.TrimSpace(dependencies.ServiceAccessToken) == "" || dependencies.Runtime == nil || dependencies.Knowledge == nil || dependencies.Files == nil || dependencies.Repository == nil {
 		return nil, errors.New("Knowledge SaaS server dependencies are incomplete")
 	}
 	secret := make([]byte, 32)

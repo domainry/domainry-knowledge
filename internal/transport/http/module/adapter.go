@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	"github.com/domainry/domainry-foundation/telemetry"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
@@ -118,76 +117,75 @@ func strictQuery(next http.HandlerFunc, keys ...string) http.HandlerFunc {
 
 func (a *adapter) handlers() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		knowledgesdk.ActionLibrariesList:             a.listLibraries,
-		knowledgesdk.ActionLibrariesCreate:           a.createLibrary,
-		knowledgesdk.ActionLibrariesGet:              a.getLibrary,
-		knowledgesdk.ActionLibrariesUpdate:           a.updateLibrary,
-		knowledgesdk.ActionLibrariesArchive:          a.archiveLibrary,
-		knowledgesdk.ActionLibrariesRestore:          a.restoreLibrary,
-		knowledgesdk.ActionLibraryMembersList:        a.listMembers,
-		knowledgesdk.ActionLibraryMembersSearch:      a.searchLibraryMembers,
-		knowledgesdk.ActionLibraryMembersSet:         a.setMember,
-		knowledgesdk.ActionLibraryMembersRemove:      a.removeMember,
-		knowledgesdk.ActionPagesList:                 a.listPages,
-		knowledgesdk.ActionPagesGet:                  a.getPage,
-		knowledgesdk.ActionPagesCreate:               a.createPage,
-		knowledgesdk.ActionPagesUpdate:               a.saveDraft,
-		knowledgesdk.ActionPagesMove:                 a.movePage,
-		knowledgesdk.ActionPagesMovePreview:          a.previewPageMove,
-		knowledgesdk.ActionPagesReorder:              a.reorderPages,
-		knowledgesdk.ActionPagesCopy:                 a.copyPage,
-		knowledgesdk.ActionPagesArchive:              a.archivePage,
-		knowledgesdk.ActionPagesRestore:              a.restorePage,
-		knowledgesdk.ActionPagesPublish:              a.publishPage,
-		knowledgesdk.ActionPageAccessGet:             a.getPageAccess,
-		knowledgesdk.ActionPageAccessSet:             a.setPageAccess,
-		knowledgesdk.ActionPageCollaborationConnect:  a.connectPageCollaboration,
-		knowledgesdk.ActionPageCollaborationSync:     a.syncPageCollaboration,
-		knowledgesdk.ActionPageCollaborationClose:    a.closePageCollaboration,
-		knowledgesdk.ActionPageCollaborationPublish:  a.publishPageCollaboration,
-		knowledgesdk.ActionPageVersionsList:          a.listVersions,
-		knowledgesdk.ActionPageVersionsGet:           a.getVersion,
-		knowledgesdk.ActionPageVersionsDiff:          a.diffVersions,
-		knowledgesdk.ActionPageVersionsRestore:       a.restoreVersion,
-		knowledgesdk.ActionPageCommentsList:          a.listComments,
-		knowledgesdk.ActionPageCommentsCreate:        a.createComment,
-		knowledgesdk.ActionPageCommentsUpdate:        a.updateComment,
-		knowledgesdk.ActionPageCommentsResolve:       a.resolveComment,
-		knowledgesdk.ActionPageCommentsDelete:        a.deleteComment,
-		knowledgesdk.ActionPageAttachmentsList:       a.listPageAttachments,
-		knowledgesdk.ActionPageAttachmentsSet:        a.setPageAttachment,
-		knowledgesdk.ActionPageAttachmentsRemove:     a.removePageAttachment,
-		knowledgesdk.ActionDocumentsList:             a.listDocuments,
-		knowledgesdk.ActionDocumentsGet:              a.getDocument,
-		knowledgesdk.ActionDocumentsUpload:           a.uploadDocument,
-		knowledgesdk.ActionDocumentsDownload:         a.downloadDocument,
-		knowledgesdk.ActionDocumentsRetry:            a.retryDocument,
-		knowledgesdk.ActionDocumentsReindex:          a.reindexDocument,
-		knowledgesdk.ActionDocumentsDelete:           a.deleteDocument,
-		knowledgesdk.ActionDocumentsTransfer:         a.transferDocument,
-		knowledgesdk.ActionDocumentsImportAttachment: a.importAttachment,
-		knowledgesdk.ActionSourcesList:               a.listSources,
-		knowledgesdk.ActionSourcesBind:               a.bindSource,
-		knowledgesdk.ActionAccessExplain:             a.explainAccess,
-		knowledgesdk.ActionPrincipalsSearch:          a.searchPrincipals,
-		knowledgesdk.ActionPrincipalsResolve:         a.resolvePrincipals,
+		knowledgesdk.ActionLibrariesList:            a.listLibraries,
+		knowledgesdk.ActionLibrariesCreate:          a.createLibrary,
+		knowledgesdk.ActionLibrariesGet:             a.getLibrary,
+		knowledgesdk.ActionLibrariesUpdate:          a.updateLibrary,
+		knowledgesdk.ActionLibrariesArchive:         a.archiveLibrary,
+		knowledgesdk.ActionLibrariesRestore:         a.restoreLibrary,
+		knowledgesdk.ActionLibraryMembersList:       a.listMembers,
+		knowledgesdk.ActionLibraryMembersSearch:     a.searchLibraryMembers,
+		knowledgesdk.ActionLibraryMembersSet:        a.setMember,
+		knowledgesdk.ActionLibraryMembersRemove:     a.removeMember,
+		knowledgesdk.ActionPagesList:                a.listPages,
+		knowledgesdk.ActionPagesGet:                 a.getPage,
+		knowledgesdk.ActionPagesCreate:              a.createPage,
+		knowledgesdk.ActionPagesUpdate:              a.saveDraft,
+		knowledgesdk.ActionPagesMove:                a.movePage,
+		knowledgesdk.ActionPagesMovePreview:         a.previewPageMove,
+		knowledgesdk.ActionPagesReorder:             a.reorderPages,
+		knowledgesdk.ActionPagesCopy:                a.copyPage,
+		knowledgesdk.ActionPagesArchive:             a.archivePage,
+		knowledgesdk.ActionPagesRestore:             a.restorePage,
+		knowledgesdk.ActionPagesPublish:             a.publishPage,
+		knowledgesdk.ActionPageAccessGet:            a.getPageAccess,
+		knowledgesdk.ActionPageAccessSet:            a.setPageAccess,
+		knowledgesdk.ActionPageCollaborationConnect: a.connectPageCollaboration,
+		knowledgesdk.ActionPageCollaborationSync:    a.syncPageCollaboration,
+		knowledgesdk.ActionPageCollaborationClose:   a.closePageCollaboration,
+		knowledgesdk.ActionPageCollaborationPublish: a.publishPageCollaboration,
+		knowledgesdk.ActionPageVersionsList:         a.listVersions,
+		knowledgesdk.ActionPageVersionsGet:          a.getVersion,
+		knowledgesdk.ActionPageVersionsDiff:         a.diffVersions,
+		knowledgesdk.ActionPageVersionsRestore:      a.restoreVersion,
+		knowledgesdk.ActionPageCommentsList:         a.listComments,
+		knowledgesdk.ActionPageCommentsCreate:       a.createComment,
+		knowledgesdk.ActionPageCommentsUpdate:       a.updateComment,
+		knowledgesdk.ActionPageCommentsResolve:      a.resolveComment,
+		knowledgesdk.ActionPageCommentsDelete:       a.deleteComment,
+		knowledgesdk.ActionPageAttachmentsList:      a.listPageAttachments,
+		knowledgesdk.ActionPageAttachmentsSet:       a.setPageAttachment,
+		knowledgesdk.ActionPageAttachmentsRemove:    a.removePageAttachment,
+		knowledgesdk.ActionDocumentsList:            a.listDocuments,
+		knowledgesdk.ActionDocumentsGet:             a.getDocument,
+		knowledgesdk.ActionDocumentsUpload:          a.uploadDocument,
+		knowledgesdk.ActionDocumentsDownload:        a.downloadDocument,
+		knowledgesdk.ActionDocumentsRetry:           a.retryDocument,
+		knowledgesdk.ActionDocumentsReindex:         a.reindexDocument,
+		knowledgesdk.ActionDocumentsDelete:          a.deleteDocument,
+		knowledgesdk.ActionDocumentsTransfer:        a.transferDocument,
+		knowledgesdk.ActionSourcesList:              a.listSources,
+		knowledgesdk.ActionSourcesBind:              a.bindSource,
+		knowledgesdk.ActionAccessExplain:            a.explainAccess,
+		knowledgesdk.ActionPrincipalsSearch:         a.searchPrincipals,
+		knowledgesdk.ActionPrincipalsResolve:        a.resolvePrincipals,
 	}
 }
 
-func (a *adapter) authority(request *http.Request) (agentsdk.ConversationAuthority, error) {
+func (a *adapter) authority(request *http.Request) (knowledgesdk.Authority, error) {
 	identity, ok := identitysdk.RequestIdentityFromContext(request.Context())
 	if !ok || !identity.Principal.Known {
-		return agentsdk.ConversationAuthority{}, &agentsdk.Error{Class: "forbidden", Code: "knowledge.principal_required"}
+		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: "forbidden", Code: "knowledge.principal_required"}
 	}
 	principal := identity.Principal
-	return agentsdk.ConversationAuthority{Known: true, RuntimeID: a.runtimeID, WorkspaceID: strings.TrimSpace(principal.WorkspaceID), UserID: strings.TrimSpace(principal.UserID), RoleKey: strings.TrimSpace(principal.RoleKey)}, nil
+	return knowledgesdk.Authority{Known: true, RuntimeID: a.runtimeID, WorkspaceID: strings.TrimSpace(principal.WorkspaceID), UserID: strings.TrimSpace(principal.UserID), RoleKey: strings.TrimSpace(principal.RoleKey)}, nil
 }
 
-func authorityOrWriteError(a *adapter, response http.ResponseWriter, request *http.Request) (agentsdk.ConversationAuthority, bool) {
+func authorityOrWriteError(a *adapter, response http.ResponseWriter, request *http.Request) (knowledgesdk.Authority, bool) {
 	authority, err := a.authority(request)
 	if err != nil {
 		writeError(response, err)
-		return agentsdk.ConversationAuthority{}, false
+		return knowledgesdk.Authority{}, false
 	}
 	return authority, true
 }
@@ -214,7 +212,7 @@ func queryInt(request *http.Request, key string, defaultValue int) (int, error) 
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value < 0 {
-		return 0, &agentsdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
+		return 0, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
 	}
 	return value, nil
 }
@@ -223,7 +221,7 @@ func queryInt64(request *http.Request, key string) (int64, error) {
 	raw := strings.TrimSpace(request.URL.Query().Get(key))
 	value, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || value < 1 {
-		return 0, &agentsdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
+		return 0, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
 	}
 	return value, nil
 }
@@ -235,7 +233,7 @@ func queryBool(request *http.Request, key string) (bool, error) {
 	}
 	value, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false, &agentsdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
+		return false, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.query_invalid"}
 	}
 	return value, nil
 }
@@ -259,7 +257,7 @@ func (a *adapter) createLibrary(response http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	var input agentsdk.KnowledgeLibraryCreate
+	var input knowledgesdk.KnowledgeLibraryCreate
 	if !decodeJSON(response, request, &input) {
 		return
 	}
@@ -281,7 +279,7 @@ func (a *adapter) updateLibrary(response http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	var input agentsdk.KnowledgeLibraryUpdate
+	var input knowledgesdk.KnowledgeLibraryUpdate
 	if !decodeJSON(response, request, &input) {
 		return
 	}
@@ -317,7 +315,7 @@ func (a *adapter) setLibraryArchived(response http.ResponseWriter, request *http
 		writeError(response, err)
 		return
 	}
-	result, err := a.service.UpdateKnowledgeLibrary(request.Context(), current.ID, agentsdk.KnowledgeLibraryUpdate{ExpectedRevision: input.ExpectedRevision, Name: current.Name, Description: current.Description, Archived: archived}, authority)
+	result, err := a.service.UpdateKnowledgeLibrary(request.Context(), current.ID, knowledgesdk.KnowledgeLibraryUpdate{ExpectedRevision: input.ExpectedRevision, Name: current.Name, Description: current.Description, Archived: archived}, authority)
 	writeResult(response, result, err, http.StatusOK)
 }
 
@@ -354,7 +352,7 @@ func (a *adapter) setMember(response http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
-	var input agentsdk.KnowledgeLibraryMemberWrite
+	var input knowledgesdk.KnowledgeLibraryMemberWrite
 	if !decodeJSON(response, request, &input) {
 		return
 	}
@@ -618,7 +616,7 @@ func (a *adapter) listVersions(response http.ResponseWriter, request *http.Reque
 func pathVersion(request *http.Request) (int64, error) {
 	version, err := strconv.ParseInt(strings.TrimSpace(request.PathValue("version")), 10, 64)
 	if err != nil || version < 1 {
-		return 0, &agentsdk.Error{Class: "bad_request", Code: "knowledge.page_version_invalid"}
+		return 0, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.page_version_invalid"}
 	}
 	return version, nil
 }
@@ -839,12 +837,12 @@ func (a *adapter) uploadDocument(response http.ResponseWriter, request *http.Req
 	start, end, total, rangeOK := parseContentRange(request.Header.Get("Content-Range"))
 	chunkBytes := end - start + 1
 	sha256, chunkSHA256 := request.Header.Get("X-Knowledge-File-SHA256"), request.Header.Get("X-Knowledge-Chunk-SHA256")
-	if !rangeOK || total > agentsdk.KnowledgeDocumentMaximumBytes || chunkBytes < 1 || chunkBytes > agentsdk.KnowledgeDocumentUploadChunkBytes || request.ContentLength != chunkBytes || !validSHA256(sha256) || !validSHA256(chunkSHA256) {
+	if !rangeOK || total > knowledgesdk.KnowledgeDocumentMaximumBytes || chunkBytes < 1 || chunkBytes > knowledgesdk.KnowledgeDocumentUploadChunkBytes || request.ContentLength != chunkBytes || !validSHA256(sha256) || !validSHA256(chunkSHA256) {
 		writeCode(response, http.StatusBadRequest, "knowledge.document_upload_invalid")
 		return
 	}
 	_ = http.NewResponseController(response).SetReadDeadline(time.Now().Add(documentTransferTimeout))
-	result, err := a.service.UploadKnowledgeDocumentChunk(request.Context(), request.PathValue("libraryID"), agentsdk.KnowledgeDocumentUploadChunk{ClientID: request.URL.Query().Get("client_id"), Filename: request.URL.Query().Get("filename"), Bytes: total, SHA256: sha256, Offset: start, ChunkBytes: chunkBytes, ChunkSHA256: chunkSHA256, Content: http.MaxBytesReader(response, request.Body, agentsdk.KnowledgeDocumentUploadChunkBytes)}, authority)
+	result, err := a.service.UploadKnowledgeDocumentChunk(request.Context(), request.PathValue("libraryID"), knowledgesdk.KnowledgeDocumentUploadChunk{ClientID: request.URL.Query().Get("client_id"), Filename: request.URL.Query().Get("filename"), Bytes: total, SHA256: sha256, Offset: start, ChunkBytes: chunkBytes, ChunkSHA256: chunkSHA256, Content: http.MaxBytesReader(response, request.Body, knowledgesdk.KnowledgeDocumentUploadChunkBytes)}, authority)
 	writeResult(response, result, err, http.StatusOK)
 }
 
@@ -892,7 +890,7 @@ func (a *adapter) reviseDocument(response http.ResponseWriter, request *http.Req
 		writeError(response, err)
 		return
 	}
-	var result agentsdk.KnowledgeDocument
+	var result knowledgesdk.KnowledgeDocument
 	switch operation {
 	case "retry":
 		result, err = a.service.RetryKnowledgeDocument(request.Context(), request.PathValue("libraryID"), request.PathValue("documentID"), revision, authority)
@@ -909,24 +907,11 @@ func (a *adapter) transferDocument(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	var input agentsdk.KnowledgeDocumentTransfer
+	var input knowledgesdk.KnowledgeDocumentTransfer
 	if !decodeJSON(response, request, &input) {
 		return
 	}
 	result, err := a.service.TransferKnowledgeDocument(request.Context(), request.PathValue("libraryID"), input, authority)
-	writeResult(response, result, err, http.StatusCreated)
-}
-
-func (a *adapter) importAttachment(response http.ResponseWriter, request *http.Request) {
-	authority, ok := authorityOrWriteError(a, response, request)
-	if !ok {
-		return
-	}
-	var input agentsdk.KnowledgeAttachmentImport
-	if !decodeJSON(response, request, &input) {
-		return
-	}
-	result, err := a.service.ImportConversationAttachment(request.Context(), request.PathValue("libraryID"), input, authority)
 	writeResult(response, result, err, http.StatusCreated)
 }
 
@@ -949,7 +934,7 @@ func (a *adapter) bindSource(response http.ResponseWriter, request *http.Request
 	if !ok {
 		return
 	}
-	var input agentsdk.KnowledgeLibrarySourceWrite
+	var input knowledgesdk.KnowledgeLibrarySourceWrite
 	if !decodeJSON(response, request, &input) {
 		return
 	}
@@ -1006,7 +991,7 @@ func writeResult(response http.ResponseWriter, value any, err error, status int)
 }
 
 func writeError(response http.ResponseWriter, err error) {
-	var coded *agentsdk.Error
+	var coded *knowledgesdk.Error
 	if !errors.As(err, &coded) {
 		writeCode(response, http.StatusServiceUnavailable, "knowledge.unavailable", err)
 		return

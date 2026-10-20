@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func (k *Knowledge) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) ([]agentsdk.KnowledgeDocumentPassage, error) {
+func (k *Knowledge) KnowledgeExtractionPassages(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) ([]agentsdk.KnowledgeDocumentPassage, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -34,4 +34,4 @@ func (k *Knowledge) KnowledgeExtractionPassages(ctx context.Context, saved agent
 	return passages, nil
 }
 
-var _ agentsdk.KnowledgeExtractionContentSource = (*Knowledge)(nil)
+var _ agentsdk.ExtractionContentSource = (*Knowledge)(nil)

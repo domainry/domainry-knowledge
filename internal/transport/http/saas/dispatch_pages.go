@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
@@ -13,12 +13,12 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 	switch operation {
 	case knowledgesdk.ActionPagesList:
 		var input struct {
-			LibraryID       string                         `json:"library_id"`
-			ParentID        string                         `json:"parent_id"`
-			After           string                         `json:"after"`
-			Limit           int                            `json:"limit"`
-			IncludeArchived bool                           `json:"include_archived"`
-			Authority       agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID       string             `json:"library_id"`
+			ParentID        string             `json:"parent_id"`
+			After           string             `json:"after"`
+			Limit           int                `json:"limit"`
+			IncludeArchived bool               `json:"include_archived"`
+			Authority       agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -27,10 +27,10 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPagesGet:
 		var input struct {
-			LibraryID    string                         `json:"library_id"`
-			PageID       string                         `json:"page_id"`
-			IncludeDraft bool                           `json:"include_draft"`
-			Authority    agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID    string             `json:"library_id"`
+			PageID       string             `json:"page_id"`
+			IncludeDraft bool               `json:"include_draft"`
+			Authority    agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -41,7 +41,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		var input struct {
 			LibraryID string                           `json:"library_id"`
 			Input     knowledgesdk.KnowledgePageCreate `json:"input"`
-			Authority agentsdk.ConversationAuthority   `json:"authority"`
+			Authority agentsdk.Authority               `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -53,7 +53,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                               `json:"library_id"`
 			PageID    string                               `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageDraftWrite `json:"input"`
-			Authority agentsdk.ConversationAuthority       `json:"authority"`
+			Authority agentsdk.Authority                   `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -65,7 +65,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                         `json:"library_id"`
 			PageID    string                         `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageMove `json:"input"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Authority agentsdk.Authority             `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -77,7 +77,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                `json:"library_id"`
 			PageID    string                                `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageMovePreview `json:"input"`
-			Authority agentsdk.ConversationAuthority        `json:"authority"`
+			Authority agentsdk.Authority                    `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -88,7 +88,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		var input struct {
 			LibraryID string                            `json:"library_id"`
 			Input     knowledgesdk.KnowledgePageReorder `json:"input"`
-			Authority agentsdk.ConversationAuthority    `json:"authority"`
+			Authority agentsdk.Authority                `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -100,7 +100,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                         `json:"library_id"`
 			PageID    string                         `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageCopy `json:"input"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Authority agentsdk.Authority             `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -112,7 +112,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                               `json:"library_id"`
 			PageID    string                               `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageStateWrite `json:"input"`
-			Authority agentsdk.ConversationAuthority       `json:"authority"`
+			Authority agentsdk.Authority                   `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -124,7 +124,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                            `json:"library_id"`
 			PageID    string                            `json:"page_id"`
 			Input     knowledgesdk.KnowledgePagePublish `json:"input"`
-			Authority agentsdk.ConversationAuthority    `json:"authority"`
+			Authority agentsdk.Authority                `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -133,9 +133,9 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageAccessGet:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			PageID    string                         `json:"page_id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			PageID    string             `json:"page_id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -147,7 +147,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                `json:"library_id"`
 			PageID    string                                `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageAccessWrite `json:"input"`
-			Authority agentsdk.ConversationAuthority        `json:"authority"`
+			Authority agentsdk.Authority                    `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -159,7 +159,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                     `json:"library_id"`
 			PageID    string                                     `json:"page_id"`
 			Input     knowledgesdk.KnowledgeCollaborationConnect `json:"input"`
-			Authority agentsdk.ConversationAuthority             `json:"authority"`
+			Authority agentsdk.Authority                         `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -171,7 +171,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                  `json:"library_id"`
 			PageID    string                                  `json:"page_id"`
 			Input     knowledgesdk.KnowledgeCollaborationSync `json:"input"`
-			Authority agentsdk.ConversationAuthority          `json:"authority"`
+			Authority agentsdk.Authority                      `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -180,10 +180,10 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageCollaborationClose:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			PageID    string                         `json:"page_id"`
-			SessionID string                         `json:"session_id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			PageID    string             `json:"page_id"`
+			SessionID string             `json:"session_id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -195,7 +195,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                     `json:"library_id"`
 			PageID    string                                     `json:"page_id"`
 			Input     knowledgesdk.KnowledgeCollaborationPublish `json:"input"`
-			Authority agentsdk.ConversationAuthority             `json:"authority"`
+			Authority agentsdk.Authority                         `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -204,11 +204,11 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageVersionsList:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			PageID    string                         `json:"page_id"`
-			Before    int64                          `json:"before"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			PageID    string             `json:"page_id"`
+			Before    int64              `json:"before"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -217,10 +217,10 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageVersionsGet:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			PageID    string                         `json:"page_id"`
-			Version   int64                          `json:"version"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			PageID    string             `json:"page_id"`
+			Version   int64              `json:"version"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -232,7 +232,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                     `json:"library_id"`
 			PageID    string                                     `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageVersionDiffInput `json:"input"`
-			Authority agentsdk.ConversationAuthority             `json:"authority"`
+			Authority agentsdk.Authority                         `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -245,7 +245,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID    string                                   `json:"page_id"`
 			Version   int64                                    `json:"version"`
 			Input     knowledgesdk.KnowledgePageRestoreVersion `json:"input"`
-			Authority agentsdk.ConversationAuthority           `json:"authority"`
+			Authority agentsdk.Authority                       `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -254,12 +254,12 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageCommentsList:
 		var input struct {
-			LibraryID      string                         `json:"library_id"`
-			PageID         string                         `json:"page_id"`
-			After          string                         `json:"after"`
-			Limit          int                            `json:"limit"`
-			UnresolvedOnly bool                           `json:"unresolved_only"`
-			Authority      agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID      string             `json:"library_id"`
+			PageID         string             `json:"page_id"`
+			After          string             `json:"after"`
+			Limit          int                `json:"limit"`
+			UnresolvedOnly bool               `json:"unresolved_only"`
+			Authority      agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -271,7 +271,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			LibraryID string                                  `json:"library_id"`
 			PageID    string                                  `json:"page_id"`
 			Input     knowledgesdk.KnowledgePageCommentCreate `json:"input"`
-			Authority agentsdk.ConversationAuthority          `json:"authority"`
+			Authority agentsdk.Authority                      `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -284,7 +284,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID    string                                  `json:"page_id"`
 			CommentID string                                  `json:"comment_id"`
 			Input     knowledgesdk.KnowledgePageCommentUpdate `json:"input"`
-			Authority agentsdk.ConversationAuthority          `json:"authority"`
+			Authority agentsdk.Authority                      `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -297,7 +297,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID    string                                   `json:"page_id"`
 			CommentID string                                   `json:"comment_id"`
 			Input     knowledgesdk.KnowledgePageCommentResolve `json:"input"`
-			Authority agentsdk.ConversationAuthority           `json:"authority"`
+			Authority agentsdk.Authority                       `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -310,7 +310,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID    string                                  `json:"page_id"`
 			CommentID string                                  `json:"comment_id"`
 			Input     knowledgesdk.KnowledgePageCommentDelete `json:"input"`
-			Authority agentsdk.ConversationAuthority          `json:"authority"`
+			Authority agentsdk.Authority                      `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -319,9 +319,9 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPageAttachmentsList:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			PageID    string                         `json:"page_id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			PageID    string             `json:"page_id"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -334,7 +334,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID     string                                    `json:"page_id"`
 			DocumentID string                                    `json:"document_id"`
 			Input      knowledgesdk.KnowledgePageAttachmentWrite `json:"input"`
-			Authority  agentsdk.ConversationAuthority            `json:"authority"`
+			Authority  agentsdk.Authority                        `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -347,7 +347,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 			PageID     string                                     `json:"page_id"`
 			DocumentID string                                     `json:"document_id"`
 			Input      knowledgesdk.KnowledgePageAttachmentRemove `json:"input"`
-			Authority  agentsdk.ConversationAuthority             `json:"authority"`
+			Authority  agentsdk.Authority                         `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -356,10 +356,10 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return struct{}{}, err, true
 	case knowledgesdk.ActionPrincipalsSearch:
 		var input struct {
-			Query     string                         `json:"query"`
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			Query     string             `json:"query"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -368,8 +368,8 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionPrincipalsResolve:
 		var input struct {
-			UserIDs   []string                       `json:"user_ids"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			UserIDs   []string           `json:"user_ids"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -378,11 +378,11 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		return value, err, true
 	case knowledgesdk.ActionLibraryMembersSearch:
 		var input struct {
-			LibraryID string                         `json:"library_id"`
-			Query     string                         `json:"query"`
-			After     string                         `json:"after"`
-			Limit     int                            `json:"limit"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
+			LibraryID string             `json:"library_id"`
+			Query     string             `json:"query"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true
@@ -393,7 +393,7 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		var input struct {
 			LibraryID string                                     `json:"library_id"`
 			Input     knowledgesdk.KnowledgeAccessExplainRequest `json:"input"`
-			Authority agentsdk.ConversationAuthority             `json:"authority"`
+			Authority agentsdk.Authority                         `json:"authority"`
 		}
 		if err := decodeInput(raw, &input); err != nil {
 			return nil, err, true

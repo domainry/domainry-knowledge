@@ -5,11 +5,11 @@ import (
 	"strconv"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-func (s *Service) appendKnowledgeAudit(ctx context.Context, action, eventType, libraryID, pageID, resourceID, clientID string, version int64, before, after map[string]string, authority agentsdk.ConversationAuthority) {
+func (s *Service) appendKnowledgeAudit(ctx context.Context, action, eventType, libraryID, pageID, resourceID, clientID string, version int64, before, after map[string]string, authority agentsdk.Authority) {
 	if s.options.AuditAppender == nil {
 		return
 	}
@@ -27,7 +27,7 @@ func (s *Service) appendKnowledgeAudit(ctx context.Context, action, eventType, l
 	_ = s.options.AuditAppender.AppendKnowledgeAudit(writeContext, event)
 }
 
-func (s *Service) publishKnowledgeMentions(ctx context.Context, comment knowledgesdk.KnowledgePageComment, authority agentsdk.ConversationAuthority) {
+func (s *Service) publishKnowledgeMentions(ctx context.Context, comment knowledgesdk.KnowledgePageComment, authority agentsdk.Authority) {
 	if s.options.CollaborationPublisher == nil || len(comment.MentionedUserIDs) == 0 {
 		return
 	}

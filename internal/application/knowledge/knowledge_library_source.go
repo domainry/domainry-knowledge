@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
-	"github.com/domainry/domainry-knowledge-sdk/contract"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/persistence"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/contract"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 )
 
 // Bindings are trusted host configuration, never browser or model input. Each
@@ -41,22 +41,17 @@ type LibraryKnowledgeSource struct {
 	policy        agentsdk.KnowledgeLibraryAuthorizer
 	sourcePolicy  agentsdk.KnowledgeDocumentSourceAuthorizer
 	bindings      map[string]LibraryKnowledgeBinding
-	defaultSource ConversationKnowledge
+	defaultSource contract.Knowledge
 	runtimeID     string
 	documents     persistence.KnowledgeDocumentRepository
 	catalog       agentsdk.KnowledgeDatasourceCatalog
 	datasources   persistence.KnowledgeDatasourceRepository
 }
 
-func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, defaultSource ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
+func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, defaultSource contract.Knowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
 	libraries, ok := repo.(persistence.KnowledgeLibraryRepository)
 	if !ok || policy == nil || len(bindings) == 0 && catalog == nil || len(bindings) > 1000 {
 		return nil, fmt.Errorf("library retrieval requires library persistence, live authorization and at most 1000 host bindings")
-	}
-	if defaultSource != nil {
-		if _, ok := defaultSource.(agentsdk.ConversationKnowledgeSource); !ok {
-			return nil, fmt.Errorf("default knowledge source must support revalidation")
-		}
 	}
 	out := &LibraryKnowledgeSource{repo: libraries, policy: policy, sourcePolicy: sourcePolicy, bindings: map[string]LibraryKnowledgeBinding{}, defaultSource: defaultSource, runtimeID: runtimeID}
 	out.documents, _ = repo.(persistence.KnowledgeDocumentRepository)
@@ -83,11 +78,11 @@ func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.Knowl
 	}
 	return out, nil
 }
-func (k *LibraryKnowledgeSource) Configured(ctx context.Context, id string, a agentsdk.ConversationAuthority) (bool, error) {
+func (k *LibraryKnowledgeSource) Configured(ctx context.Context, id string, a agentsdk.Authority) (bool, error) {
 	_, ok, err := k.Binding(ctx, id, a)
 	return ok, err
 }
-func (k *LibraryKnowledgeSource) Binding(ctx context.Context, id string, a agentsdk.ConversationAuthority) (LibraryKnowledgeBinding, bool, error) {
+func (k *LibraryKnowledgeSource) Binding(ctx context.Context, id string, a agentsdk.Authority) (LibraryKnowledgeBinding, bool, error) {
 	if a.RuntimeID != k.runtimeID {
 		return LibraryKnowledgeBinding{}, false, nil
 	}
@@ -112,7 +107,7 @@ func (k *LibraryKnowledgeSource) Binding(ctx context.Context, id string, a agent
 	}
 	return LibraryKnowledgeBinding{WorkspaceID: a.WorkspaceID, LibraryID: id, Source: source, ManageDocuments: true}, true, nil
 }
-func (k *LibraryKnowledgeSource) Access(ctx context.Context, id string, a agentsdk.ConversationAuthority) (LibraryKnowledgeBinding, error) {
+func (k *LibraryKnowledgeSource) Access(ctx context.Context, id string, a agentsdk.Authority) (LibraryKnowledgeBinding, error) {
 	if !a.Known || a.RuntimeID != k.runtimeID {
 		return LibraryKnowledgeBinding{}, conversationFailure("forbidden", "knowledge_access_denied")
 	}
@@ -142,102 +137,96 @@ func LibraryKnowledgeAccessError(err error) error {
 	}
 	return err
 }
-func (k *LibraryKnowledgeSource) Search(ctx context.Context, q string, a agentsdk.ConversationAuthority) (json.RawMessage, error) {
+func (k *LibraryKnowledgeSource) SearchKnowledge(ctx context.Context, q string, a agentsdk.Authority) (agentsdk.Result, error) {
 	if k.defaultSource == nil {
-		return nil, conversationFailure("bad_request", "knowledge_library_required")
+		return agentsdk.Result{}, conversationFailure("bad_request", "knowledge_library_required")
 	}
-	return k.defaultSource.Search(ctx, q, a)
+	return k.defaultSource.SearchKnowledge(ctx, q, a)
 }
-func (k *LibraryKnowledgeSource) SearchKnowledge(ctx context.Context, q string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+func (k *LibraryKnowledgeSource) ReadKnowledge(ctx context.Context, id string, a agentsdk.Authority) (agentsdk.Result, error) {
 	if k.defaultSource == nil {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("bad_request", "knowledge_library_required")
+		return agentsdk.Result{}, conversationFailure("bad_request", "knowledge_library_required")
 	}
-	return k.defaultSource.(agentsdk.ConversationKnowledgeSource).SearchKnowledge(ctx, q, a)
+	return k.defaultSource.ReadKnowledge(ctx, id, a)
 }
-func (k *LibraryKnowledgeSource) ReadKnowledge(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
-	if k.defaultSource == nil {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("bad_request", "knowledge_library_required")
-	}
-	return k.defaultSource.(agentsdk.ConversationKnowledgeSource).ReadKnowledge(ctx, id, a)
-}
-func (k *LibraryKnowledgeSource) SearchLibraryKnowledge(ctx context.Context, id, q string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+func (k *LibraryKnowledgeSource) SearchLibraryKnowledge(ctx context.Context, id, q string, a agentsdk.Authority) (agentsdk.Result, error) {
 	Binding, err := k.Access(ctx, id, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	source, managed, err := k.ManagedSource(ctx, Binding, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	if managed {
 		return k.ManagedKnowledge(ctx, Binding, source, "search", q, "", a)
 	}
 	evidence, err := Binding.Source.SearchKnowledge(ctx, q, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	if evidence.Operation != "search" || evidence.Query != q || evidence.DocumentID != "" {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
+		return agentsdk.Result{}, conversationFailure("unavailable", "knowledge_response_invalid")
 	}
 	return k.Wrap(ctx, id, evidence, a)
 }
-func (k *LibraryKnowledgeSource) ReadLibraryKnowledge(ctx context.Context, id, doc string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+func (k *LibraryKnowledgeSource) ReadLibraryKnowledge(ctx context.Context, id, doc string, a agentsdk.Authority) (agentsdk.Result, error) {
 	Binding, err := k.Access(ctx, id, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	source, managed, err := k.ManagedSource(ctx, Binding, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	if managed {
 		return k.ManagedKnowledge(ctx, Binding, source, "fetch", "", doc, a)
 	}
 	evidence, err := Binding.Source.ReadKnowledge(ctx, doc, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	if evidence.Operation != "fetch" || evidence.DocumentID != doc || evidence.Query != "" {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
+		return agentsdk.Result{}, conversationFailure("unavailable", "knowledge_response_invalid")
 	}
 	return k.Wrap(ctx, id, evidence, a)
 }
-func (k *LibraryKnowledgeSource) Wrap(ctx context.Context, id string, evidence agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+func (k *LibraryKnowledgeSource) Wrap(ctx context.Context, id string, evidence agentsdk.Result, a agentsdk.Authority) (agentsdk.Result, error) {
 	Binding, err := k.Access(ctx, id, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(err)
+		return agentsdk.Result{}, liveKnowledgeResultAuthorization(err)
 	}
 	if _, managed, err := k.ManagedSource(ctx, Binding, a); err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(err)
+		return agentsdk.Result{}, liveKnowledgeResultAuthorization(err)
 	} else if managed {
-		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(conversationFailure("conflict", "knowledge_source_changed"))
+		return agentsdk.Result{}, liveKnowledgeResultAuthorization(conversationFailure("conflict", "knowledge_source_changed"))
 	}
 	if evidence.LibraryID != "" {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
+		return agentsdk.Result{}, conversationFailure("unavailable", "knowledge_response_invalid")
 	}
 	evidence.LibraryID = id
-	evidence.Citations = append([]agentsdk.ConversationCitation(nil), evidence.Citations...)
+	evidence.Citations = append([]agentsdk.Citation(nil), evidence.Citations...)
 	for i := range evidence.Citations {
 		if evidence.Citations[i].LibraryID != "" {
-			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
+			return agentsdk.Result{}, conversationFailure("unavailable", "knowledge_response_invalid")
 		}
 		evidence.Citations[i].LibraryID = id
 	}
 	return evidence, nil
 }
-func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
+func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.Authority) (agentsdk.Result, error) {
 	if !a.Known || a.RuntimeID != k.runtimeID {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("forbidden", "knowledge_access_denied")
+		return agentsdk.Result{}, conversationFailure("forbidden", "knowledge_access_denied")
 	}
 	page, err := k.repo.KnowledgeLibraries(ctx, after, limit, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	items := []agentsdk.KnowledgeLibrary{}
 	for _, item := range page.Items {
 		Configured, err := k.Configured(ctx, item.ID, a)
 		if err != nil {
-			return agentsdk.ConversationKnowledgeResult{}, err
+			return agentsdk.Result{}, err
 		}
 		if !Configured || item.Archived {
 			continue
@@ -248,7 +237,7 @@ func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, aft
 			if errors.As(err, &coded) && coded.Class == "forbidden" {
 				continue
 			}
-			return agentsdk.ConversationKnowledgeResult{}, err
+			return agentsdk.Result{}, err
 		}
 		item.KnowledgeConfigured = true
 		items = append(items, item)
@@ -256,7 +245,7 @@ func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, aft
 	page.Items = items
 	data, err := json.Marshal(page)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.Result{}, err
 	}
 	for len(data) > 48*1024 && len(page.Items) > 1 {
 		page.Items = page.Items[:len(page.Items)-1]
@@ -264,16 +253,16 @@ func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, aft
 		page.NextAfter = page.Items[len(page.Items)-1].ID
 		data, err = json.Marshal(page)
 		if err != nil {
-			return agentsdk.ConversationKnowledgeResult{}, err
+			return agentsdk.Result{}, err
 		}
 	}
 	query, _ := json.Marshal(struct {
 		After string `json:"after"`
 		Limit int    `json:"limit"`
 	}{after, limit})
-	return agentsdk.ConversationKnowledgeResult{Provider: "agent_libraries", Operation: "libraries", Query: string(query), ScopeSHA256: k.CatalogScope(data, a), Data: data}, nil
+	return agentsdk.Result{Provider: "agent_libraries", Operation: "libraries", Query: string(query), ScopeSHA256: k.CatalogScope(data, a), Data: data}, nil
 }
-func (k *LibraryKnowledgeSource) CatalogScope(data []byte, a agentsdk.ConversationAuthority) string {
+func (k *LibraryKnowledgeSource) CatalogScope(data []byte, a agentsdk.Authority) string {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	var value any
@@ -282,17 +271,12 @@ func (k *LibraryKnowledgeSource) CatalogScope(data []byte, a agentsdk.Conversati
 	}
 	return conversationDigest([]any{k.runtimeID, a.WorkspaceID, a.UserID, value})
 }
-func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) error {
-	return k.revalidateKnowledge(ctx, saved, a, false)
+func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) error {
+	return k.revalidateKnowledge(ctx, saved, a)
 }
 
-func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority, resultRead bool) error {
+func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved agentsdk.Result, a agentsdk.Authority) error {
 	if saved.Operation == "libraries" {
-		if resultRead {
-			if err := k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, a); err != nil {
-				return err
-			}
-		}
 		var args struct {
 			After string `json:"after"`
 			Limit int    `json:"limit"`
@@ -320,19 +304,13 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 		// This is a historical catalog snapshot. Renaming a library, adding
 		// unrelated members or restoring a reader must not rewrite that snapshot
 		// or prevent resuming it when every referenced library is readable again.
-		if resultRead {
-			return k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, a)
-		}
 		return nil
 	}
 	if saved.LibraryID == "" {
 		if k.defaultSource == nil {
 			return conversationFailure("forbidden", "knowledge_access_denied")
 		}
-		if resultRead {
-			return agentsdk.AuthorizeKnowledgeResultRead(ctx, k.defaultSource, saved, a)
-		}
-		return k.defaultSource.(agentsdk.ConversationKnowledgeSource).RevalidateKnowledge(ctx, saved, a)
+		return k.defaultSource.RevalidateKnowledge(ctx, saved, a)
 	}
 	Binding, err := k.Access(ctx, saved.LibraryID, a)
 	if err != nil {
@@ -343,17 +321,6 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 		return err
 	}
 	if managed {
-		if resultRead {
-			// Current original-file read access permits this historical passage
-			// projection, without granting search/extraction execution rights.
-			if err = k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, a); err != nil {
-				return err
-			}
-			if err = k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a); err != nil {
-				return err
-			}
-			return k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, a)
-		}
 		return k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a)
 	}
 	if saved.Provider == ManagedKnowledgeProvider {
@@ -361,18 +328,14 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 	}
 	inner := saved
 	inner.LibraryID = ""
-	inner.Citations = append([]agentsdk.ConversationCitation(nil), saved.Citations...)
+	inner.Citations = append([]agentsdk.Citation(nil), saved.Citations...)
 	for i := range inner.Citations {
 		if inner.Citations[i].LibraryID != saved.LibraryID {
 			return conversationFailure("unavailable", "knowledge_response_invalid")
 		}
 		inner.Citations[i].LibraryID = ""
 	}
-	if resultRead {
-		err = agentsdk.AuthorizeKnowledgeResultRead(ctx, Binding.Source, inner, a)
-	} else {
-		err = Binding.Source.RevalidateKnowledge(ctx, inner, a)
-	}
+	err = Binding.Source.RevalidateKnowledge(ctx, inner, a)
 	if err != nil {
 		return err
 	}
@@ -389,4 +352,4 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 	return nil
 }
 
-var _ agentsdk.ConversationLibraryKnowledgeSource = (*LibraryKnowledgeSource)(nil)
+var _ contract.Knowledge = (*LibraryKnowledgeSource)(nil)

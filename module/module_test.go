@@ -7,12 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
-	"github.com/domainry/domainry-agent-sdk/modulehost"
-	"github.com/domainry/domainry-agent-sdk/persistence"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
 	"github.com/domainry/domainry-foundation/schemaownership"
-	sharedsubjectlifecycle "github.com/domainry/domainry-foundation/subjectlifecycle"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/modulehost"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
 )
@@ -68,16 +67,15 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	if err := EnsureSchema(t.Context(), backend, sharedRegistrar); err != nil {
 		t.Fatal(err)
 	}
-	wantOwners := sharedoperation.MigrationOwner + "," + sharedsubjectlifecycle.MigrationOwner + "," + MigrationOwner
+	wantOwners := sharedoperation.MigrationOwner + "," + MigrationOwner
 	if strings.Join(sharedRegistrar.owners, ",") != wantOwners+","+wantOwners {
 		t.Fatalf("migration owner calls=%v", sharedRegistrar.owners)
 	}
 	for _, table := range []string{
 		"_knowledge_libraries", "_knowledge_library_members",
 		"_knowledge_documents", "_knowledge_sources",
-		"_knowledge_document_jobs", "_knowledge_attachment_index_jobs",
+		"_knowledge_document_jobs",
 		sharedoperation.TableName,
-		sharedsubjectlifecycle.RequestTableName, sharedsubjectlifecycle.StepTableName,
 	} {
 		var count int
 		if err := sharedDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&count); err != nil || count != 1 {
@@ -90,9 +88,9 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 			t.Fatalf("retired table %s count=%d err=%v", retired, count, err)
 		}
 	}
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
-	first := NewStore(backend, nil, ArtifactPersistence{})
-	second := NewStore(backend, nil, ArtifactPersistence{})
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	first := NewStore(backend)
+	second := NewStore(backend)
 	library, err := first.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "shared", Kind: "personal", Name: "Shared physical row"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -108,7 +106,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	if err = EnsureSchema(t.Context(), standaloneBackend, standaloneRegistrar); err != nil {
 		t.Fatal(err)
 	}
-	standalone := NewStore(standaloneBackend, nil, ArtifactPersistence{})
+	standalone := NewStore(standaloneBackend)
 	if _, readErr := standalone.KnowledgeLibrary(t.Context(), library.ID, authority); readErr == nil {
 		t.Fatal("standalone database leaked the Module database library")
 	}
@@ -122,7 +120,7 @@ func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
 	if err := schemaownership.ValidateAll(tables); err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) != 19 || len(OwnedTables()) != len(tables) {
+	if len(tables) != 16 || len(OwnedTables()) != len(tables) {
 		t.Fatalf("Knowledge ownership=%+v names=%v", tables, OwnedTables())
 	}
 	database, dialect := openDatabase(t, "knowledge-ownership")
@@ -158,8 +156,8 @@ func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
 	if err := EnsureSchema(t.Context(), backend, &registrar{database: database}); err != nil {
 		t.Fatal(err)
 	}
-	store := NewStore(backend, nil, ArtifactPersistence{})
-	authority := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	store := NewStore(backend)
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 	documentLibrary, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "document", Kind: "shared", Name: "Document source"}, authority)
 	if err != nil {
 		t.Fatal(err)
@@ -180,11 +178,6 @@ func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
 	if _, err = store.BindKnowledgeDatasource(t.Context(), datasourceLibrary.ID, persistence.KnowledgeDatasourceAssignment{DatasourceKey: "approved", SourceID: datasourceSource, AccessPolicySHA256: strings.Repeat("c", 64), ExpectedRevision: datasourceLibrary.Revision}, authority); err != nil {
 		t.Fatal(err)
 	}
-	attachmentSource := strings.Repeat("d", 64)
-	if err = store.ActivateAttachmentKnowledgeSource(t.Context(), authority.RuntimeID, authority.WorkspaceID, attachmentSource); err != nil {
-		t.Fatal(err)
-	}
-
 	rows, err := database.QueryContext(t.Context(), `SELECT source_kind, source_key FROM _knowledge_sources ORDER BY source_kind`)
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +194,7 @@ func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"document": documentSource, "datasource": datasourceSource, "attachment": attachmentSource}
+	want := map[string]string{"document": documentSource, "datasource": datasourceSource}
 	if len(got) != len(want) {
 		t.Fatalf("source registry rows=%v", got)
 	}

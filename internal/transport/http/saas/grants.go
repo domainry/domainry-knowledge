@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
@@ -82,79 +82,26 @@ func challengeResponse(secret []byte, operation string, err error) *knowledgecon
 	return &knowledgecontract.SaaSChallenge{Token: challengeToken(secret, operation, challenge.kind, challenge.input), Kind: challenge.kind, Input: challenge.input}
 }
 
-// GrantBridge turns process-local Agent callbacks into bounded request/reply
-// challenges. The Knowledge process never receives an Agent repository.
+// GrantBridge turns process-local Knowledge authorization callbacks into
+// bounded request/reply challenges for the remote module client.
 type GrantBridge struct{}
 
-func (GrantBridge) AuthorizeConversationAttachment(ctx context.Context, action string, authority agentsdk.ConversationAuthority) error {
-	return challengeFor(ctx, "authorize.attachment", struct {
-		Action    string                         `json:"action"`
-		Authority agentsdk.ConversationAuthority `json:"authority"`
-	}{action, authority}, nil)
-}
-func (GrantBridge) ResolveConversationAttachmentPermissions(ctx context.Context, authority agentsdk.ConversationAuthority) (agentsdk.ConversationAttachmentPermissionScope, error) {
-	var output agentsdk.ConversationAttachmentPermissionScope
-	err := challengeFor(ctx, "resolve.attachment_permissions", struct {
-		Authority agentsdk.ConversationAuthority `json:"authority"`
-	}{authority}, &output)
-	return output, err
-}
-func (GrantBridge) AuthorizeKnowledgeLibrary(ctx context.Context, operation string, item agentsdk.KnowledgeLibrary, authority agentsdk.ConversationAuthority) error {
+func (GrantBridge) AuthorizeKnowledgeLibrary(ctx context.Context, operation string, item agentsdk.KnowledgeLibrary, authority agentsdk.Authority) error {
 	return challengeFor(ctx, "authorize.library", struct {
-		Operation string                         `json:"operation"`
-		Item      agentsdk.KnowledgeLibrary      `json:"item"`
-		Authority agentsdk.ConversationAuthority `json:"authority"`
+		Operation string                    `json:"operation"`
+		Item      agentsdk.KnowledgeLibrary `json:"item"`
+		Authority agentsdk.Authority        `json:"authority"`
 	}{operation, item, authority}, nil)
 }
-func (GrantBridge) ValidateKnowledgeLibraryMember(ctx context.Context, user string, authority agentsdk.ConversationAuthority) error {
+func (GrantBridge) ValidateKnowledgeLibraryMember(ctx context.Context, user string, authority agentsdk.Authority) error {
 	return challengeFor(ctx, "authorize.library_member", struct {
-		User      string                         `json:"user"`
-		Authority agentsdk.ConversationAuthority `json:"authority"`
+		User      string             `json:"user"`
+		Authority agentsdk.Authority `json:"authority"`
 	}{user, authority}, nil)
 }
-func (GrantBridge) AuthorizeKnowledgeDocumentSource(ctx context.Context, source agentsdk.KnowledgeDocumentSourceAccess, authority agentsdk.ConversationAuthority) error {
+func (GrantBridge) AuthorizeKnowledgeDocumentSource(ctx context.Context, source agentsdk.KnowledgeDocumentSourceAccess, authority agentsdk.Authority) error {
 	return challengeFor(ctx, "authorize.document_source", struct {
 		Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
-		Authority agentsdk.ConversationAuthority         `json:"authority"`
+		Authority agentsdk.Authority                     `json:"authority"`
 	}{source, authority}, nil)
-}
-func (GrantBridge) AuthorizeConversationTool(ctx context.Context, input agentsdk.ConversationToolRequest) (agentsdk.ConversationToolAuthorization, error) {
-	var output agentsdk.ConversationToolAuthorization
-	err := challengeFor(ctx, "authorize.personal", input, &output)
-	return output, err
-}
-func (GrantBridge) CheckSources(ctx context.Context, authority agentsdk.ConversationAuthority, consumer string, sources *agentsdk.ConversationSources) ([]agentsdk.ConversationRunReference, error) {
-	var output []agentsdk.ConversationRunReference
-	err := challengeFor(ctx, "sources.check", struct {
-		Consumer  string                         `json:"consumer"`
-		Sources   *agentsdk.ConversationSources  `json:"sources"`
-		Authority agentsdk.ConversationAuthority `json:"authority"`
-	}{consumer, sources, authority}, &output)
-	return output, err
-}
-func (GrantBridge) CheckRun(ctx context.Context, authority agentsdk.ConversationAuthority, consumer string, ref agentsdk.ConversationRunReference) ([]agentsdk.ConversationRunReference, error) {
-	var output []agentsdk.ConversationRunReference
-	err := challengeFor(ctx, "sources.run", struct {
-		Consumer  string                            `json:"consumer"`
-		Ref       agentsdk.ConversationRunReference `json:"ref"`
-		Authority agentsdk.ConversationAuthority    `json:"authority"`
-	}{consumer, ref, authority}, &output)
-	return output, err
-}
-func (GrantBridge) Conversation(ctx context.Context, id string, authority agentsdk.ConversationAuthority) (agentsdk.Conversation, error) {
-	var output agentsdk.Conversation
-	err := challengeFor(ctx, "context.conversation", struct {
-		ConversationID string                         `json:"conversation_id"`
-		Authority      agentsdk.ConversationAuthority `json:"authority"`
-	}{id, authority}, &output)
-	return output, err
-}
-func (GrantBridge) Run(ctx context.Context, conversationID, runID string, authority agentsdk.ConversationAuthority) (agentsdk.ConversationRun, error) {
-	var output agentsdk.ConversationRun
-	err := challengeFor(ctx, "context.run", struct {
-		ConversationID string                         `json:"conversation_id"`
-		RunID          string                         `json:"run_id"`
-		Authority      agentsdk.ConversationAuthority `json:"authority"`
-	}{conversationID, runID, authority}, &output)
-	return output, err
 }

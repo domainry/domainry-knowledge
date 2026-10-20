@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	agentsdk "github.com/domainry/domainry-agent-sdk"
+	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func TestPrivateFilesImmutableOwnerIsolationAndDeletionFence(t *testing.T) {
@@ -25,7 +25,7 @@ func TestPrivateFilesImmutableOwnerIsolationAndDeletionFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
 	id, raw := "att_"+strings.Repeat("a", 32), []byte("original file\x00with binary bytes")
 	ref, err := first.PutAttachmentContent(t.Context(), id, hash(raw), raw, a)
 	if err != nil {
@@ -35,7 +35,7 @@ func TestPrivateFilesImmutableOwnerIsolationAndDeletionFence(t *testing.T) {
 	if _, err := second.PutAttachmentContent(t.Context(), id, hash(otherContent), otherContent, a); err == nil {
 		t.Fatal("overwrote immutable content")
 	}
-	for _, other := range []agentsdk.ConversationAuthority{{Known: true, RuntimeID: "other", WorkspaceID: a.WorkspaceID, UserID: a.UserID}, {Known: true, RuntimeID: a.RuntimeID, WorkspaceID: "other", UserID: a.UserID}, {Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: "other"}} {
+	for _, other := range []agentsdk.Authority{{Known: true, RuntimeID: "other", WorkspaceID: a.WorkspaceID, UserID: a.UserID}, {Known: true, RuntimeID: a.RuntimeID, WorkspaceID: "other", UserID: a.UserID}, {Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: "other"}} {
 		if _, err := second.ReadAttachmentContent(t.Context(), id, ref, other); err == nil {
 			t.Fatal("cross-owner bytes")
 		}
@@ -99,7 +99,7 @@ func TestFilesLockCancellationAndUnsafeStorageRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer files.Close()
-	a := agentsdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
+	a := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "user"}
 	id := "att_" + strings.Repeat("b", 32)
 	root, err := files.owner(a)
 	if err != nil {
