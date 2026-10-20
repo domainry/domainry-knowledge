@@ -82,6 +82,36 @@ var schemaOwnership = []schemaownership.Table{
 		DeletionPolicy:   "successful projection or terminal archival removes the intent; library deletion and subject erasure fence and remove active work",
 	},
 	{
+		Name: knowledgePageAccessTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "page_id"},
+		BoundedQueryPath: "knowledge scope/page access identity with revision compare-and-set",
+		DeletionPolicy:   "page or library deletion and subject erasure remove the access policy after collaboration sessions are fenced",
+	},
+	{
+		Name: knowledgePageGrantTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "page_id", "user_id", "grant_scope"},
+		BoundedQueryPath: "knowledge scope/page/user/grant identity and bounded user grant index",
+		DeletionPolicy:   "grant revocation, page or library deletion and subject erasure physically remove the relation",
+	},
+	{
+		Name: knowledgePageCollaborationSessionTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionTechnicalTTL, PrimaryKey: []string{"scope_key", "session_id"},
+		BoundedQueryPath: "knowledge scope/session identity and bounded page/state/lease session index",
+		DeletionPolicy:   "closed or expired sessions are removed; page/library deletion and subject erasure fence and remove active sessions",
+	},
+	{
+		Name: knowledgePageCollaborationUpdateTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "page_id", "clock"},
+		BoundedQueryPath: "knowledge scope/page/clock identity and bounded collaboration update replay",
+		DeletionPolicy:   "compaction removes acknowledged updates; page/library deletion and subject erasure remove remaining update content",
+	},
+	{
+		Name: knowledgePageCollaborationSnapshotTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "page_id"},
+		BoundedQueryPath: "knowledge scope/page current collaboration snapshot identity",
+		DeletionPolicy:   "new compaction replaces the snapshot; page/library deletion and subject erasure remove snapshot content",
+	},
+	{
 		Name: knowledgeSourceTable, Owner: MigrationOwner, WorkspaceScope: schemaownership.ScopeExplicitMixed,
 		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"scope_key", "binding_key"},
 		BoundedQueryPath: "knowledge scope/binding identity and globally unique source-key lookup across document, datasource and attachment kinds",
