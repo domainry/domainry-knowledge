@@ -18,7 +18,7 @@ func (s *Store) RequestAttachmentIndexCheck(ctx context.Context, conversation, i
 		if e != nil {
 			return e
 		}
-		out, e = s.CompatAttachment(ctx, tx, id, a)
+		out, e = s.attachmentRecord(ctx, tx, id, a)
 		if e != nil {
 			return e
 		}
@@ -41,7 +41,7 @@ func (s *Store) RequestAttachmentIndexCheck(ctx context.Context, conversation, i
 			return conversationError("conflict", "revision_conflict")
 		}
 		var lease persistence.ConversationAttachmentIndexLease
-		found, e := s.executionRead(ctx, tx, CompatAttachmentIndexJobTable, CompatAttachmentScope(a, id), &lease)
+		found, e := s.executionRead(ctx, tx, attachmentIndexJobTable, attachmentScope(a, id), &lease)
 		if e != nil {
 			return e
 		}
@@ -54,12 +54,12 @@ func (s *Store) RequestAttachmentIndexCheck(ctx context.Context, conversation, i
 			// An active attempt retains its identity and every fencing check.
 			out.Index.Actor = a
 			lease.Authority = a
-			q, args, e := query.NewUpdateBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Set("not_before", 0).Set("payload_json", conversationJSON(lease)).Where(query.And(CompatAttachmentScope(a, id), query.Equal("fence", lease.Token))).Build()
+			q, args, e := query.NewUpdateBuilder(s.store.Renderer(), attachmentIndexJobTable).Set("not_before", 0).Set("payload_json", conversationJSON(lease)).Where(query.And(attachmentScope(a, id), query.Equal("fence", lease.Token))).Build()
 			if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 				return e
 			}
 		}
-		return s.CompatSaveAttachmentIndex(ctx, tx, &out, a)
+		return s.saveAttachmentIndex(ctx, tx, &out, a)
 	})
 	return
 }

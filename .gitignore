@@ -8,4 +8,6 @@ go.work.sum
 node_modules/
 bin/
 dist/
+!frontend/dist/
+!frontend/dist/**
 data/

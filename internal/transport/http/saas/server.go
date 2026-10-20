@@ -12,6 +12,8 @@ import (
 	"sync"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-foundation/telemetry"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 	"github.com/domainry/domainry-knowledge-sdk/saashost"
@@ -53,7 +55,7 @@ func New(dependencies Dependencies) (*Server, error) {
 func (server *Server) Handler() http.Handler { return http.HandlerFunc(server.serveHTTP) }
 
 func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("Content-Type", "application/json")
+	recordRoute(request)
 	if !server.authenticate(request) {
 		writeStatus(writer, http.StatusUnauthorized, "forbidden", "knowledge.service_credential_invalid")
 		return
@@ -67,8 +69,32 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 		writeJSON(writer, http.StatusOK, knowledgecontract.Descriptor{ProtocolVersion: knowledgecontract.SaaSProtocolVersionV1, Mode: knowledgecontract.DeploymentModeSaaS, Audience: server.dependencies.Audience, Capabilities: append([]string(nil), knowledgecontract.SaaSCapabilitiesV1...)})
 	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSInvokePath:
 		server.invoke(writer, request)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSDocumentUploadPath:
+		server.uploadDocument(writer, request)
+	case request.Method == http.MethodGet && request.URL.Path == knowledgecontract.SaaSDocumentDownloadPath:
+		server.downloadDocument(writer, request)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSSourceDocumentPutPath:
+		server.putSourceDocument(writer, request)
 	default:
 		writeStatus(writer, http.StatusNotFound, "not_found", "knowledge.route_not_found")
+	}
+}
+
+func recordRoute(request *http.Request) {
+	if request == nil {
+		return
+	}
+	switch {
+	case request.Method == http.MethodGet && request.URL.Path == knowledgecontract.SaaSDiscoveryPath:
+		telemetry.RecordHTTPRoute(request, "GET "+knowledgecontract.SaaSDiscoveryPath)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSInvokePath:
+		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSInvokePath)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSDocumentUploadPath:
+		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSDocumentUploadPath)
+	case request.Method == http.MethodGet && request.URL.Path == knowledgecontract.SaaSDocumentDownloadPath:
+		telemetry.RecordHTTPRoute(request, "GET "+knowledgecontract.SaaSDocumentDownloadPath)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSSourceDocumentPutPath:
+		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSSourceDocumentPutPath)
 	}
 }
 
@@ -120,7 +146,16 @@ func safeError(err error) *knowledgecontract.SaaSError {
 	}
 	var coded *agentsdk.Error
 	if errors.As(err, &coded) {
-		return &knowledgecontract.SaaSError{Class: safeClass(coded.Class), Code: safeCode(coded.Code), Retryable: coded.Retryable}
+		result := &knowledgecontract.SaaSError{Class: safeClass(coded.Class), Code: safeCode(coded.Code), Retryable: coded.Retryable}
+		var pageConflict interface {
+			KnowledgePageConflict() knowledgesdk.KnowledgePageConflict
+		}
+		if result.Class == "conflict" && errors.As(err, &pageConflict) {
+			if raw, marshalErr := json.Marshal(pageConflict.KnowledgePageConflict()); marshalErr == nil {
+				result.Details = raw
+			}
+		}
+		return result
 	}
 	return &knowledgecontract.SaaSError{Class: "unavailable", Code: "knowledge.internal_unavailable"}
 }
@@ -148,6 +183,7 @@ func writeStatus(w http.ResponseWriter, status int, class, code string) {
 	writeJSON(w, status, knowledgecontract.SaaSResponse{Error: &knowledgecontract.SaaSError{Class: class, Code: code}})
 }
 func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }

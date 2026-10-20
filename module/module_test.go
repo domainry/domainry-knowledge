@@ -73,9 +73,9 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 		t.Fatalf("migration owner calls=%v", sharedRegistrar.owners)
 	}
 	for _, table := range []string{
-		"_agent_knowledge_libraries", "_agent_knowledge_library_members",
-		"_agent_knowledge_documents", "_agent_knowledge_sources",
-		"_agent_knowledge_document_jobs", "_agent_attachment_index_jobs",
+		"_knowledge_libraries", "_knowledge_library_members",
+		"_knowledge_documents", "_knowledge_sources",
+		"_knowledge_document_jobs", "_knowledge_attachment_index_jobs",
 		sharedoperation.TableName,
 		sharedsubjectlifecycle.RequestTableName, sharedsubjectlifecycle.StepTableName,
 	} {
@@ -84,7 +84,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 			t.Fatalf("shared table %s count=%d err=%v", table, count, err)
 		}
 	}
-	for _, retired := range []string{"_agent_knowledge_document_sources", "_agent_knowledge_datasource_bindings", "_agent_attachment_knowledge_sources", "_agent_artifact_mutations", "_knowledge_owner_operation_receipts"} {
+	for _, retired := range []string{"_knowledge_owner_operation_receipts"} {
 		var count int
 		if err := sharedDB.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, retired).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("retired table %s count=%d err=%v", retired, count, err)
@@ -122,7 +122,7 @@ func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
 	if err := schemaownership.ValidateAll(tables); err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) != 8 || len(OwnedTables()) != len(tables) {
+	if len(tables) != 14 || len(OwnedTables()) != len(tables) {
 		t.Fatalf("Knowledge ownership=%+v names=%v", tables, OwnedTables())
 	}
 	database, dialect := openDatabase(t, "knowledge-ownership")
@@ -185,7 +185,7 @@ func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := database.QueryContext(t.Context(), `SELECT source_kind, source_key FROM _agent_knowledge_sources ORDER BY source_kind`)
+	rows, err := database.QueryContext(t.Context(), `SELECT source_kind, source_key FROM _knowledge_sources ORDER BY source_kind`)
 	if err != nil {
 		t.Fatal(err)
 	}

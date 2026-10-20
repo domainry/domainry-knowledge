@@ -104,8 +104,11 @@ func (k *attachmentKnowledgeSource) KnowledgeDocumentSourceIdentity() string {
 func (k *attachmentKnowledgeSource) KnowledgeDocumentAccessPolicySHA256() string {
 	return k.base.KnowledgeDocumentAccessPolicySHA256()
 }
-func (k *attachmentKnowledgeSource) KnowledgeDocumentMaxBytes() int64 {
-	return k.base.KnowledgeDocumentMaxBytes()
+func (k *attachmentKnowledgeSource) KnowledgeDocumentIndexMaximumBytes() int64 {
+	return k.base.KnowledgeDocumentIndexMaximumBytes()
+}
+func (k *attachmentKnowledgeSource) KnowledgeDocumentFormats() []agentsdk.KnowledgeDocumentFormat {
+	return k.base.KnowledgeDocumentFormats()
 }
 func (k *attachmentKnowledgeSource) KnowledgeDocumentManagementReady() error {
 	return k.base.KnowledgeDocumentManagementReady()

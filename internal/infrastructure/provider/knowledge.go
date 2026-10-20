@@ -42,21 +42,25 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 	if c.InvalidAnalysisDocumentIDs {
 		return nil, fmt.Errorf("invalid knowledge analysis document IDs JSON")
 	}
+	if c.InvalidSearchConfig {
+		return nil, fmt.Errorf("invalid knowledge search configuration")
+	}
+	if c.DocumentManagement && c.ResponseMapping == nil {
+		c.ResponseMapping = officialKnowledgeResponseMapping()
+	}
 	if c.DocumentPermissionIDs != nil {
-		if len(c.DocumentPermissionIDs) == 0 || len(c.DocumentPermissionIDs) > 100 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
+		var permissionErr error
+		c.DocumentPermissionIDs, permissionErr = normalizedKnowledgeQueryPermissions(c.DocumentPermissionIDs)
+		if permissionErr != nil || len(c.DocumentPermissionIDs) == 0 || len(c.DocumentPermissionIDs) > 256 || knowledgeQueryPermissionBytes(c.DocumentPermissionIDs) > 8192 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
 			return nil, fmt.Errorf("fixed document permissions must be nonempty and cannot use dynamic authority policy")
 		}
-		c.DocumentPermissionIDs = slices.Clone(c.DocumentPermissionIDs)
-		slices.Sort(c.DocumentPermissionIDs)
-		c.DocumentPermissionIDs = slices.Compact(c.DocumentPermissionIDs)
 	}
 	if c.ReadPermissionIDs != nil {
-		if len(c.ReadPermissionIDs) == 0 || len(c.ReadPermissionIDs) > 100 || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
+		var permissionErr error
+		c.ReadPermissionIDs, permissionErr = normalizedKnowledgeQueryPermissions(c.ReadPermissionIDs)
+		if permissionErr != nil || len(c.ReadPermissionIDs) == 0 || len(c.ReadPermissionIDs) > knowledgeQueryPermissionMaximumIDs || knowledgeQueryPermissionBytes(c.ReadPermissionIDs) > knowledgeQueryPermissionMaximumBytes || c.PermissionIDs != nil || c.AuthorizeWorkspace != nil {
 			return nil, fmt.Errorf("fixed read permissions must be nonempty and cannot use dynamic authority policy")
 		}
-		c.ReadPermissionIDs = slices.Clone(c.ReadPermissionIDs)
-		slices.Sort(c.ReadPermissionIDs)
-		c.ReadPermissionIDs = slices.Compact(c.ReadPermissionIDs)
 	}
 	if c.AnalysisDocumentIDs != nil {
 		if len(c.AnalysisDocumentIDs) == 0 || len(c.AnalysisDocumentIDs) > 50 {
@@ -95,6 +99,25 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 	if c.TopK < 1 || c.TopK > 20 {
 		return nil, fmt.Errorf("knowledge top_k must be between 1 and 20")
 	}
+	if c.SearchMode != "" && c.SearchMode != "hybrid" && c.SearchMode != "dense" && c.SearchMode != "sparse" {
+		return nil, fmt.Errorf("knowledge search mode must be hybrid, dense or sparse")
+	}
+	if len(c.SearchRecordKinds) > 32 {
+		return nil, fmt.Errorf("knowledge record kinds must contain at most 32 values")
+	}
+	if c.SearchRecordKinds != nil {
+		c.SearchRecordKinds = slices.Clone(c.SearchRecordKinds)
+		slices.Sort(c.SearchRecordKinds)
+		for i, kind := range c.SearchRecordKinds {
+			if !validKnowledgeRecordKind(kind) || i > 0 && kind == c.SearchRecordKinds[i-1] {
+				return nil, fmt.Errorf("invalid knowledge record kind")
+			}
+		}
+	}
+	if c.SearchRerank != nil {
+		value := *c.SearchRerank
+		c.SearchRerank = &value
+	}
 	if c.Transport == nil {
 		var transport *connectortransport.HTTP
 		var err error
@@ -124,6 +147,19 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 		return nil, fmt.Errorf("invalid knowledge provider configuration")
 	}
 	return k, nil
+}
+
+func validKnowledgeRecordKind(value string) bool {
+	if strings.TrimSpace(value) == "" || strings.TrimSpace(value) != value || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("_-#@./:", r) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (k *Knowledge) connection() connector.Connection {
@@ -158,7 +194,7 @@ func knowledgeConnectorError(err error) error {
 }
 
 func (k *Knowledge) Search(ctx context.Context, query string, authority agentsdk.ConversationAuthority) (json.RawMessage, error) {
-	out, err := connector.Call(ctx, knowledgeGateway{k, authority}, httpapi.Search, httpapi.SearchInput{Query: query, TopK: k.config.TopK})
+	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: authority}, httpapi.Search, httpapi.SearchInput{Query: query, TopK: k.config.TopK, RecordKinds: slices.Clone(k.config.SearchRecordKinds), Mode: k.config.SearchMode, Rerank: k.config.SearchRerank})
 	if err != nil {
 		return nil, knowledgeConnectorError(err)
 	}
@@ -167,7 +203,7 @@ func (k *Knowledge) Search(ctx context.Context, query string, authority agentsdk
 
 // Fetch exposes the same shared Connector operation with the same host policy.
 func (k *Knowledge) Fetch(ctx context.Context, docID string, authority agentsdk.ConversationAuthority) (json.RawMessage, error) {
-	out, err := connector.Call(ctx, knowledgeGateway{k, authority}, httpapi.Fetch, httpapi.FetchInput{DocID: docID})
+	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: authority}, httpapi.Fetch, httpapi.FetchInput{DocID: docID})
 	if err != nil {
 		return nil, knowledgeConnectorError(err)
 	}
@@ -175,8 +211,10 @@ func (k *Knowledge) Fetch(ctx context.Context, docID string, authority agentsdk.
 }
 
 type knowledgeGateway struct {
-	knowledge *Knowledge
-	authority agentsdk.ConversationAuthority
+	knowledge           *Knowledge
+	authority           agentsdk.ConversationAuthority
+	permissionIDs       []string
+	overridePermissions bool
 }
 
 func (g knowledgeGateway) Call(ctx context.Context, request connector.CallRequest) (connector.CallResult, error) {
@@ -186,6 +224,10 @@ func (g knowledgeGateway) Call(ctx context.Context, request connector.CallReques
 		return connector.CallResult{}, err
 	}
 	request.Connection = k.connection()
+	if g.overridePermissions {
+		ids = slices.Clone(g.permissionIDs)
+		request.Connection.Config["document_permission_ids"] = slices.Clone(ids)
+	}
 	request.Connection.WorkspaceID = a.WorkspaceID
 	request.Principal = connector.Principal{IsAuthenticated: true, UserID: a.UserID, WorkspaceID: a.WorkspaceID}
 	request.Secrets = map[string]string{"api_key": k.config.APIKey}

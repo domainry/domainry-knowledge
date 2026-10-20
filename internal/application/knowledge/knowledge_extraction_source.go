@@ -30,7 +30,7 @@ func (k *LibraryKnowledgeSource) KnowledgeExtractionPassages(ctx context.Context
 		return nil, conversationFailure("bad_request", "knowledge_response_invalid")
 	}
 	if saved.LibraryID == "" {
-		source, ok := k.legacy.(agentsdk.KnowledgeExtractionContentSource)
+		source, ok := k.defaultSource.(agentsdk.KnowledgeExtractionContentSource)
 		if !ok {
 			return nil, conversationFailure("unavailable", "knowledge_extraction_content_unavailable")
 		}

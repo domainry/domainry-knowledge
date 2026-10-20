@@ -12,22 +12,24 @@ type generatedArtifactCleanupRepository interface {
 	ReconcileGeneratedArtifactContent(context.Context, time.Time, int) (int, error)
 }
 
-func (s *Service) GeneratedArtifactCleanupWorker(ctx context.Context, repo generatedArtifactCleanupRepository) {
-	defer s.wg.Done()
+func (s *Service) GeneratedArtifactCleanupWorkerEnabled() bool {
+	repo, ok := s.repo.(generatedArtifactCleanupRepository)
+	return ok && repo.GeneratedArtifactCleanupEnabled()
+}
+
+func (s *Service) GeneratedArtifactCleanupWorkerInterval() time.Duration {
 	interval := s.options.DocumentPoll
 	if interval < time.Minute {
 		interval = time.Minute
 	}
-	for ctx.Err() == nil {
-		_, _ = repo.ReconcileGeneratedArtifactContent(ctx, time.Now().UTC(), generatedArtifactCleanupBatchSize)
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				<-timer.C
-			}
-			return
-		case <-timer.C:
-		}
+	return interval
+}
+
+func (s *Service) GeneratedArtifactCleanupWorkerTick(ctx context.Context) (WorkerTickResult, error) {
+	repo, ok := s.repo.(generatedArtifactCleanupRepository)
+	if !ok || !repo.GeneratedArtifactCleanupEnabled() {
+		return WorkerTickResult{}, nil
 	}
+	processed, err := repo.ReconcileGeneratedArtifactContent(ctx, time.Now().UTC(), generatedArtifactCleanupBatchSize)
+	return WorkerTickResult{Worked: processed > 0, ProcessedCount: processed}, err
 }

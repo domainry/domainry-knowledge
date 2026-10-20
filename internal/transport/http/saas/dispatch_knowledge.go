@@ -6,12 +6,14 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
 func (server *Server) dispatchKnowledgeService(ctx context.Context, operation string, raw json.RawMessage) (any, error, bool) {
 	s := server.dependencies.Knowledge
 	switch operation {
-	case "service.library_source_bind":
+	case knowledgesdk.ActionSourcesBind:
 		var in struct {
 			ID        string                               `json:"id"`
 			Input     agentsdk.KnowledgeLibrarySourceWrite `json:"input"`
@@ -22,7 +24,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.BindKnowledgeLibrarySource(ctx, in.ID, in.Input, in.Authority)
 		return v, e, true
-	case "service.library_create":
+	case knowledgesdk.ActionLibrariesCreate:
 		var in struct {
 			Input     agentsdk.KnowledgeLibraryCreate `json:"input"`
 			Authority agentsdk.ConversationAuthority  `json:"authority"`
@@ -53,7 +55,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.DatasourceDefinitions(ctx, in.Library, in.Authority)
 		return v, e, true
-	case "service.document_delete":
+	case knowledgesdk.ActionDocumentsDelete:
 		var in struct {
 			Library   string                         `json:"library"`
 			ID        string                         `json:"id"`
@@ -64,6 +66,30 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 			return nil, e, true
 		}
 		v, e := s.DeleteKnowledgeDocument(ctx, in.Library, in.ID, in.Expected, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionDocumentsRetry:
+		var in struct {
+			Library   string                         `json:"library"`
+			ID        string                         `json:"id"`
+			Expected  int64                          `json:"expected"`
+			Authority agentsdk.ConversationAuthority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.RetryKnowledgeDocument(ctx, in.Library, in.ID, in.Expected, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionDocumentsReindex:
+		var in struct {
+			Library   string                         `json:"library"`
+			ID        string                         `json:"id"`
+			Expected  int64                          `json:"expected"`
+			Authority agentsdk.ConversationAuthority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.ReindexKnowledgeDocument(ctx, in.Library, in.ID, in.Expected, in.Authority)
 		return v, e, true
 	case "service.document_access":
 		var in struct {
@@ -89,18 +115,21 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 			return nil, e, true
 		}
 		return server.registerSource(source, nil, nil), nil, true
-	case "service.document_download":
-		var in struct {
-			Library   string                         `json:"library"`
-			ID        string                         `json:"id"`
-			Authority agentsdk.ConversationAuthority `json:"authority"`
-		}
+	case knowledgecontract.SaaSDocumentDownloadPrepareOperation:
+		var in knowledgecontract.SaaSDocumentDownloadRequest
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
 		}
 		v, e := s.DownloadKnowledgeDocument(ctx, in.Library, in.ID, in.Authority)
-		return v, e, true
-	case "service.document_import_attachment":
+		if e != nil {
+			return nil, e, true
+		}
+		if v.Content == nil {
+			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.document_content_unavailable"}, true
+		}
+		_ = v.Content.Close()
+		return v.Document, nil, true
+	case knowledgesdk.ActionDocumentsImportAttachment:
 		var in struct {
 			Library   string                             `json:"library"`
 			Input     agentsdk.KnowledgeAttachmentImport `json:"input"`
@@ -111,7 +140,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.ImportConversationAttachment(ctx, in.Library, in.Input, in.Authority)
 		return v, e, true
-	case "service.document":
+	case knowledgesdk.ActionDocumentsGet:
 		var in struct {
 			Library   string                         `json:"library"`
 			ID        string                         `json:"id"`
@@ -137,7 +166,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeDocumentRecord(ctx, repo, in.Library, in.ID, in.Authority)
 		return v, e, true
-	case "service.documents":
+	case knowledgesdk.ActionDocumentsList:
 		var in struct {
 			Library   string                         `json:"library"`
 			After     string                         `json:"after"`
@@ -149,7 +178,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeDocuments(ctx, in.Library, in.After, in.Limit, in.Authority)
 		return v, e, true
-	case "service.libraries":
+	case knowledgesdk.ActionLibrariesList:
 		var in struct {
 			After     string                         `json:"after"`
 			Limit     int                            `json:"limit"`
@@ -160,7 +189,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeLibraries(ctx, in.After, in.Limit, in.Authority)
 		return v, e, true
-	case "service.library":
+	case knowledgesdk.ActionLibrariesGet:
 		var in struct {
 			ID        string                         `json:"id"`
 			Authority agentsdk.ConversationAuthority `json:"authority"`
@@ -170,7 +199,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeLibrary(ctx, in.ID, in.Authority)
 		return v, e, true
-	case "service.library_members":
+	case knowledgesdk.ActionLibraryMembersList:
 		var in struct {
 			ID        string                         `json:"id"`
 			After     string                         `json:"after"`
@@ -182,7 +211,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeLibraryMembers(ctx, in.ID, in.After, in.Limit, in.Authority)
 		return v, e, true
-	case "service.library_sources":
+	case knowledgesdk.ActionSourcesList:
 		var in struct {
 			ID        string                         `json:"id"`
 			After     string                         `json:"after"`
@@ -225,7 +254,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.LibraryResult(ctx, in.Item, nil, in.Authority)
 		return v, e, true
-	case "service.library_member_remove":
+	case knowledgesdk.ActionLibraryMembersRemove:
 		var in struct {
 			ID        string                         `json:"id"`
 			User      string                         `json:"user"`
@@ -237,7 +266,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.RemoveKnowledgeLibraryMember(ctx, in.ID, in.User, in.Revision, in.Authority)
 		return v, e, true
-	case "service.library_member_set":
+	case knowledgesdk.ActionLibraryMembersSet:
 		var in struct {
 			ID        string                               `json:"id"`
 			User      string                               `json:"user"`
@@ -249,7 +278,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.SetKnowledgeLibraryMember(ctx, in.ID, in.User, in.Input, in.Authority)
 		return v, e, true
-	case "service.document_transfer":
+	case knowledgesdk.ActionDocumentsTransfer:
 		var in struct {
 			Library   string                             `json:"library"`
 			Input     agentsdk.KnowledgeDocumentTransfer `json:"input"`
@@ -260,7 +289,7 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.TransferKnowledgeDocument(ctx, in.Library, in.Input, in.Authority)
 		return v, e, true
-	case "service.library_update":
+	case knowledgesdk.ActionLibrariesUpdate:
 		var in struct {
 			ID        string                          `json:"id"`
 			Input     agentsdk.KnowledgeLibraryUpdate `json:"input"`
@@ -271,42 +300,48 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.UpdateKnowledgeLibrary(ctx, in.ID, in.Input, in.Authority)
 		return v, e, true
-	case "service.document_upload_content":
-		var in struct {
-			Library        string                                 `json:"library"`
-			Input          agentsdk.KnowledgeDocumentUpload       `json:"input"`
-			Origin         *persistence.KnowledgeAttachmentOrigin `json:"origin,omitempty"`
-			DocumentOrigin *persistence.KnowledgeDocumentOrigin   `json:"document_origin,omitempty"`
-			Authority      agentsdk.ConversationAuthority         `json:"authority"`
+	case knowledgecontract.SaaSDocumentUploadPrepareOperation:
+		var kind struct {
+			Operation string `json:"operation"`
 		}
+		if json.Unmarshal(raw, &kind) != nil {
+			return nil, &agentsdk.Error{Class: "bad_request", Code: "knowledge.document_upload_operation_invalid"}, true
+		}
+		if kind.Operation == knowledgecontract.SaaSDocumentUploadChunkOperation {
+			var in knowledgecontract.SaaSDocumentChunkUploadRequest
+			if e := decodeInput(raw, &in); e != nil {
+				return nil, e, true
+			}
+			if _, e := s.DocumentAccess(ctx, in.Library, knowledgesdk.ActionDocumentsUpload, in.Authority); e != nil {
+				return nil, e, true
+			}
+			_, e := s.DocumentBinding(ctx, in.Library, in.Authority)
+			return struct{}{}, e, true
+		}
+		var in knowledgecontract.SaaSDocumentUploadRequest
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
 		}
-		v, e := s.UploadDocumentContent(ctx, in.Library, in.Input, in.Origin, in.DocumentOrigin, nil, in.Authority)
-		return v, e, true
-	case "service.document_upload":
-		var in struct {
-			Library   string                           `json:"library"`
-			Input     agentsdk.KnowledgeDocumentUpload `json:"input"`
-			Authority agentsdk.ConversationAuthority   `json:"authority"`
+		if in.Operation != knowledgecontract.SaaSDocumentUploadOperation && in.Operation != knowledgecontract.SaaSDocumentUploadSourceOperation {
+			return nil, &agentsdk.Error{Class: "bad_request", Code: "knowledge.document_upload_operation_invalid"}, true
 		}
-		if e := decodeInput(raw, &in); e != nil {
+		if (in.Operation == knowledgecontract.SaaSDocumentUploadSourceOperation) != (in.Source != nil) {
+			return nil, &agentsdk.Error{Class: "bad_request", Code: "knowledge.document_source_invalid"}, true
+		}
+		if _, e := s.DocumentAccess(ctx, in.Library, knowledgesdk.ActionDocumentsUpload, in.Authority); e != nil {
 			return nil, e, true
 		}
-		v, e := s.UploadKnowledgeDocument(ctx, in.Library, in.Input, in.Authority)
-		return v, e, true
-	case "service.document_upload_source":
-		var in struct {
-			Library   string                                 `json:"library"`
-			Input     agentsdk.KnowledgeDocumentUpload       `json:"input"`
-			Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
-			Authority agentsdk.ConversationAuthority         `json:"authority"`
+		if in.Source != nil {
+			e := challengeFor(ctx, "authorize.document_source", struct {
+				Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`
+				Authority agentsdk.ConversationAuthority         `json:"authority"`
+			}{*in.Source, in.Authority}, nil)
+			if e != nil {
+				return nil, e, true
+			}
 		}
-		if e := decodeInput(raw, &in); e != nil {
-			return nil, e, true
-		}
-		v, e := s.UploadKnowledgeDocumentForSource(ctx, in.Library, in.Input, in.Source, in.Authority)
-		return v, e, true
+		_, e := s.DocumentBinding(ctx, in.Library, in.Authority)
+		return struct{}{}, e, true
 	}
 	return nil, nil, false
 }

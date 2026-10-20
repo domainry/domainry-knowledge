@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -21,11 +22,27 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 	if in.AccessPolicySHA256 != k.KnowledgeDocumentAccessPolicySHA256() {
 		return knowledgeFailure("document_access_policy_changed")
 	}
+	if len(in.PermissionIDs) > 1 {
+		return knowledgeFailure("request_invalid")
+	}
+	for _, permissionID := range in.PermissionIDs {
+		if permissionID == "" || len(permissionID) > 128 || strings.TrimSpace(permissionID) != permissionID {
+			return knowledgeFailure("request_invalid")
+		}
+	}
 	filename, err := knowledgeUploadFilename(in.Filename)
 	if err != nil {
 		return err
 	}
-	_, err = connector.Call(ctx, knowledgeDocumentWriteGateway{knowledgeGateway{k, a}, in.RequestID}, httpapi.PutDocument, httpapi.PutDocumentInput{DocID: in.DocumentID, Filename: filename, Content: in.Data})
+	maximum := httpapi.MaximumInlineDocumentBytesForFilename(filename)
+	if in.Content == nil || in.Bytes < 1 || maximum < 1 || in.Bytes > maximum || !connector.ValidSHA256(in.SHA256) {
+		return knowledgeFailure("request_invalid")
+	}
+	base := knowledgeGateway{knowledge: k, authority: a}
+	if len(in.PermissionIDs) != 0 {
+		base.permissionIDs, base.overridePermissions = slices.Clone(in.PermissionIDs), true
+	}
+	_, err = connector.CallWithContent(ctx, knowledgeDocumentWriteGateway{base, in.RequestID}, httpapi.PutDocument, httpapi.PutDocumentInput{DocID: in.DocumentID, Filename: filename, Bytes: in.Bytes, SHA256: in.SHA256}, in.Content, in.Bytes, in.SHA256, "application/octet-stream")
 	if err != nil {
 		return knowledgeConnectorError(err)
 	}
@@ -59,10 +76,25 @@ func knowledgeUploadFilename(name string) (string, error) {
 	return fmt.Sprintf("document-%x%s", h[:16], ext), nil
 }
 
-func (k *Knowledge) KnowledgeDocumentMaxBytes() int64 { return httpapi.MaxDocumentBytes }
+func (k *Knowledge) KnowledgeDocumentIndexMaximumBytes() int64 {
+	return httpapi.MaximumInlineDocumentBytes
+}
+
+func (k *Knowledge) KnowledgeDocumentFormats() []agentsdk.KnowledgeDocumentFormat {
+	capabilities := httpapi.DocumentFormatCapabilities()
+	formats := make([]agentsdk.KnowledgeDocumentFormat, 0, len(capabilities))
+	for _, capability := range capabilities {
+		formats = append(formats, agentsdk.KnowledgeDocumentFormat{
+			Extension: capability.Extension, ContentType: capability.ContentType, ParserRoute: capability.ParserRoute,
+			BuilderMaxBytes: capability.BuilderWholeFileMaximumBytes, AssetMaxBytes: capability.AssetMaximumBytes,
+			EnrichmentMaxBytes: capability.EnrichmentMaxBytes, AnalysisOutputMaxBytes: capability.AnalysisMaxBytes,
+		})
+	}
+	return formats
+}
 
 func (k *Knowledge) InspectKnowledgeDocument(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentState, error) {
-	out, err := connector.Call(ctx, knowledgeGateway{k, a}, httpapi.DocumentStatus, httpapi.DocumentInput{DocID: id})
+	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: a}, httpapi.DocumentStatus, httpapi.DocumentInput{DocID: id})
 	if err != nil {
 		return agentsdk.KnowledgeDocumentState{}, knowledgeConnectorError(err)
 	}
@@ -76,7 +108,7 @@ func (k *Knowledge) DeleteKnowledgeDocument(ctx context.Context, id string, a ag
 	if !k.config.DocumentManagement {
 		return knowledgeFailure("document_management_unavailable")
 	}
-	_, err := connector.Call(ctx, knowledgeGateway{k, a}, httpapi.DeleteDocument, httpapi.DocumentInput{DocID: id})
+	_, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: a}, httpapi.DeleteDocument, httpapi.DocumentInput{DocID: id})
 	if err != nil {
 		return knowledgeConnectorError(err)
 	}

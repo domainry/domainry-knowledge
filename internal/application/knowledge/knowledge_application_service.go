@@ -23,9 +23,8 @@ type Service struct {
 	options                           Options
 	runtimeID, owner                  string
 	attachmentIndexWake, documentWake chan struct{}
-	wg                                sync.WaitGroup
-	cancel                            context.CancelFunc
-	start                             sync.Once
+	workerMu                          sync.Mutex
+	nextDocumentUploadExpirySweep     time.Time
 }
 
 func NewService(repo any, runtimeID string, options Options) *Service {
@@ -36,37 +35,25 @@ func NewService(repo any, runtimeID string, options Options) *Service {
 	if options.DocumentPoll == 0 {
 		options.DocumentPoll = 2 * time.Second
 	}
+	if options.DocumentWorkTimeout == 0 {
+		options.DocumentWorkTimeout = 30 * time.Minute
+	}
+	if options.DocumentUploadIdleTimeout == 0 {
+		options.DocumentUploadIdleTimeout = 24 * time.Hour
+	}
+	if options.DocumentStorage != nil && options.DocumentSecurity == nil {
+		options.DocumentSecurity = builtinDocumentSecurity{}
+	}
 	if options.ArtifactExportTTL == 0 {
 		options.ArtifactExportTTL = time.Hour
 	}
 	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, attachmentIndexWake: make(chan struct{}, 1), documentWake: make(chan struct{}, 1)}
 }
-func (s *Service) Start(parent context.Context) {
-	s.start.Do(func() {
-		ctx, cancel := context.WithCancel(parent)
-		s.cancel = cancel
-		if s.options.DocumentStorage != nil {
-			s.wg.Add(1)
-			go s.KnowledgeDocumentWorker(ctx, s.repo.(persistence.KnowledgeDocumentRepository))
-		}
-		if s.options.AttachmentAuthorizer != nil {
-			if repo, ok := s.repo.(persistence.ConversationAttachmentIndexRepository); ok {
-				s.wg.Add(1)
-				go s.AttachmentIndexWorker(ctx, repo)
-			}
-		}
-		if repo, ok := s.repo.(generatedArtifactCleanupRepository); ok && repo.GeneratedArtifactCleanupEnabled() {
-			s.wg.Add(1)
-			go s.GeneratedArtifactCleanupWorker(ctx, repo)
-		}
-	})
-}
-func (s *Service) Close() {
-	if s.cancel != nil {
-		s.cancel()
-	}
-	s.wg.Wait()
-}
+
+// Start and Close are intentionally lifecycle-neutral. The assembly wrapper
+// owns goroutines and supervises every tick through Foundation worker.
+func (*Service) Start(context.Context) {}
+func (*Service) Close()                {}
 func (s *Service) authorize(a agentsdk.ConversationAuthority) error {
 	if !a.Known || a.RuntimeID != s.runtimeID || strings.TrimSpace(a.UserID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || len(a.UserID) > 255 || len(a.WorkspaceID) > 255 {
 		return conversationFailure("forbidden", "principal_required")

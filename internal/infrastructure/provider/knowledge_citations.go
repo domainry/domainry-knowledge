@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -113,7 +115,7 @@ func validateKnowledgeMapping(mapping *KnowledgeResponseMapping) error {
 				return err
 			}
 		}
-		for _, pointer := range []string{m.Items, m.DocumentID, m.Title, m.URL, m.Excerpt} {
+		for _, pointer := range []string{m.Items, m.DocumentID, m.Title, m.URL, m.Excerpt, m.ChunkID, m.DocumentVersion, m.ContentSHA256, m.SourceRevision, m.Page, m.Section, m.AnchorRef, m.RecordKind, m.Score} {
 			if _, err := citationPointerParts(pointer); err != nil {
 				return err
 			}
@@ -134,6 +136,187 @@ func citationText(item any, pointer string, limit int) (string, error) {
 		return "", knowledgeFailure("citation_mapping_invalid")
 	}
 	return text, nil
+}
+
+func citationMappedValue(item, metadata any, pointer string) (any, bool) {
+	if pointer == "" {
+		return nil, false
+	}
+	if value, ok := citationPointer(item, pointer); ok {
+		return value, true
+	}
+	if metadata != nil {
+		return citationPointer(metadata, pointer)
+	}
+	return nil, false
+}
+
+func citationMappedText(item, metadata any, pointer string, limit int) (string, error) {
+	value, ok := citationMappedValue(item, metadata, pointer)
+	if !ok || value == nil {
+		return "", nil
+	}
+	text, ok := value.(string)
+	if !ok || !utf8.ValidString(text) || strings.ContainsRune(text, 0) || len(text) > limit {
+		return "", knowledgeFailure("citation_mapping_invalid")
+	}
+	return text, nil
+}
+
+func citationMappedInt64(item, metadata any, pointer string, maximum int64) (int64, error) {
+	value, ok := citationMappedValue(item, metadata, pointer)
+	if !ok || value == nil {
+		return 0, nil
+	}
+	var number int64
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Int64()
+		if err != nil {
+			return 0, knowledgeFailure("citation_mapping_invalid")
+		}
+		number = parsed
+	case float64:
+		if math.Trunc(typed) != typed || typed > math.MaxInt64 || typed < math.MinInt64 {
+			return 0, knowledgeFailure("citation_mapping_invalid")
+		}
+		number = int64(typed)
+	default:
+		return 0, knowledgeFailure("citation_mapping_invalid")
+	}
+	if number < 0 || number > maximum {
+		return 0, knowledgeFailure("citation_mapping_invalid")
+	}
+	return number, nil
+}
+
+func citationMappedFloat64(item, metadata any, pointer string) (float64, error) {
+	value, ok := citationMappedValue(item, metadata, pointer)
+	if !ok || value == nil {
+		return 0, nil
+	}
+	var number float64
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return 0, knowledgeFailure("citation_mapping_invalid")
+		}
+		number = parsed
+	case float64:
+		number = typed
+	default:
+		return 0, knowledgeFailure("citation_mapping_invalid")
+	}
+	if math.IsNaN(number) || math.IsInf(number, 0) || math.Abs(number) > 1e12 {
+		return 0, knowledgeFailure("citation_mapping_invalid")
+	}
+	return number, nil
+}
+
+func citationMappedLocation(item, metadata any, mapping *KnowledgeCitationMapping) (*agentsdk.DocumentLocation, error) {
+	page, err := citationMappedInt64(item, metadata, mapping.Page, 10_000_000)
+	if err != nil {
+		return nil, err
+	}
+	section, err := citationMappedText(item, metadata, mapping.Section, 4096)
+	if err != nil {
+		return nil, err
+	}
+	chunk, err := citationMappedText(item, metadata, mapping.ChunkID, 512)
+	if err != nil {
+		return nil, err
+	}
+	anchor, err := citationMappedText(item, metadata, mapping.AnchorRef, 4096)
+	if err != nil {
+		return nil, err
+	}
+	recordKind, err := citationMappedText(item, metadata, mapping.RecordKind, 32)
+	if err != nil {
+		return nil, err
+	}
+	location := agentsdk.DocumentLocation{Page: int(page), Section: section, ChunkID: chunk}
+	if anchor != "" {
+		applyKnowledgeAnchor(anchor, &location)
+	}
+	if recordKind == "audio" || recordKind == "video" {
+		location.MediaKind = recordKind
+	}
+	if location.Page == 0 && location.Slide == 0 && location.Section == "" && location.ChunkID == "" && location.Sheet == "" && location.Row == 0 && location.RowEnd == 0 && location.Cell == "" && location.Line == 0 && location.LineEnd == 0 && location.Paragraph == 0 && location.JSONPath == "" && location.HTMLID == "" && location.StartMS == 0 && location.EndMS == 0 && location.MediaKind == "" {
+		return nil, nil
+	}
+	return &location, nil
+}
+
+var knowledgeAnchorFields = map[string]*regexp.Regexp{
+	"page":          regexp.MustCompile(`(?:^|[, {])["']page["']\s*:\s*([0-9]+)`),
+	"slide":         regexp.MustCompile(`(?:^|[, {])["']slide["']\s*:\s*([0-9]+)`),
+	"line_range":    regexp.MustCompile(`(?:^|[, {])["']line_range["']\s*:\s*\[\s*([0-9]+)\s*,\s*([0-9]+)\s*\]`),
+	"row_range":     regexp.MustCompile(`(?:^|[, {])["']row_range["']\s*:\s*\[\s*([0-9]+)\s*,\s*([0-9]+)\s*\]`),
+	"para_index":    regexp.MustCompile(`(?:^|[, {])["']para_index["']\s*:\s*([0-9]+)`),
+	"time_range_ms": regexp.MustCompile(`(?:^|[, {])["']time_range_ms["']\s*:\s*\[\s*([0-9]+)\s*,\s*([0-9]+)\s*\]`),
+}
+
+var knowledgeAnchorTextFields = map[string]*regexp.Regexp{
+	"sheet":     regexp.MustCompile(`(?:^|[, {])["']sheet["']\s*:\s*["']([^"'\\\x00]{0,128})["']`),
+	"json_path": regexp.MustCompile(`(?:^|[, {])["']json_path["']\s*:\s*["']([^"'\\\x00]{0,512})["']`),
+	"html_id":   regexp.MustCompile(`(?:^|[, {])["']html_id["']\s*:\s*["']([^"'\\\x00]{0,256})["']`),
+}
+
+// kb-builder materializes anchors using Python's bounded dict representation
+// (for example {'time_range_ms': [0, 9000]}). Accept that exact numeric shape
+// as well as JSON without evaluating provider-controlled text.
+func applyKnowledgeAnchor(raw string, out *agentsdk.DocumentLocation) {
+	if out == nil || len(raw) > 4096 {
+		return
+	}
+	parse := func(key string, maximum int64) []int64 {
+		match := knowledgeAnchorFields[key].FindStringSubmatch(raw)
+		if len(match) < 2 {
+			return nil
+		}
+		values := make([]int64, 0, len(match)-1)
+		for _, value := range match[1:] {
+			number, err := strconv.ParseInt(value, 10, 64)
+			if err != nil || number < 0 || number > maximum {
+				return nil
+			}
+			values = append(values, number)
+		}
+		return values
+	}
+	if values := parse("page", 10_000_000); len(values) == 1 {
+		out.Page = int(values[0])
+	}
+	if values := parse("slide", 10_000_000); len(values) == 1 {
+		out.Slide = int(values[0])
+	}
+	if values := parse("line_range", 10_000_000); len(values) == 2 && values[1] >= values[0] {
+		out.Line, out.LineEnd = int(values[0]), int(values[1])
+	}
+	if values := parse("row_range", 10_000_000); len(values) == 2 && values[1] >= values[0] {
+		out.Row, out.RowEnd = int(values[0]), int(values[1])
+	}
+	if values := parse("para_index", 10_000_000); len(values) == 1 {
+		out.Paragraph = int(values[0])
+	}
+	if values := parse("time_range_ms", 7*24*60*60*1000); len(values) == 2 && values[1] >= values[0] {
+		out.StartMS, out.EndMS = values[0], values[1]
+	}
+	for key, pattern := range knowledgeAnchorTextFields {
+		match := pattern.FindStringSubmatch(raw)
+		if len(match) != 2 || !utf8.ValidString(match[1]) {
+			continue
+		}
+		switch key {
+		case "sheet":
+			out.Sheet = match[1]
+		case "json_path":
+			out.JSONPath = match[1]
+		case "html_id":
+			out.HTMLID = match[1]
+		}
+	}
 }
 
 func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, data any) ([]agentsdk.ConversationCitation, error) {
@@ -177,11 +360,7 @@ func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, dat
 		if _, ok := item.(map[string]any); !ok {
 			return nil, knowledgeFailure("citation_mapping_invalid")
 		}
-		fields := item
-		if mapping.MetadataObject != nil {
-			fields = metadata
-		}
-		docID, err := citationText(fields, mapping.DocumentID, 4096)
+		docID, err := citationMappedText(item, metadata, mapping.DocumentID, 4096)
 		if err != nil {
 			return nil, err
 		}
@@ -191,11 +370,11 @@ func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, dat
 		if strings.TrimSpace(docID) == "" || (evidence.Operation == "fetch" && docID != evidence.DocumentID) {
 			return nil, knowledgeFailure("citation_mapping_invalid")
 		}
-		title, err := citationText(fields, mapping.Title, 512)
+		title, err := citationMappedText(item, metadata, mapping.Title, 512)
 		if err != nil {
 			return nil, err
 		}
-		link, err := citationText(fields, mapping.URL, 4096)
+		link, err := citationMappedText(item, metadata, mapping.URL, 4096)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +396,31 @@ func (k *Knowledge) citations(evidence agentsdk.ConversationKnowledgeResult, dat
 			}
 			excerpt = excerpt[:end]
 		}
-		citation := agentsdk.ConversationCitation{Provider: evidence.Provider, KBID: evidence.KBID, Operation: evidence.Operation, DocumentID: docID, Title: title, URL: link, Excerpt: excerpt, ExcerptTruncated: truncated}
+		chunkID, err := citationMappedText(item, metadata, mapping.ChunkID, 512)
+		if err != nil {
+			return nil, err
+		}
+		documentVersion, err := citationMappedInt64(item, metadata, mapping.DocumentVersion, math.MaxInt64)
+		if err != nil {
+			return nil, err
+		}
+		contentSHA256, err := citationMappedText(item, metadata, mapping.ContentSHA256, 128)
+		if err != nil {
+			return nil, err
+		}
+		sourceRevision, err := citationMappedText(item, metadata, mapping.SourceRevision, 512)
+		if err != nil {
+			return nil, err
+		}
+		score, err := citationMappedFloat64(item, metadata, mapping.Score)
+		if err != nil {
+			return nil, err
+		}
+		location, err := citationMappedLocation(item, metadata, mapping)
+		if err != nil {
+			return nil, err
+		}
+		citation := agentsdk.ConversationCitation{Provider: evidence.Provider, KBID: evidence.KBID, Operation: evidence.Operation, DocumentID: docID, ChunkID: chunkID, DocumentVersion: documentVersion, ContentSHA256: contentSHA256, SourceRevision: sourceRevision, Score: score, Title: title, URL: link, Excerpt: excerpt, ExcerptTruncated: truncated, Location: location}
 		raw, _ := json.Marshal([]any{evidence.ScopeSHA256, hex.EncodeToString(dataHash[:]), mapping.Items, i, citation})
 		sum := sha256.Sum256(raw)
 		citation.ID = "kc_" + hex.EncodeToString(sum[:16])

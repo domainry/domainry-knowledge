@@ -1,10 +1,12 @@
 package application
 
 import (
+	"bytes"
 	"context"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func (s *Service) ImportConversationAttachment(ctx context.Context, library string, in agentsdk.KnowledgeAttachmentImport, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
@@ -12,10 +14,7 @@ func (s *Service) ImportConversationAttachment(ctx context.Context, library stri
 	if !conversationKey(in.ClientID) || !conversationKey(in.ConversationID) || !conversationKey(in.AttachmentID) || in.ExpectedRevision < 1 {
 		return zero, conversationFailure("bad_request", "document_import_invalid")
 	}
-	if _, err := s.DocumentAccess(ctx, library, "documents_import_attachment", a); err != nil {
-		return zero, err
-	}
-	if _, err := s.DocumentAccess(ctx, library, "documents_upload", a); err != nil {
+	if _, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsImportAttachment, a); err != nil {
 		return zero, err
 	}
 	repo, ok := s.repo.(persistence.KnowledgeAttachmentImportRepository)
@@ -51,10 +50,10 @@ func (s *Service) ImportConversationAttachment(ctx context.Context, library stri
 		if _, e := s.AttachmentAccess(ctx, "attachments_download", a); e != nil {
 			return e
 		}
-		_, e := s.DocumentAccess(ctx, library, "documents_import_attachment", a)
+		_, e := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsImportAttachment, a)
 		return e
 	}
-	return s.UploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Attachment.Filename, Data: source.Data}, &origin, nil, recheck, a)
+	return s.UploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Attachment.Filename, Bytes: source.Attachment.Bytes, SHA256: source.Attachment.SHA256, Content: bytes.NewReader(source.Data)}, &origin, nil, recheck, a)
 }
 
 var _ agentsdk.KnowledgeAttachmentImportService = (*Service)(nil)

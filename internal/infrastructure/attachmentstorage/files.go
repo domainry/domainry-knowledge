@@ -3,6 +3,7 @@
 package attachmentstorage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -175,6 +176,16 @@ func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, r
 	if !hashPattern.MatchString(expected) || len(raw) == 0 || int64(len(raw)) > agentsdk.ConversationAttachmentMaxBytes || hash(raw) != expected {
 		return "", failure("bad_request", "attachment_content_mismatch")
 	}
+	return f.PutAttachmentContentStream(ctx, id, expected, int64(len(raw)), agentsdk.ConversationAttachmentMaxBytes, bytes.NewReader(raw), a)
+}
+
+// PutAttachmentContentStream writes one immutable object through a bounded
+// reader, verifies its declared size and SHA-256 before the atomic rename, and
+// never retains the complete body in memory.
+func (f *Files) PutAttachmentContentStream(ctx context.Context, id, expected string, expectedBytes, maxBytes int64, content io.Reader, a agentsdk.ConversationAuthority) (string, error) {
+	if !hashPattern.MatchString(expected) || expectedBytes < 1 || maxBytes < expectedBytes || content == nil {
+		return "", failure("bad_request", "attachment_content_mismatch")
+	}
 	err := f.locked(ctx, id, a, func(root *os.Root) error {
 		if err := live(root, id); err != nil {
 			return err
@@ -182,8 +193,11 @@ func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, r
 		if present, err := exists(root, id+".bin"); err != nil {
 			return err
 		} else if present {
-			_, err = read(root, id, expected)
-			return err
+			info, err := root.Lstat(id + ".bin")
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() != expectedBytes {
+				return failure("unavailable", "attachment_content_mismatch")
+			}
+			return nil
 		}
 		// The fixed temporary name is private to the locked object. A crashed
 		// write is replaced on retry or removed by deletion; it cannot accumulate.
@@ -197,8 +211,14 @@ func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, r
 		}
 		defer file.Close()
 		defer root.Remove(pending)
-		if n, err := file.Write(raw); err != nil || n != len(raw) {
+		digest := sha256.New()
+		limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
+		written, err := io.CopyBuffer(io.MultiWriter(file, digest), limited, make([]byte, 128*1024))
+		if err != nil {
 			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		if written != expectedBytes || limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expected {
+			return failure("bad_request", "attachment_content_mismatch")
 		}
 		if err := file.Sync(); err != nil {
 			return failure("unavailable", "attachment_storage_unavailable")
@@ -223,6 +243,128 @@ func (f *Files) PutAttachmentContent(ctx context.Context, id, expected string, r
 	return id + ":" + expected, nil
 }
 
+func verifiedChunk(content io.Reader, expectedBytes int64, expectedHash string) error {
+	digest := sha256.New()
+	limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
+	written, err := io.CopyBuffer(digest, limited, make([]byte, 128*1024))
+	if err != nil || written != expectedBytes || limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expectedHash {
+		return failure("bad_request", "attachment_content_mismatch")
+	}
+	return nil
+}
+
+// PutAttachmentContentChunk appends one deterministic part to a private
+// staged object. Replaying a previously acknowledged part is idempotent after
+// both the request body and already-stored range are hashed. The final rename
+// occurs only after the complete-file digest matches.
+func (f *Files) PutAttachmentContentChunk(ctx context.Context, id, expected string, expectedBytes, maxBytes, offset int64, expectedChunk string, chunkBytes int64, content io.Reader, a agentsdk.ConversationAuthority) (nextOffset int64, reference string, resultErr error) {
+	if !hashPattern.MatchString(expected) || !hashPattern.MatchString(expectedChunk) || expectedBytes < 1 || expectedBytes > maxBytes || offset < 0 || chunkBytes < 1 || offset+chunkBytes > expectedBytes || content == nil {
+		return 0, "", failure("bad_request", "attachment_content_mismatch")
+	}
+	err := f.locked(ctx, id, a, func(root *os.Root) error {
+		if err := live(root, id); err != nil {
+			return err
+		}
+		if present, err := exists(root, id+".bin"); err != nil {
+			return err
+		} else if present {
+			info, statErr := root.Lstat(id + ".bin")
+			if statErr != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() != expectedBytes {
+				return failure("unavailable", "attachment_content_mismatch")
+			}
+			if err = verifiedChunk(content, chunkBytes, expectedChunk); err != nil {
+				return err
+			}
+			nextOffset, reference = expectedBytes, id+":"+expected
+			return nil
+		}
+		if err := root.Remove(id + ".pending"); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		staged := id + ".upload"
+		file, err := root.OpenFile(staged, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		closed := false
+		defer func() {
+			if !closed {
+				_ = file.Close()
+			}
+		}()
+		publish := func() error {
+			if _, seekErr := file.Seek(0, io.SeekStart); seekErr != nil {
+				return failure("unavailable", "attachment_storage_unavailable")
+			}
+			whole := sha256.New()
+			readBytes, readErr := io.CopyBuffer(whole, file, make([]byte, 128*1024))
+			if readErr != nil || readBytes != expectedBytes || hex.EncodeToString(whole.Sum(nil)) != expected {
+				return failure("bad_request", "attachment_content_mismatch")
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				return failure("unavailable", "attachment_storage_unavailable")
+			}
+			closed = true
+			if renameErr := root.Rename(staged, id+".bin"); renameErr != nil {
+				return failure("unavailable", "attachment_storage_unavailable")
+			}
+			if syncErr := syncDir(root); syncErr != nil {
+				return failure("unavailable", "attachment_storage_unavailable")
+			}
+			reference = id + ":" + expected
+			return nil
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() < 0 || info.Size() > expectedBytes {
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		current := info.Size()
+		if offset < current {
+			if offset+chunkBytes > current {
+				return failure("conflict", "attachment_upload_offset_conflict")
+			}
+			if err = verifiedChunk(content, chunkBytes, expectedChunk); err != nil {
+				return err
+			}
+			digest := sha256.New()
+			if _, err = io.CopyBuffer(digest, io.NewSectionReader(file, offset, chunkBytes), make([]byte, 128*1024)); err != nil || hex.EncodeToString(digest.Sum(nil)) != expectedChunk {
+				return failure("conflict", "attachment_upload_content_conflict")
+			}
+			nextOffset = current
+			if current == expectedBytes {
+				return publish()
+			}
+			return nil
+		}
+		if offset != current {
+			return failure("conflict", "attachment_upload_offset_conflict")
+		}
+		if _, err = file.Seek(current, io.SeekStart); err != nil {
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		digest := sha256.New()
+		limited := &io.LimitedReader{R: content, N: chunkBytes + 1}
+		written, writeErr := io.CopyBuffer(io.MultiWriter(file, digest), limited, make([]byte, 128*1024))
+		if writeErr != nil || written != chunkBytes || limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expectedChunk {
+			_ = file.Truncate(current)
+			return failure("bad_request", "attachment_content_mismatch")
+		}
+		if err = file.Sync(); err != nil {
+			_ = file.Truncate(current)
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		nextOffset = current + chunkBytes
+		if nextOffset < expectedBytes {
+			return nil
+		}
+		return publish()
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	return nextOffset, reference, nil
+}
+
 func (f *Files) ReadAttachmentContent(ctx context.Context, id, reference string, a agentsdk.ConversationAuthority) ([]byte, error) {
 	prefix := id + ":"
 	if !strings.HasPrefix(reference, prefix) || !hashPattern.MatchString(strings.TrimPrefix(reference, prefix)) {
@@ -238,6 +380,47 @@ func (f *Files) ReadAttachmentContent(ctx context.Context, id, reference string,
 		err = ctx.Err()
 	}
 	return raw, err
+}
+
+// OpenAttachmentContent returns a seekable immutable snapshot without copying
+// the body into memory. The content hash was verified before the atomic rename
+// in PutAttachmentContent; reads revalidate the fenced reference, file type,
+// private mode and exact byte count before exposing the descriptor. Callers
+// must close the returned file.
+func (f *Files) OpenAttachmentContent(ctx context.Context, id, reference string, expectedBytes, maxBytes int64, a agentsdk.ConversationAuthority) (io.ReadSeekCloser, error) {
+	prefix := id + ":"
+	if !strings.HasPrefix(reference, prefix) || !hashPattern.MatchString(strings.TrimPrefix(reference, prefix)) || expectedBytes < 1 || maxBytes < expectedBytes {
+		return nil, failure("bad_request", "attachment_reference_invalid")
+	}
+	var content *os.File
+	err := f.locked(ctx, id, a, func(root *os.Root) error {
+		if err := live(root, id); err != nil {
+			return err
+		}
+		info, err := root.Lstat(id + ".bin")
+		if errors.Is(err, os.ErrNotExist) {
+			return failure("not_found", "attachment_content_not_found")
+		}
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() != expectedBytes || info.Size() > maxBytes {
+			return failure("unavailable", "attachment_content_mismatch")
+		}
+		content, err = root.Open(id + ".bin")
+		if err != nil {
+			return failure("unavailable", "attachment_storage_unavailable")
+		}
+		return nil
+	})
+	if err != nil {
+		if content != nil {
+			_ = content.Close()
+		}
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		_ = content.Close()
+		return nil, err
+	}
+	return content, nil
 }
 
 func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agentsdk.ConversationAuthority) error {
@@ -260,7 +443,7 @@ func (f *Files) DeleteAttachmentContent(ctx context.Context, id string, a agents
 		if err := syncDir(root); err != nil {
 			return failure("unavailable", "attachment_storage_unavailable")
 		}
-		for _, suffix := range []string{".bin", ".pending"} {
+		for _, suffix := range []string{".bin", ".pending", ".upload"} {
 			if err := root.Remove(id + suffix); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return failure("unavailable", "attachment_storage_unavailable")
 			}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	sdk "github.com/domainry/domainry-agent-sdk"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func validSharedKnowledgeAuthorities(reader, producer sdk.ConversationAuthority, runtimeID string) bool {
@@ -27,7 +28,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 		}
 	}
 	if saved.Operation == "libraries" {
-		if err := k.authorizeResultReadLibrary(ctx, "", "libraries_list", reader); err != nil {
+		if err := k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, reader); err != nil {
 			return err
 		}
 	} else if saved.LibraryID != "" {
@@ -35,7 +36,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 			return err
 		}
 		if saved.Provider == ManagedKnowledgeProvider {
-			if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", reader); err != nil {
+			if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, reader); err != nil {
 				return err
 			}
 		}
@@ -46,7 +47,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 		return err
 	}
 	if saved.Operation == "libraries" {
-		if err := k.authorizeResultReadLibrary(ctx, "", "libraries_list", reader); err != nil {
+		if err := k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, reader); err != nil {
 			return err
 		}
 		var page sdk.KnowledgeLibraryPage
@@ -58,10 +59,10 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 				return err
 			}
 		}
-		return k.authorizeResultReadLibrary(ctx, "", "libraries_list", reader)
+		return k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, reader)
 	}
 	if saved.LibraryID == "" {
-		return sdk.AuthorizeSharedKnowledgeResultRead(ctx, k.legacy, saved, reader, producer)
+		return sdk.AuthorizeSharedKnowledgeResultRead(ctx, k.defaultSource, saved, reader, producer)
 	}
 	binding, err := k.Access(ctx, saved.LibraryID, reader)
 	if err != nil {
@@ -72,7 +73,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 		return err
 	}
 	if managed {
-		if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", reader); err != nil {
+		if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, reader); err != nil {
 			return err
 		}
 		var data DocumentEvidence
@@ -99,7 +100,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 		if err := k.CheckDocumentSnapshots(ctx, binding, source.KnowledgeDocumentSourceIdentity(), actual, reader); err != nil {
 			return err
 		}
-		if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", reader); err != nil {
+		if err := k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, reader); err != nil {
 			return err
 		}
 	} else {
@@ -157,7 +158,7 @@ func (k *LibraryKnowledgeSource) AuthorizeSharedKnowledgeResultRead(ctx context.
 	if err := k.CheckDocumentSnapshots(ctx, currentBinding, currentSource.KnowledgeDocumentSourceIdentity(), finalData, reader); err != nil {
 		return err
 	}
-	return k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", reader)
+	return k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, reader)
 }
 
 func (k *LibraryKnowledgeSource) SharedKnowledgeExtractionPassages(ctx context.Context, saved sdk.ConversationKnowledgeResult, reader, producer sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
@@ -170,7 +171,7 @@ func (k *LibraryKnowledgeSource) SharedKnowledgeExtractionPassages(ctx context.C
 		return nil, conversationFailure("forbidden", "knowledge_access_denied")
 	}
 	if saved.LibraryID == "" {
-		passages, err = sdk.SharedKnowledgeExtractionPassages(ctx, k.legacy, saved, reader, producer)
+		passages, err = sdk.SharedKnowledgeExtractionPassages(ctx, k.defaultSource, saved, reader, producer)
 	} else {
 		binding, accessErr := k.Access(ctx, saved.LibraryID, reader)
 		if accessErr != nil {

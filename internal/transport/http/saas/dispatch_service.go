@@ -12,13 +12,14 @@ import (
 )
 
 type sourceDescriptor struct {
-	Handle                string   `json:"handle"`
-	Identity              string   `json:"identity"`
-	DocumentPermissionIDs []string `json:"document_permission_ids,omitempty"`
-	ReadPermissionIDs     []string `json:"read_permission_ids,omitempty"`
-	AccessPolicySHA256    string   `json:"access_policy_sha256,omitempty"`
-	MaxBytes              int64    `json:"max_bytes,omitempty"`
-	Ready                 bool     `json:"ready"`
+	Handle                string                             `json:"handle"`
+	Identity              string                             `json:"identity"`
+	DocumentPermissionIDs []string                           `json:"document_permission_ids,omitempty"`
+	ReadPermissionIDs     []string                           `json:"read_permission_ids,omitempty"`
+	AccessPolicySHA256    string                             `json:"access_policy_sha256,omitempty"`
+	IndexMaxBytes         int64                              `json:"index_max_bytes,omitempty"`
+	DocumentFormats       []agentsdk.KnowledgeDocumentFormat `json:"document_formats,omitempty"`
+	Ready                 bool                               `json:"ready"`
 }
 
 func (server *Server) registerSource(source agentsdk.ManagedKnowledgeDocumentSource, documentPermissions, readPermissions []string) sourceDescriptor {
@@ -29,8 +30,11 @@ func (server *Server) registerSource(source agentsdk.ManagedKnowledgeDocumentSou
 	if value, ok := source.(agentsdk.KnowledgeDocumentAccessPolicySource); ok {
 		descriptor.AccessPolicySHA256 = value.KnowledgeDocumentAccessPolicySHA256()
 	}
-	if value, ok := source.(agentsdk.KnowledgeDocumentSizeLimitSource); ok {
-		descriptor.MaxBytes = value.KnowledgeDocumentMaxBytes()
+	if value, ok := source.(agentsdk.KnowledgeDocumentIndexLimitSource); ok {
+		descriptor.IndexMaxBytes = value.KnowledgeDocumentIndexMaximumBytes()
+	}
+	if value, ok := source.(agentsdk.KnowledgeDocumentFormatSource); ok {
+		descriptor.DocumentFormats = append([]agentsdk.KnowledgeDocumentFormat(nil), value.KnowledgeDocumentFormats()...)
 	}
 	server.sourcesMu.Lock()
 	server.sources[handle] = source
@@ -229,6 +233,9 @@ func (server *Server) dispatchService(ctx context.Context, operation string, raw
 		}
 		v, e := s.UploadAttachment(ctx, in.ConversationID, in.Input, in.Authority)
 		return v, e, true
+	}
+	if value, err, handled := server.dispatchPageService(ctx, operation, raw); handled {
+		return value, err, true
 	}
 	return server.dispatchKnowledgeService(ctx, operation, raw)
 }

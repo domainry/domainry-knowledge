@@ -14,7 +14,7 @@ import (
 func (k *Knowledge) knowledgeScope(a agentsdk.ConversationAuthority) string {
 	// Non-secret configuration and owner identity. Rotating an API key is not
 	// a source change; switching team, KB, origin or owner is.
-	raw, _ := json.Marshal([]any{k.config.BaseURL, k.config.TeamID, k.config.KBID, k.config.WorkspaceID, k.config.TopK, a.RuntimeID, a.WorkspaceID, a.UserID})
+	raw, _ := json.Marshal([]any{k.config.BaseURL, k.config.TeamID, k.config.KBID, k.config.WorkspaceID, k.config.TopK, k.config.SearchMode, k.config.SearchRerank, k.config.SearchRecordKinds, a.RuntimeID, a.WorkspaceID, a.UserID})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
@@ -50,8 +50,57 @@ func (k *Knowledge) knowledgeEvidence(raw json.RawMessage, err error, operation,
 		return agentsdk.ConversationKnowledgeResult{}, knowledgeFailure("response_invalid")
 	}
 	evidence := agentsdk.ConversationKnowledgeResult{Provider: envelope.Provider, KBID: envelope.KBID, Operation: operation, Query: query, DocumentID: docID, ScopeSHA256: k.knowledgeScope(a), Data: data}
+	if operation == "search" {
+		evidence.SearchTopK = k.config.TopK
+		evidence.SearchMode, evidence.SearchReranked, evidence.SearchDegraded, err = knowledgeSearchDiagnostics(value)
+		if err != nil {
+			return agentsdk.ConversationKnowledgeResult{}, err
+		}
+	}
 	evidence.Citations, err = k.citations(evidence, value)
 	return evidence, err
+}
+
+func knowledgeSearchDiagnostics(value any) (string, *bool, string, error) {
+	object, ok := value.(map[string]any)
+	if !ok {
+		return "", nil, "", nil
+	}
+	mode := ""
+	if raw, exists := object["mode_used"]; exists {
+		var valid bool
+		mode, valid = raw.(string)
+		if !valid {
+			return "", nil, "", knowledgeFailure("response_invalid")
+		}
+	}
+	if mode != "" && mode != "hybrid" && mode != "dense" && mode != "sparse" {
+		return "", nil, "", knowledgeFailure("response_invalid")
+	}
+	var reranked *bool
+	if raw, exists := object["reranked"]; exists {
+		value, valid := raw.(bool)
+		if !valid {
+			return "", nil, "", knowledgeFailure("response_invalid")
+		}
+		reranked = &value
+	}
+	degraded := ""
+	if raw, exists := object["degraded_reason"]; exists {
+		var valid bool
+		degraded, valid = raw.(string)
+		if !valid {
+			return "", nil, "", knowledgeFailure("response_invalid")
+		}
+	}
+	if degraded != "" && degraded != "embedder_unavailable" && degraded != "bm25_unavailable" && degraded != "rerank_unavailable" {
+		return "", nil, "", knowledgeFailure("response_invalid")
+	}
+	return mode, reranked, degraded, nil
+}
+
+func equalOptionalBool(one, two *bool) bool {
+	return one == nil && two == nil || one != nil && two != nil && *one == *two
 }
 
 func (k *Knowledge) RevalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) error {
@@ -75,17 +124,16 @@ func (k *Knowledge) RevalidateKnowledge(ctx context.Context, saved agentsdk.Conv
 	// schema. Comparing the complete current response is conservative but
 	// checks remote ACL changes as well as host permission changes. Never
 	// replace a frozen model input with newly retrieved data on resume.
-	if !bytes.Equal(saved.Data, current.Data) {
+	if !bytes.Equal(saved.Data, current.Data) || saved.SearchTopK != current.SearchTopK || saved.SearchMode != current.SearchMode || saved.SearchDegraded != current.SearchDegraded || !equalOptionalBool(saved.SearchReranked, current.SearchReranked) {
 		return &agentsdk.Error{Class: "conflict", Code: "agent.conversation.knowledge_source_changed"}
 	}
-	// Old receipts without citations remain readable. Once a normalized
-	// citation exists, its metadata must still be derived from the real data.
-	if len(saved.Citations) > 0 {
-		one, _ := json.Marshal(saved.Citations)
-		two, _ := json.Marshal(current.Citations)
-		if !bytes.Equal(one, two) {
-			return &agentsdk.Error{Class: "conflict", Code: "agent.conversation.knowledge_source_changed"}
-		}
+	// Structured citations are part of the receipt, not an optional cache. A
+	// receipt with removed or changed citations must never remain valid merely
+	// because its provider JSON is unchanged.
+	one, _ := json.Marshal(saved.Citations)
+	two, _ := json.Marshal(current.Citations)
+	if !bytes.Equal(one, two) {
+		return &agentsdk.Error{Class: "conflict", Code: "agent.conversation.knowledge_source_changed"}
 	}
 	return nil
 }

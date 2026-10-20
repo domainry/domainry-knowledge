@@ -46,23 +46,23 @@ func TestKnowledgeMutationReceiptUsesSharedOperations(t *testing.T) {
 		return map[string]any{"artifact_id": "artifact-1"}, nil
 	}
 	var first, replay map[string]any
-	if err = store.CompatArtifactMutation(t.Context(), "create-1", "create", map[string]any{"title": "one"}, authority, apply, &first); err != nil {
+	if err = store.mutateArtifact(t.Context(), "create-1", "create", map[string]any{"title": "one"}, authority, apply, &first); err != nil {
 		t.Fatal(err)
 	}
-	if err = store.CompatArtifactMutation(t.Context(), "create-1", "create", map[string]any{"title": "one"}, authority, apply, &replay); err != nil {
+	if err = store.mutateArtifact(t.Context(), "create-1", "create", map[string]any{"title": "one"}, authority, apply, &replay); err != nil {
 		t.Fatal(err)
 	}
 	if applied != 1 || first["artifact_id"] != replay["artifact_id"] {
 		t.Fatalf("shared operation replay first=%v replay=%v applied=%d", first, replay, applied)
 	}
-	if err = store.CompatArtifactMutation(t.Context(), "create-1", "create", map[string]any{"title": "changed"}, authority, apply, &replay); err == nil || !strings.Contains(err.Error(), "idempotency_conflict") {
+	if err = store.mutateArtifact(t.Context(), "create-1", "create", map[string]any{"title": "changed"}, authority, apply, &replay); err == nil || !strings.Contains(err.Error(), "idempotency_conflict") {
 		t.Fatalf("changed request reused operation receipt: %v", err)
 	}
 	var receipts int
 	if err = database.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM _operations WHERE workspace_id=? AND owner='knowledge' AND kind='knowledge.artifact_mutation' AND status='succeeded'`, authority.WorkspaceID).Scan(&receipts); err != nil || receipts != 1 {
 		t.Fatalf("Knowledge operation receipts=%d err=%v", receipts, err)
 	}
-	for _, retired := range []string{"_agent_artifact_mutations", "_knowledge_owner_operation_receipts"} {
+	for _, retired := range []string{"_knowledge_owner_operation_receipts"} {
 		var count int
 		if err = database.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, retired).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("retired receipt table %s count=%d err=%v", retired, count, err)

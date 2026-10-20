@@ -34,7 +34,7 @@ func (s *Store) DeleteConversationReferencesForRequest(ctx context.Context, requ
 			return nil
 		}
 		var queued int64
-		queued, claimErr = s.CompatDeleteConversationAttachments(ctx, tx, conversationID, a)
+		queued, claimErr = s.deleteConversationAttachments(ctx, tx, conversationID, a)
 		if claimErr != nil {
 			return claimErr
 		}

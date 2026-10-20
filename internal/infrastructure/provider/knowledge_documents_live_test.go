@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 	httpapi "github.com/domainry/domainry-connectors/providers/knowledge_base/http_api"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 )
@@ -188,7 +190,8 @@ func TestLiveKnowledgeDocumentLifecycle(t *testing.T) {
 	if err = save(); err != nil {
 		t.Fatal(err)
 	}
-	if err = source.PutKnowledgeDocument(ctx, agentsdk.KnowledgeDocumentContent{DocumentID: id, Filename: manifest["filename"].(string), Data: []byte(content), RequestID: requestID, AccessPolicySHA256: source.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
+	rawContent := []byte(content)
+	if err = source.PutKnowledgeDocument(ctx, agentsdk.KnowledgeDocumentContent{DocumentID: id, Filename: manifest["filename"].(string), Bytes: int64(len(rawContent)), SHA256: artifact.Hash(rawContent), Content: bytes.NewReader(rawContent), RequestID: requestID, AccessPolicySHA256: source.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
 		t.Fatal("upload outcome requires inspection; no retry attempted", err)
 	}
 	manifest["upload_acknowledged"] = true

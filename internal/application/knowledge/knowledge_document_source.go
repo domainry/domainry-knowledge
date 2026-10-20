@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"unicode/utf8"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
@@ -41,7 +42,7 @@ func (k *LibraryKnowledgeSource) ManagedSource(ctx context.Context, b LibraryKno
 	return source, false, nil
 }
 
-// Legacy/default retrieval also consults the durable registry. Otherwise simply
+// Default retrieval also consults the durable registry. Otherwise simply
 // dropping library bindings would expose deleted or unregistered remote hits.
 type DocumentGuardedKnowledge struct {
 	base   ConversationKnowledge
@@ -109,17 +110,50 @@ func (k *DocumentGuardedKnowledge) RevalidateKnowledge(ctx context.Context, save
 }
 
 type DocumentSnapshot struct {
-	ID     string `json:"id"`
-	SHA256 string `json:"sha256"`
+	ID              string `json:"id"`
+	ContentVersion  int64  `json:"content_version,omitempty"`
+	IndexGeneration int64  `json:"index_generation,omitempty"`
+	SHA256          string `json:"sha256"`
+	PageID          string `json:"page_id,omitempty"`
+	PageVersion     int64  `json:"page_version,omitempty"`
+	AccessRevision  int64  `json:"access_revision,omitempty"`
+	PermissionID    string `json:"permission_id,omitempty"`
 }
 type DocumentEvidence struct {
-	Passages  []agentsdk.KnowledgeDocumentPassage `json:"passages"`
-	Documents []DocumentSnapshot                  `json:"documents"`
-	Partial   bool                                `json:"partial"` // Parsed passages never prove a complete original file.
+	Passages       []agentsdk.KnowledgeDocumentPassage `json:"passages"`
+	Documents      []DocumentSnapshot                  `json:"documents"`
+	SearchTopK     int                                 `json:"search_top_k,omitempty"`
+	SearchMode     string                              `json:"search_mode,omitempty"`
+	SearchReranked *bool                               `json:"search_reranked,omitempty"`
+	SearchDegraded string                              `json:"search_degraded_reason,omitempty"`
+	Partial        bool                                `json:"partial"` // Parsed passages never prove a complete original file.
+}
+
+func managedKnowledgeSearch(ctx context.Context, source agentsdk.ManagedKnowledgeDocumentSource, query string, authority agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocumentSearch, error) {
+	if searchable, ok := source.(agentsdk.ManagedKnowledgeDocumentSearchSource); ok {
+		result, err := searchable.SearchKnowledgeDocuments(ctx, query, authority)
+		if err != nil {
+			return result, err
+		}
+		if result.TopK < 1 || result.TopK > 20 || result.Mode != "" && result.Mode != "hybrid" && result.Mode != "dense" && result.Mode != "sparse" || result.DegradedReason != "" && result.DegradedReason != "embedder_unavailable" && result.DegradedReason != "bm25_unavailable" && result.DegradedReason != "rerank_unavailable" {
+			return agentsdk.KnowledgeDocumentSearch{}, conversationFailure("unavailable", "knowledge_response_invalid")
+		}
+		if result.Reranked != nil {
+			value := *result.Reranked
+			result.Reranked = &value
+		}
+		return result, nil
+	}
+	passages, err := source.SearchKnowledgeDocumentPassages(ctx, query, authority)
+	return agentsdk.KnowledgeDocumentSearch{Passages: passages}, err
 }
 
 func DocumentReadable(r persistence.KnowledgeDocumentRecord, library, source, policy string) bool {
-	return r.Document.LibraryID == library && r.SourceID == source && r.AccessPolicySHA256 == policy && r.Document.State == "ready" && r.IndexObserved && !r.DeleteStarted
+	return r.Document.LibraryID == library && r.SourceID == source && r.AccessPolicySHA256 == policy && r.Document.State == "ready" && r.Document.ContentVersion > 0 && r.Document.IndexGeneration > 0 && r.IndexObserved && !r.DeleteStarted
+}
+
+func managedKnowledgeSourceRevision(document agentsdk.KnowledgeDocument) string {
+	return fmt.Sprintf("content:%d;index:%d", document.ContentVersion, document.IndexGeneration)
 }
 func (k *LibraryKnowledgeSource) authorizeManagedDocumentSource(ctx context.Context, r persistence.KnowledgeDocumentRecord, a agentsdk.ConversationAuthority) error {
 	if r.SourceAccess == nil {
@@ -141,24 +175,61 @@ func (k *LibraryKnowledgeSource) ManagedDocument(ctx context.Context, b LibraryK
 	if err = k.authorizeManagedDocumentSource(ctx, r, a); err != nil {
 		return r, err
 	}
+	if err = k.validatePageProjection(ctx, r, b.LibraryID, a); err != nil {
+		return r, err
+	}
 	return r, nil
+}
+
+func (k *LibraryKnowledgeSource) validatePageProjection(ctx context.Context, record persistence.KnowledgeDocumentRecord, libraryID string, authority agentsdk.ConversationAuthority) error {
+	if record.PageProjection == nil {
+		return nil
+	}
+	validator, ok := k.documents.(interface {
+		ValidateKnowledgePageProjection(context.Context, persistence.KnowledgePageProjectionOrigin, string, agentsdk.ConversationAuthority) error
+	})
+	if !ok {
+		return conversationFailure("forbidden", "knowledge_access_denied")
+	}
+	return validator.ValidateKnowledgePageProjection(ctx, *record.PageProjection, libraryID, authority)
 }
 func (k *LibraryKnowledgeSource) ManagedKnowledge(ctx context.Context, b LibraryKnowledgeBinding, source agentsdk.ManagedKnowledgeDocumentSource, op, q, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
 	var passages []agentsdk.KnowledgeDocumentPassage
+	var search agentsdk.KnowledgeDocumentSearch
 	var err error
 	if op == "search" {
-		passages, err = source.SearchKnowledgeDocumentPassages(ctx, q, a)
+		permissionSource, scoped := source.(agentsdk.ManagedKnowledgeDocumentPermissionSource)
+		permissionRepository, available := k.documents.(interface {
+			KnowledgePagePermissionTokens(context.Context, string, agentsdk.ConversationAuthority) ([]string, error)
+		})
+		if !scoped || !available {
+			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "page_permissions_unavailable")
+		}
+		permissionIDs, permissionErr := permissionRepository.KnowledgePagePermissionTokens(ctx, b.LibraryID, a)
+		if permissionErr != nil {
+			return agentsdk.ConversationKnowledgeResult{}, permissionErr
+		}
+		search, err = permissionSource.SearchKnowledgeDocumentsWithPermissions(ctx, q, permissionIDs, a)
+		passages = search.Passages
 	} else {
 		r, e := k.ManagedDocument(ctx, b, source.KnowledgeDocumentSourceIdentity(), id, a)
 		if e != nil {
 			return agentsdk.ConversationKnowledgeResult{}, e
 		}
-		passages, err = source.ReadKnowledgeDocumentPassages(ctx, r.RemoteID, a)
+		permissionSource, scoped := source.(agentsdk.ManagedKnowledgeDocumentPermissionSource)
+		if !scoped {
+			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "page_permissions_unavailable")
+		}
+		permissionIDs := []string(nil)
+		if r.PageProjection != nil && r.PageProjection.PermissionID != "" {
+			permissionIDs = []string{r.PageProjection.PermissionID}
+		}
+		passages, err = permissionSource.ReadKnowledgeDocumentPassagesWithPermissions(ctx, r.RemoteID, permissionIDs, a)
 	}
 	if err != nil {
 		return agentsdk.ConversationKnowledgeResult{}, err
 	}
-	data := DocumentEvidence{Passages: []agentsdk.KnowledgeDocumentPassage{}, Documents: []DocumentSnapshot{}, Partial: true}
+	data := DocumentEvidence{Passages: []agentsdk.KnowledgeDocumentPassage{}, Documents: []DocumentSnapshot{}, SearchTopK: search.TopK, SearchMode: search.Mode, SearchReranked: search.Reranked, SearchDegraded: search.DegradedReason, Partial: true}
 	seen := map[string]bool{}
 	if len(passages) > 1000 {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
@@ -182,20 +253,42 @@ func (k *LibraryKnowledgeSource) ManagedKnowledge(ctx context.Context, b Library
 			}
 			return agentsdk.ConversationKnowledgeResult{}, err
 		}
+		if err = k.validatePageProjection(ctx, r, b.LibraryID, a); err != nil {
+			var denied *agentsdk.Error
+			if errors.As(err, &denied) && (denied.Class == "forbidden" || denied.Class == "not_found") {
+				continue
+			}
+			return agentsdk.ConversationKnowledgeResult{}, err
+		}
 		if id != "" && r.Document.ID != id {
 			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
 		}
 		if !conversationText(p.Content, 512*1024, true) || !conversationText(p.Title, 512, false) || !conversationText(p.URL, 4096, false) {
 			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
 		}
+		if !conversationText(p.ChunkID, 512, false) || !conversationText(p.SourceRevision, 512, false) || p.DocumentVersion < 0 || p.ContentSHA256 != "" && p.ContentSHA256 != r.Document.SHA256 {
+			return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
+		}
 		p.DocumentID = r.Document.ID
+		p.DocumentVersion = r.Document.ContentVersion
+		p.ContentSHA256 = r.Document.SHA256
+		p.SourceRevision = managedKnowledgeSourceRevision(r.Document)
+		if r.PageProjection != nil {
+			p.PageID = r.PageProjection.PageID
+			p.PageVersion = r.PageProjection.Version
+			p.URL = "/knowledge/libraries/" + b.LibraryID + "/pages/" + r.PageProjection.PageID
+		}
 		if p.Title == "" {
 			p.Title = r.Document.Filename
 		}
 		data.Passages = append(data.Passages, p)
 		if !seen[p.DocumentID] {
 			seen[p.DocumentID] = true
-			data.Documents = append(data.Documents, DocumentSnapshot{p.DocumentID, r.Document.SHA256})
+			snapshot := DocumentSnapshot{ID: p.DocumentID, ContentVersion: r.Document.ContentVersion, IndexGeneration: r.Document.IndexGeneration, SHA256: r.Document.SHA256}
+			if r.PageProjection != nil {
+				snapshot.PageID, snapshot.PageVersion, snapshot.AccessRevision, snapshot.PermissionID = r.PageProjection.PageID, r.PageProjection.Version, r.PageProjection.AccessRevision, r.PageProjection.PermissionID
+			}
+			data.Documents = append(data.Documents, snapshot)
 		}
 	}
 	if id != "" && len(data.Passages) == 0 {
@@ -207,7 +300,7 @@ func (k *LibraryKnowledgeSource) ManagedKnowledge(ctx context.Context, b Library
 	}
 	// Recheck every local document after the remote request and filtering.
 	if err = k.CheckDocumentSnapshots(ctx, b, source.KnowledgeDocumentSourceIdentity(), data, a); err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(err)
 	}
 	return out, nil
 }
@@ -216,7 +309,7 @@ func (k *LibraryKnowledgeSource) DocumentReceipt(b LibraryKnowledgeBinding, sour
 	if err != nil || len(raw) > 640*1024 {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_context_exceeded")
 	}
-	out := agentsdk.ConversationKnowledgeResult{Provider: ManagedKnowledgeProvider, LibraryID: b.LibraryID, Operation: op, Query: q, DocumentID: id, Data: raw}
+	out := agentsdk.ConversationKnowledgeResult{Provider: ManagedKnowledgeProvider, LibraryID: b.LibraryID, Operation: op, Query: q, DocumentID: id, SearchTopK: data.SearchTopK, SearchMode: data.SearchMode, SearchReranked: data.SearchReranked, SearchDegraded: data.SearchDegraded, Data: raw}
 	// Citation count is bounded independently of the full mapped passage data.
 	for i, p := range data.Passages {
 		if i >= 50 {
@@ -229,7 +322,7 @@ func (k *LibraryKnowledgeSource) DocumentReceipt(b LibraryKnowledgeBinding, sour
 				excerpt = excerpt[:len(excerpt)-1]
 			}
 		}
-		out.Citations = append(out.Citations, agentsdk.ConversationCitation{ID: "kc_" + conversationDigest([]any{source, a.RuntimeID, a.WorkspaceID, a.UserID, b.LibraryID, op, q, id, data, i})[:32], Provider: ManagedKnowledgeProvider, LibraryID: b.LibraryID, Operation: op, DocumentID: p.DocumentID, Title: p.Title, URL: p.URL, Excerpt: excerpt, ExcerptTruncated: len(excerpt) < len(p.Content)})
+		out.Citations = append(out.Citations, agentsdk.ConversationCitation{ID: "kc_" + conversationDigest([]any{source, a.RuntimeID, a.WorkspaceID, a.UserID, b.LibraryID, op, q, id, data, i})[:32], Provider: ManagedKnowledgeProvider, LibraryID: b.LibraryID, Operation: op, DocumentID: p.DocumentID, PageID: p.PageID, PageVersion: p.PageVersion, ChunkID: p.ChunkID, DocumentVersion: p.DocumentVersion, ContentSHA256: p.ContentSHA256, SourceRevision: p.SourceRevision, Score: p.Score, Title: p.Title, URL: p.URL, Excerpt: excerpt, ExcerptTruncated: len(excerpt) < len(p.Content), Location: p.Location})
 	}
 	out.ScopeSHA256 = conversationDigest([]any{source, a.RuntimeID, a.WorkspaceID, a.UserID, out})
 	return out, nil
@@ -243,7 +336,14 @@ func (k *LibraryKnowledgeSource) CheckDocumentSnapshots(ctx context.Context, b L
 		if err != nil {
 			return err
 		}
-		if r.Document.SHA256 != snapshot.SHA256 {
+		if snapshot.ContentVersion < 1 || snapshot.IndexGeneration < 1 || r.Document.ContentVersion != snapshot.ContentVersion || r.Document.IndexGeneration != snapshot.IndexGeneration || r.Document.SHA256 != snapshot.SHA256 {
+			return conversationFailure("conflict", "knowledge_source_changed")
+		}
+		if r.PageProjection == nil {
+			if snapshot.PageID != "" || snapshot.PageVersion != 0 || snapshot.AccessRevision != 0 || snapshot.PermissionID != "" {
+				return conversationFailure("conflict", "knowledge_source_changed")
+			}
+		} else if snapshot.PageID != r.PageProjection.PageID || snapshot.PageVersion != r.PageProjection.Version || snapshot.AccessRevision != r.PageProjection.AccessRevision || snapshot.PermissionID != r.PageProjection.PermissionID {
 			return conversationFailure("conflict", "knowledge_source_changed")
 		}
 	}

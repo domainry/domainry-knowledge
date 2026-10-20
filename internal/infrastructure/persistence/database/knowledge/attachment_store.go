@@ -33,18 +33,18 @@ type attachmentArtifactMetadata struct {
 	Index         *persistence.ConversationAttachmentIndex  `json:"index,omitempty"`
 }
 
-// CompatAttachmentScope remains the exact owner/job predicate used by the
+// attachmentScope remains the exact owner/job predicate used by the
 // retained index-work table. Core attachment metadata no longer has an
 // Agent-private SQL table.
-func CompatAttachmentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func attachmentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
 	return query.And(query.Equal("owner_key", conversationOwner(a)), query.Equal("attachment_id", id))
 }
 
-func CompatAttachmentDeleted(state string) bool { return state == "deleting" || state == "deleted" }
+func attachmentDeleted(state string) bool { return state == "deleting" || state == "deleted" }
 
 // Public metadata carries stable host error codes, never raw upstream errors.
 // Callers must classify failures before persisting them.
-var CompatAttachmentErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_.]{0,127}$`)
+var attachmentErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_.]{0,127}$`)
 
 func attachmentArtifactStatus(state string) (sharedartifact.Status, bool) {
 	switch state {
@@ -61,17 +61,17 @@ func attachmentArtifactStatus(state string) (sharedartifact.Status, bool) {
 
 func decodeAttachmentArtifact(value sharedartifact.Artifact, conversationID string) (persistence.ConversationAttachmentRecord, error) {
 	var metadata attachmentArtifactMetadata
-	if err := json.Unmarshal(value.Metadata, &metadata); err != nil || !CompatArtifactSHA(metadata.RequestSHA256) || metadata.Visibility != "conversation_private" || metadata.Revision < 1 {
+	if err := json.Unmarshal(value.Metadata, &metadata); err != nil || !validArtifactSHA(metadata.RequestSHA256) || metadata.Visibility != "conversation_private" || metadata.Revision < 1 {
 		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
 	}
 	expectedStatus, valid := attachmentArtifactStatus(metadata.State)
-	if !valid || value.Status != expectedStatus || value.ScanStatus != sharedartifact.ScanNotRequired || !personalMemoryKey(conversationID) || value.SizeBytes < 1 || value.SizeBytes > agentsdk.ConversationAttachmentMaxBytes || !CompatArtifactSHA(value.ContentSHA256) {
+	if !valid || value.Status != expectedStatus || value.ScanStatus != sharedartifact.ScanNotRequired || !personalMemoryKey(conversationID) || value.SizeBytes < 1 || value.SizeBytes > agentsdk.ConversationAttachmentMaxBytes || !validArtifactSHA(value.ContentSHA256) {
 		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
 	}
 	if (metadata.Source == nil) != (metadata.Index == nil) {
 		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
 	}
-	if metadata.ErrorCode != "" && !CompatAttachmentErrorCodePattern.MatchString(metadata.ErrorCode) || metadata.State == "failed" && metadata.ErrorCode == "" || metadata.State != "failed" && metadata.State != "needs_reconcile" && metadata.State != "deleting" && metadata.ErrorCode != "" {
+	if metadata.ErrorCode != "" && !attachmentErrorCodePattern.MatchString(metadata.ErrorCode) || metadata.State == "failed" && metadata.ErrorCode == "" || metadata.State != "failed" && metadata.State != "needs_reconcile" && metadata.State != "deleting" && metadata.ErrorCode != "" {
 		return persistence.ConversationAttachmentRecord{}, conversationError("unavailable", "attachment_metadata_invalid")
 	}
 	return persistence.ConversationAttachmentRecord{
@@ -146,7 +146,7 @@ func (s *Store) attachmentArtifact(ctx context.Context, db conversationDB, id st
 	return value, record, err
 }
 
-func (s *Store) CompatAttachment(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
+func (s *Store) attachmentRecord(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (persistence.ConversationAttachmentRecord, error) {
 	_, record, err := s.attachmentArtifact(ctx, db, id, a)
 	return record, err
 }
@@ -155,7 +155,7 @@ func (s *Store) AttachmentRecord(ctx context.Context, id string, a agentsdk.Conv
 	if err := conversationAuthority(a); err != nil {
 		return persistence.ConversationAttachmentRecord{}, err
 	}
-	return s.CompatAttachment(ctx, s.store.Database(), id, a)
+	return s.attachmentRecord(ctx, s.store.Database(), id, a)
 }
 
 func attachmentNotFound(err error) bool {
@@ -163,9 +163,9 @@ func attachmentNotFound(err error) bool {
 	return errors.As(err, &coded) && coded.Code == "agent.conversation.attachment_not_found"
 }
 
-func CompatValidAttachmentReserve(in persistence.ConversationAttachmentReserve) bool {
+func validAttachmentReserve(in persistence.ConversationAttachmentReserve) bool {
 	mediaType, params, err := mime.ParseMediaType(in.ContentType)
-	return personalMemoryKey(in.ClientID) && personalMemoryKey(in.ConversationID) && CompatArtifactSHA(in.SHA256) && in.Bytes > 0 && in.Bytes <= agentsdk.ConversationAttachmentMaxBytes &&
+	return personalMemoryKey(in.ClientID) && personalMemoryKey(in.ConversationID) && validArtifactSHA(in.SHA256) && in.Bytes > 0 && in.Bytes <= agentsdk.ConversationAttachmentMaxBytes &&
 		executionText(in.Filename, 255, true) && in.Filename != "." && in.Filename != ".." && strings.TrimSpace(in.Filename) == in.Filename && !strings.ContainsAny(in.Filename, "/\\") && strings.IndexFunc(in.Filename, unicode.IsControl) < 0 &&
 		err == nil && len(params) == 0 && len(in.ContentType) <= 128 && strings.Contains(mediaType, "/") && in.ContentType == mediaType
 }
@@ -225,7 +225,7 @@ func (s *Store) ReserveAttachment(ctx context.Context, in persistence.Conversati
 	if err = conversationAuthority(a); err != nil {
 		return out, err
 	}
-	if !CompatValidAttachmentReserve(in) || int64(len(in.Content)) != in.Bytes || knowledgeartifact.Hash(in.Content) != in.SHA256 {
+	if !validAttachmentReserve(in) || int64(len(in.Content)) != in.Bytes || knowledgeartifact.Hash(in.Content) != in.SHA256 {
 		return out, conversationError("bad_request", "attachment_invalid")
 	}
 	if err = s.sharedArtifactsReady(); err != nil {
@@ -233,7 +233,7 @@ func (s *Store) ReserveAttachment(ctx context.Context, in persistence.Conversati
 	}
 	id := "att_" + conversationHash([]string{conversationOwner(a), in.ConversationID, in.ClientID})[:32]
 	digest := conversationHash(in)
-	if current, readErr := s.CompatAttachment(ctx, s.store.Database(), id, a); readErr == nil {
+	if current, readErr := s.attachmentRecord(ctx, s.store.Database(), id, a); readErr == nil {
 		if current.RequestSHA256 != digest || current.Attachment.ConversationID != in.ConversationID {
 			return out, conversationError("conflict", "idempotency_conflict")
 		}
@@ -261,7 +261,7 @@ func (s *Store) ReserveAttachment(ctx context.Context, in persistence.Conversati
 		if _, txErr := s.get(ctx, tx, in.ConversationID, a); txErr != nil {
 			return txErr
 		}
-		if current, txErr := s.CompatAttachment(ctx, tx, id, a); txErr == nil {
+		if current, txErr := s.attachmentRecord(ctx, tx, id, a); txErr == nil {
 			if current.RequestSHA256 != digest || current.Attachment.ConversationID != in.ConversationID {
 				return conversationError("conflict", "idempotency_conflict")
 			}
@@ -348,7 +348,7 @@ func (s *Store) Attachments(ctx context.Context, conversationID, after string, l
 	return out, nil
 }
 
-func (s *Store) CompatSaveAttachment(ctx context.Context, tx *sql.Tx, record persistence.ConversationAttachmentRecord, expected int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) saveAttachmentRecord(ctx context.Context, tx *sql.Tx, record persistence.ConversationAttachmentRecord, expected int64, a agentsdk.ConversationAuthority) error {
 	value, current, err := s.attachmentArtifact(ctx, tx, record.Attachment.ID, a)
 	if err != nil {
 		return err
@@ -388,7 +388,7 @@ func (s *Store) TransitionAttachment(ctx context.Context, id string, expected in
 		return out, err
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		previous, txErr := s.CompatAttachment(ctx, tx, id, a)
+		previous, txErr := s.attachmentRecord(ctx, tx, id, a)
 		if txErr != nil {
 			return txErr
 		}
@@ -399,11 +399,11 @@ func (s *Store) TransitionAttachment(ctx context.Context, id string, expected in
 		if previous.Index != nil && in.State != "deleting" {
 			return conversationError("conflict", "attachment_index_managed")
 		}
-		allowed := in.State == "deleting" && !CompatAttachmentDeleted(from) || from == "deleting" && in.State == "deleted"
-		if !allowed || in.ErrorCode != "" && !CompatAttachmentErrorCodePattern.MatchString(in.ErrorCode) || (in.State == "failed") != (in.ErrorCode != "") {
+		allowed := in.State == "deleting" && !attachmentDeleted(from) || from == "deleting" && in.State == "deleted"
+		if !allowed || in.ErrorCode != "" && !attachmentErrorCodePattern.MatchString(in.ErrorCode) || (in.State == "failed") != (in.ErrorCode != "") {
 			return conversationError("conflict", "attachment_transition_invalid")
 		}
-		if !CompatAttachmentDeleted(in.State) {
+		if !attachmentDeleted(in.State) {
 			if _, txErr = s.get(ctx, tx, previous.Attachment.ConversationID, a); txErr != nil {
 				return txErr
 			}
@@ -412,14 +412,14 @@ func (s *Store) TransitionAttachment(ctx context.Context, id string, expected in
 		previous.Attachment.Revision++
 		previous.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
 		out = previous
-		if txErr = s.CompatSaveAttachment(ctx, tx, out, expected, a); txErr != nil {
+		if txErr = s.saveAttachmentRecord(ctx, tx, out, expected, a); txErr != nil {
 			return txErr
 		}
 		if in.State == "deleting" {
-			return s.CompatQueueAttachmentIndexWork(ctx, tx, out, a)
+			return s.queueAttachmentIndexWork(ctx, tx, out, a)
 		}
 		if in.State == "deleted" {
-			statement, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), CompatAttachmentIndexJobTable).Where(CompatAttachmentScope(a, id)).Build()
+			statement, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), attachmentIndexJobTable).Where(attachmentScope(a, id)).Build()
 			return conversationExec(ctx, tx, statement, args, buildErr)
 		}
 		return nil
@@ -480,7 +480,7 @@ func (s *Store) DeleteAttachmentContent(ctx context.Context, id string, a agents
 
 // Called in the parent deletion transaction. The Artifact metadata transition
 // and durable cleanup/index job commit with the conversation deletion receipt.
-func (s *Store) CompatDeleteConversationAttachments(ctx context.Context, tx *sql.Tx, conversationID string, a agentsdk.ConversationAuthority) (int64, error) {
+func (s *Store) deleteConversationAttachments(ctx context.Context, tx *sql.Tx, conversationID string, a agentsdk.ConversationAuthority) (int64, error) {
 	items, err := s.attachmentArtifactsForConversation(ctx, tx, conversationID, a)
 	if err != nil {
 		return 0, err
@@ -491,17 +491,17 @@ func (s *Store) CompatDeleteConversationAttachments(ctx context.Context, tx *sql
 		if decodeErr != nil {
 			return queued, decodeErr
 		}
-		if CompatAttachmentDeleted(record.Attachment.State) {
+		if attachmentDeleted(record.Attachment.State) {
 			continue
 		}
 		expected := record.Attachment.Revision
 		record.Attachment.State, record.Attachment.ErrorCode = "deleting", ""
 		record.Attachment.Revision++
 		record.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
-		if err = s.CompatSaveAttachment(ctx, tx, record, expected, a); err != nil {
+		if err = s.saveAttachmentRecord(ctx, tx, record, expected, a); err != nil {
 			return queued, err
 		}
-		if err = s.CompatQueueAttachmentIndexWork(ctx, tx, record, a); err != nil {
+		if err = s.queueAttachmentIndexWork(ctx, tx, record, a); err != nil {
 			return queued, err
 		}
 		queued++

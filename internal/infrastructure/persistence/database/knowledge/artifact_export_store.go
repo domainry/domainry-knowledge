@@ -34,7 +34,7 @@ func (s *Store) sharedArtifactsReady() error {
 	return nil
 }
 
-func (s *Store) CompatArtifactExport(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactExport, error) {
+func (s *Store) artifactExport(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactExport, error) {
 	var out agentsdk.ConversationArtifactExport
 	if !personalMemoryKey(id) {
 		return out, conversationError("bad_request", "artifact_export_invalid")
@@ -59,7 +59,7 @@ func (s *Store) ArtifactExport(ctx context.Context, id string, a agentsdk.Conver
 	if err := conversationAuthority(a); err != nil {
 		return agentsdk.ConversationArtifactExport{}, err
 	}
-	return s.CompatArtifactExport(ctx, s.store.Database(), id, a)
+	return s.artifactExport(ctx, s.store.Database(), id, a)
 }
 
 func (s *Store) SaveArtifactExport(ctx context.Context, in persistence.ConversationArtifactExportWrite, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifactExport, error) {
@@ -72,17 +72,17 @@ func (s *Store) SaveArtifactExport(ctx context.Context, in persistence.Conversat
 	in.Export.ExpiresAt = time.Time{}
 	in.Export.Downloads = 0
 	in.Export.LastDownloadedAt = nil
-	key, err := CompatArtifactRequestKey(in.RequestSHA256, in)
+	key, err := artifactRequestKey(in.RequestSHA256, in)
 	if err != nil {
 		return out, err
 	}
-	err = s.CompatArtifactMutation(ctx, in.ClientID, "export", key, a, func(tx *sql.Tx) (any, error) {
-		return s.CompatSaveArtifactExport(ctx, tx, in, a)
+	err = s.mutateArtifact(ctx, in.ClientID, "export", key, a, func(tx *sql.Tx) (any, error) {
+		return s.SaveArtifactExportInTransaction(ctx, tx, in, a)
 	}, &out)
 	return out, err
 }
 
-func (s *Store) CompatSaveArtifactExport(ctx context.Context, tx *sql.Tx, in persistence.ConversationArtifactExportWrite, a agentsdk.ConversationAuthority) (_ any, err error) {
+func (s *Store) SaveArtifactExportInTransaction(ctx context.Context, tx *sql.Tx, in persistence.ConversationArtifactExportWrite, a agentsdk.ConversationAuthority) (_ any, err error) {
 	if err := s.sharedArtifactsReady(); err != nil {
 		return nil, err
 	}
@@ -91,13 +91,13 @@ func (s *Store) CompatSaveArtifactExport(ctx context.Context, tx *sql.Tx, in per
 	}
 	value := in.Export
 	value.Downloads, value.LastDownloadedAt = 0, nil
-	if value.Version < 1 || !CompatArtifactSHA(value.SHA256) || value.Bytes < 0 || value.Bytes > 2*artifact.MaxBytes || in.TTLSeconds < 1 || in.TTLSeconds > 24*3600 {
+	if value.Version < 1 || !validArtifactSHA(value.SHA256) || value.Bytes < 0 || value.Bytes > 2*artifact.MaxBytes || in.TTLSeconds < 1 || in.TTLSeconds > 24*3600 {
 		return nil, conversationError("bad_request", "artifact_export_invalid")
 	}
 	if len(in.Content) != value.Bytes || artifact.Hash(in.Content) != value.SHA256 {
 		return nil, conversationError("bad_request", "artifact_export_mismatch")
 	}
-	record, err := s.CompatArtifactRecord(ctx, tx, value.ArtifactID, value.Version, a)
+	record, err := s.ArtifactRecordInTransaction(ctx, tx, value.ArtifactID, value.Version, a)
 	if err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (s *Store) RecordArtifactDownload(ctx context.Context, id string, a agentsd
 			if err != nil {
 				return err
 			}
-			if _, err = s.CompatArtifactRecord(ctx, tx, metadata.ArtifactID, metadata.Version, a); err != nil {
+			if _, err = s.ArtifactRecordInTransaction(ctx, tx, metadata.ArtifactID, metadata.Version, a); err != nil {
 				return err
 			}
 			metadata.Downloads++

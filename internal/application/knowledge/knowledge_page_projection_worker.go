@@ -1,0 +1,55 @@
+package application
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"time"
+
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+)
+
+func (s *Service) ProcessKnowledgePageProjection(ctx context.Context, repository knowledgesdk.KnowledgePageProjectionRepository, work knowledgesdk.KnowledgePageProjectionWork) (resultErr error) {
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		retry, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		resultErr = errors.Join(resultErr, repository.RetryKnowledgePageProjection(retry, work.Lease, time.Now().UTC().Add(30*time.Second)))
+	}()
+	if _, err := s.DocumentAccess(ctx, work.Lease.LibraryID, knowledgesdk.ActionPagesPublish, work.Lease.Actor); err != nil {
+		resultErr = err
+		return
+	}
+	source, err := s.DocumentBinding(ctx, work.Lease.LibraryID, work.Lease.Actor)
+	if err != nil {
+		resultErr = err
+		return
+	}
+	content := []byte("# " + work.Version.Title + "\n\n" + work.Version.Body.PlainText)
+	digest := sha256.Sum256(content)
+	hash := hex.EncodeToString(digest[:])
+	filename := work.Page.ID + ".md"
+	scopeKey := conversationDigest([]string{work.Lease.RuntimeID, work.Lease.WorkspaceID})
+	documentID := "kdoc_" + conversationDigest([]string{scopeKey, work.Lease.PageID})[:32]
+	reference, err := s.options.DocumentStorage.PutKnowledgeDocumentContent(ctx, DocumentStorageScope(work.Lease.LibraryID, work.Lease.Actor), documentID, hash, int64(len(content)), bytes.NewReader(content))
+	if err != nil {
+		resultErr = err
+		return
+	}
+	if _, err = s.DocumentAccess(ctx, work.Lease.LibraryID, knowledgesdk.ActionPagesPublish, work.Lease.Actor); err != nil {
+		resultErr = err
+		return
+	}
+	if err = repository.CompleteKnowledgePageProjection(ctx, work.Lease, reference, int64(len(content)), hash, filename, DocumentAccessPolicy(source)); err != nil {
+		resultErr = err
+		return
+	}
+	completed = true
+	s.WakeKnowledgeDocuments()
+	return resultErr
+}

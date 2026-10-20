@@ -8,6 +8,7 @@ import (
 
 	sdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type sharedKnowledgeReadRepo struct {
@@ -69,8 +70,19 @@ func (p *sharedKnowledgeReadProvider) SearchKnowledgeDocumentPassages(_ context.
 	}
 	return p.passages, nil
 }
+func (p *sharedKnowledgeReadProvider) SearchKnowledgeDocuments(ctx context.Context, query string, authority sdk.ConversationAuthority) (sdk.KnowledgeDocumentSearch, error) {
+	passages, err := p.SearchKnowledgeDocumentPassages(ctx, query, authority)
+	reranked := true
+	return sdk.KnowledgeDocumentSearch{Passages: passages, TopK: 7, Mode: "hybrid", Reranked: &reranked}, err
+}
 func (p *sharedKnowledgeReadProvider) ReadKnowledgeDocumentPassages(ctx context.Context, id string, a sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
 	return p.SearchKnowledgeDocumentPassages(ctx, id, a)
+}
+func (p *sharedKnowledgeReadProvider) SearchKnowledgeDocumentsWithPermissions(ctx context.Context, query string, _ []string, authority sdk.ConversationAuthority) (sdk.KnowledgeDocumentSearch, error) {
+	return p.SearchKnowledgeDocuments(ctx, query, authority)
+}
+func (p *sharedKnowledgeReadProvider) ReadKnowledgeDocumentPassagesWithPermissions(ctx context.Context, id string, _ []string, authority sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
+	return p.ReadKnowledgeDocumentPassages(ctx, id, authority)
 }
 
 func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *testing.T) {
@@ -78,7 +90,7 @@ func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *te
 	reader := producer
 	reader.UserID, reader.RoleKey = "reader", "read-only"
 	lib := sdk.KnowledgeLibrary{ID: "lib_" + strings.Repeat("a", 32), Kind: "shared", Role: "reader"}
-	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
+	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64), ContentVersion: 1, IndexGeneration: 1}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
 	repo := &sharedKnowledgeReadRepo{resultReadLibraryRepo: resultReadLibraryRepo{a: producer, library: lib, doc: doc, member: true}, producer: producer, reader: reader, readerMember: true}
 	policy := &sharedKnowledgeReadPolicy{}
 	sourcePolicy := &resultReadSourcePolicy{}
@@ -148,14 +160,14 @@ func TestSharedManagedKnowledgeKeepsProducerScopeAndActualReaderFileRights(t *te
 					case "reader-membership":
 						repo.readerMember = false
 					case "reader-policy":
-						policy.deniedUser, policy.deniedOperation = reader.UserID, "libraries_get"
+						policy.deniedUser, policy.deniedOperation = reader.UserID, knowledgesdk.ActionLibrariesGet
 						if operation == "libraries" {
-							policy.deniedOperation = "libraries_list"
+							policy.deniedOperation = knowledgesdk.ActionLibrariesList
 						}
 					case "producer-policy":
-						policy.deniedUser, policy.deniedOperation = producer.UserID, "libraries_get"
+						policy.deniedUser, policy.deniedOperation = producer.UserID, knowledgesdk.ActionLibrariesGet
 						if operation == "libraries" {
-							policy.deniedOperation = "libraries_list"
+							policy.deniedOperation = knowledgesdk.ActionLibrariesList
 						}
 					case "producer-membership":
 						repo.member = false

@@ -42,17 +42,15 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 	return nil
 }
 
-// SchemaMigrations is the only source of Knowledge-owned DDL. Embedded Module
-// and standalone SaaS deployments apply this same history to their current
-// database rather than receiving a Store from another module.
+// SchemaMigrations is the only source of the fresh Knowledge-owned schema.
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
 	final := modulehost.SchemaMigration{Version: 1, Name: "create_knowledge_schema"}
-	for _, build := range []func(modulehost.Dialect) (modulehost.SchemaMigration, error){CompatConversationArtifactMigration, CompatKnowledgeLibraryMigration, CompatKnowledgeDocumentMigration, CompatAttachmentIndexMigration} {
-		m, err := build(d)
+	for _, build := range []func(modulehost.Dialect) ([]string, error){conversationArtifactSchema, knowledgeLibrarySchema, knowledgePageSchema, knowledgeDocumentSchema, attachmentIndexSchema} {
+		statements, err := build(d)
 		if err != nil {
 			return nil, err
 		}
-		final.Statements = append(final.Statements, m.Statements...)
+		final.Statements = append(final.Statements, statements...)
 	}
 	return []modulehost.SchemaMigration{final}, nil
 }

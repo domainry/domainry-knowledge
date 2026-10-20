@@ -65,7 +65,7 @@ func (s SubjectLifecycle) PreviewSubject(ctx context.Context, workspaceID, subje
 	}
 	counts := map[string]int64{}
 	owner := conversationOwner(a)
-	for key, table := range map[string]string{"artifacts": "_agent_artifacts"} {
+	for key, table := range map[string]string{"artifacts": conversationArtifactTable} {
 		if counts[key], err = s.count(ctx, table, query.Equal("owner_key", owner)); err != nil {
 			return nil, err
 		}
@@ -75,8 +75,8 @@ func (s SubjectLifecycle) PreviewSubject(ctx context.Context, workspaceID, subje
 		return nil, err
 	}
 	counts["attachments"] = int64(len(attachments))
-	scope := CompatLibraryScope(a)
-	if counts["library_memberships"], err = s.count(ctx, CompatLibraryMemberTable, query.And(query.Equal("scope_key", scope), query.Equal("user_id", a.UserID))); err != nil {
+	scope := libraryScope(a)
+	if counts["library_memberships"], err = s.count(ctx, knowledgeLibraryMemberTable, query.And(query.Equal("scope_key", scope), query.Equal("user_id", a.UserID))); err != nil {
 		return nil, err
 	}
 	personal, err := s.personalLibraries(ctx, s.store.store.Database(), a)
@@ -85,7 +85,7 @@ func (s SubjectLifecycle) PreviewSubject(ctx context.Context, workspaceID, subje
 	}
 	counts["personal_libraries"] = int64(len(personal))
 	for _, id := range personal {
-		n, countErr := s.count(ctx, CompatKnowledgeDocumentTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
+		n, countErr := s.count(ctx, knowledgeDocumentTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
 		if countErr != nil {
 			return nil, countErr
 		}
@@ -109,10 +109,10 @@ func (s SubjectLifecycle) ExportSubjectForRequest(ctx context.Context, _ string,
 	if err != nil {
 		return nil, err
 	}
-	owner, scope := conversationOwner(a), CompatLibraryScope(a)
+	owner, scope := conversationOwner(a), libraryScope(a)
 	export := map[string]any{}
 	for key, tableColumn := range map[string][2]string{
-		"artifacts": {"_agent_artifacts", "owner_key"}, "artifact_versions": {"_agent_artifact_versions", "owner_key"},
+		"artifacts": {conversationArtifactTable, "owner_key"}, "artifact_versions": {conversationArtifactVersionTable, "owner_key"},
 	} {
 		items, readErr := s.payloads(ctx, tableColumn[0], query.Equal(tableColumn[1], owner))
 		if readErr != nil {
@@ -144,12 +144,12 @@ func (s SubjectLifecycle) ExportSubjectForRequest(ctx context.Context, _ string,
 	libraries := []json.RawMessage{}
 	documents := []json.RawMessage{}
 	for _, id := range personal {
-		items, readErr := s.payloads(ctx, CompatLibraryTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
+		items, readErr := s.payloads(ctx, knowledgeLibraryTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
 		if readErr != nil {
 			return nil, readErr
 		}
 		libraries = append(libraries, items...)
-		items, readErr = s.payloads(ctx, CompatKnowledgeDocumentTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
+		items, readErr = s.payloads(ctx, knowledgeDocumentTable, query.And(query.Equal("scope_key", scope), query.Equal("library_id", id)))
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -182,7 +182,7 @@ func (s SubjectLifecycle) payloads(ctx context.Context, table string, predicate 
 }
 
 func (s SubjectLifecycle) personalLibraries(ctx context.Context, db conversationDB, a agentsdk.ConversationAuthority) ([]string, error) {
-	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), CompatLibraryTable).Columns("library_id", "payload_json").Where(query.Equal("scope_key", CompatLibraryScope(a))).Build()
+	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), knowledgeLibraryTable).Columns("library_id", "payload_json").Where(query.Equal("scope_key", libraryScope(a))).Build()
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +339,7 @@ func (s SubjectLifecycle) erasureCandidates(ctx context.Context, a agentsdk.Conv
 		return result, err
 	}
 	for _, libraryID := range result.libraries {
-		statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), CompatKnowledgeDocumentTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("library_id", libraryID))).Build()
+		statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), knowledgeDocumentTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID))).Build()
 		if err != nil {
 			return result, err
 		}
@@ -379,11 +379,11 @@ func (s SubjectLifecycle) prepareExternalCleanup(ctx context.Context, a agentsdk
 				record.Attachment.State, record.Attachment.ErrorCode = "deleting", ""
 				record.Attachment.Revision++
 				record.Attachment.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
-				if err := s.store.CompatSaveAttachment(ctx, tx, record, expected, a); err != nil {
+				if err := s.store.saveAttachmentRecord(ctx, tx, record, expected, a); err != nil {
 					return err
 				}
 			}
-			if err := s.store.CompatQueueAttachmentIndexWork(ctx, tx, record, a); err != nil {
+			if err := s.store.queueAttachmentIndexWork(ctx, tx, record, a); err != nil {
 				return err
 			}
 		}
@@ -494,10 +494,10 @@ func (s SubjectLifecycle) deleteGeneratedArtifactContent(ctx context.Context, it
 
 func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.ConversationAuthority, candidates knowledgeSubjectCandidates) (map[string]int64, error) {
 	changed := map[string]int64{}
-	owner, scope := conversationOwner(a), CompatLibraryScope(a)
+	owner, scope := conversationOwner(a), libraryScope(a)
 	for key, table := range map[string]string{
-		"artifact_versions": "_agent_artifact_versions", "artifacts": "_agent_artifacts",
-		"attachment_index_jobs": CompatAttachmentIndexJobTable,
+		"artifact_versions": conversationArtifactVersionTable, "artifacts": conversationArtifactTable,
+		"attachment_index_jobs": attachmentIndexJobTable,
 	} {
 		n, err := s.deleteWhere(ctx, tx, table, query.Equal("owner_key", owner))
 		if err != nil {
@@ -511,11 +511,11 @@ func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.
 			table     string
 			predicate query.Predicate
 		}{
-			"document_jobs":     {CompatKnowledgeDocumentJobTable, predicate},
-			"documents":         {CompatKnowledgeDocumentTable, predicate},
-			"knowledge_sources": {CompatKnowledgeSourceTable, compatKnowledgeSourcePredicate(a, libraryID)},
-			"library_members":   {CompatLibraryMemberTable, predicate},
-			"libraries":         {CompatLibraryTable, predicate},
+			"document_jobs":     {knowledgeDocumentJobTable, predicate},
+			"documents":         {knowledgeDocumentTable, predicate},
+			"knowledge_sources": {knowledgeSourceTable, knowledgeSourcePredicate(a, libraryID)},
+			"library_members":   {knowledgeLibraryMemberTable, predicate},
+			"libraries":         {knowledgeLibraryTable, predicate},
 		} {
 			n, err := s.deleteWhere(ctx, tx, target.table, target.predicate)
 			if err != nil {
@@ -524,7 +524,7 @@ func (s SubjectLifecycle) eraseRows(ctx context.Context, tx *sql.Tx, a agentsdk.
 			changed[key] += n
 		}
 	}
-	n, err := s.deleteWhere(ctx, tx, CompatLibraryMemberTable, query.And(query.Equal("scope_key", scope), query.Equal("user_id", a.UserID)))
+	n, err := s.deleteWhere(ctx, tx, knowledgeLibraryMemberTable, query.And(query.Equal("scope_key", scope), query.Equal("user_id", a.UserID)))
 	if err != nil {
 		return nil, err
 	}
@@ -555,7 +555,7 @@ func (s SubjectLifecycle) anonymizeSharedDocumentReferences(ctx context.Context,
 	for _, id := range personal {
 		personalSet[id] = true
 	}
-	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), CompatKnowledgeDocumentTable).Columns("document_id", "payload_json").Where(query.Equal("scope_key", CompatLibraryScope(a))).Build()
+	statement, args, err := query.NewSelectBuilder(s.store.store.Renderer(), knowledgeDocumentTable).Columns("document_id", "payload_json").Where(query.Equal("scope_key", libraryScope(a))).Build()
 	if err != nil {
 		return 0, err
 	}
@@ -595,7 +595,7 @@ func (s SubjectLifecycle) anonymizeSharedDocumentReferences(ctx context.Context,
 		return 0, err
 	}
 	for _, value := range updates {
-		statement, args, err = query.NewUpdateBuilder(s.store.store.Renderer(), CompatKnowledgeDocumentTable).Set("payload_json", value.raw).Where(query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("document_id", value.id))).Build()
+		statement, args, err = query.NewUpdateBuilder(s.store.store.Renderer(), knowledgeDocumentTable).Set("payload_json", value.raw).Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("document_id", value.id))).Build()
 		if err != nil {
 			return 0, err
 		}

@@ -16,6 +16,14 @@ func citationFixtureMapping() *KnowledgeResponseMapping {
 	return &KnowledgeResponseMapping{Search: &KnowledgeCitationMapping{Items: "/hits", Many: true, DocumentID: "/doc_id", Title: "/title", URL: "/url", Excerpt: "/snippet"}, Fetch: &KnowledgeCitationMapping{DocumentID: "/doc_id", Title: "/title", URL: "/url", Excerpt: "/body"}}
 }
 
+func TestApplyKnowledgeAnchorPreservesBuilderLocations(t *testing.T) {
+	location := agentsdk.DocumentLocation{}
+	applyKnowledgeAnchor(`{'slide': 3, 'sheet': 'Revenue', 'row_range': [7, 11], 'line_range': [20, 29], 'para_index': 4, 'json_path': '$.items[0]', 'html_id': 'summary', 'time_range_ms': [1200, 9400]}`, &location)
+	if location.Slide != 3 || location.Sheet != "Revenue" || location.Row != 7 || location.RowEnd != 11 || location.Line != 20 || location.LineEnd != 29 || location.Paragraph != 4 || location.JSONPath != "$.items[0]" || location.HTMLID != "summary" || location.StartMS != 1200 || location.EndMS != 9400 {
+		t.Fatalf("location=%+v", location)
+	}
+}
+
 func TestKnowledgeFetchChunkCitationsUseVerifiedDocumentMetadata(t *testing.T) {
 	mapping, err := knowledgeMappingJSON(`{"fetch":{"items":"/data/chunks","many":true,"metadata_object":"/data","doc_id":"/doc_id","title":"/title","url":"/source/source_url","excerpt":"/content"}}`)
 	if err != nil {
@@ -141,10 +149,10 @@ func TestKnowledgeCitationMappingsAndReceiptsAreRevalidated(t *testing.T) {
 	if k.RevalidateKnowledge(t.Context(), forged, a) == nil {
 		t.Fatal("forged source excerpt accepted")
 	}
-	legacy := saved
-	legacy.Citations = nil
-	if err = k.RevalidateKnowledge(t.Context(), legacy, a); err != nil {
-		t.Fatal("legacy receipt became unreadable", err)
+	missing := saved
+	missing.Citations = nil
+	if err = k.RevalidateKnowledge(t.Context(), missing, a); err == nil {
+		t.Fatal("receipt with removed citations revalidated")
 	}
 	for _, raw := range []string{`{"unexpected":1}`, `{"search":{"items":"hits","doc_id":"/doc_id"}}`, `{"search":{"items":"/hits","doc_id":"/bad~2"}}`, `{"search":{"items":"/hits"}}`, `{} {}`} {
 		if _, err := knowledgeMappingJSON(raw); err == nil {

@@ -9,6 +9,7 @@ import (
 
 	sdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 type resultReadLibraryRepo struct {
@@ -43,6 +44,9 @@ func (r *resultReadLibraryRepo) KnowledgeDocumentByRemoteID(ctx context.Context,
 		return persistence.KnowledgeDocumentRecord{}, conversationFailure("not_found", "document_not_found")
 	}
 	return r.KnowledgeDocumentRecord(ctx, r.doc.Document.ID, a)
+}
+func (*resultReadLibraryRepo) KnowledgePagePermissionTokens(context.Context, string, sdk.ConversationAuthority) ([]string, error) {
+	return nil, nil
 }
 
 type resultReadLibraryPolicy struct {
@@ -89,14 +93,25 @@ func (s *resultReadDocumentProvider) SearchKnowledgeDocumentPassages(context.Con
 	}
 	return s.passages, nil
 }
+func (s *resultReadDocumentProvider) SearchKnowledgeDocuments(ctx context.Context, query string, authority sdk.ConversationAuthority) (sdk.KnowledgeDocumentSearch, error) {
+	passages, err := s.SearchKnowledgeDocumentPassages(ctx, query, authority)
+	reranked := true
+	return sdk.KnowledgeDocumentSearch{Passages: passages, TopK: 7, Mode: "hybrid", Reranked: &reranked}, err
+}
 func (s *resultReadDocumentProvider) ReadKnowledgeDocumentPassages(ctx context.Context, _ string, a sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
 	return s.SearchKnowledgeDocumentPassages(ctx, "", a)
+}
+func (s *resultReadDocumentProvider) SearchKnowledgeDocumentsWithPermissions(ctx context.Context, query string, _ []string, authority sdk.ConversationAuthority) (sdk.KnowledgeDocumentSearch, error) {
+	return s.SearchKnowledgeDocuments(ctx, query, authority)
+}
+func (s *resultReadDocumentProvider) ReadKnowledgeDocumentPassagesWithPermissions(ctx context.Context, id string, _ []string, authority sdk.ConversationAuthority) ([]sdk.KnowledgeDocumentPassage, error) {
+	return s.ReadKnowledgeDocumentPassages(ctx, id, authority)
 }
 
 func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *testing.T) {
 	a := sdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "reader"}
 	lib := sdk.KnowledgeLibrary{ID: "lib_" + strings.Repeat("a", 32), Kind: "shared", Role: "reader"}
-	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64)}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
+	doc := persistence.KnowledgeDocumentRecord{Document: sdk.KnowledgeDocument{ID: "kdoc_" + strings.Repeat("b", 32), LibraryID: lib.ID, State: "ready", SHA256: strings.Repeat("c", 64), ContentVersion: 1, IndexGeneration: 1}, SourceID: "isolated-source", RemoteID: "remote-doc", IndexObserved: true, SourceAccess: &sdk.KnowledgeDocumentSourceAccess{Namespace: sdk.KnowledgeDocumentSourceNamespaceRuntimeRecord, ResourceType: "meeting", ResourceID: "meeting-a"}}
 	repo := &resultReadLibraryRepo{a: a, library: lib, doc: doc, member: true}
 	policy := &resultReadLibraryPolicy{}
 	sourcePolicy := &resultReadSourcePolicy{}
@@ -116,6 +131,12 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 			if err != nil {
 				t.Fatal(err)
 			}
+			if len(saved.Citations) != 1 || saved.Citations[0].DocumentVersion != doc.Document.ContentVersion || saved.Citations[0].ContentSHA256 != doc.Document.SHA256 || saved.Citations[0].SourceRevision != "content:1;index:1" {
+				t.Fatalf("citation is not pinned to local original: %+v", saved.Citations)
+			}
+			if operation == "search" && (saved.SearchTopK != 7 || saved.SearchMode != "hybrid" || saved.SearchReranked == nil || !*saved.SearchReranked) {
+				t.Fatalf("managed search diagnostics were dropped: %+v", saved)
+			}
 			if err = sdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); err != nil {
 				t.Fatal(err)
 			}
@@ -123,12 +144,14 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 				name  string
 				apply func()
 			}{
-				{"download", func() { policy.denied = "documents_download" }},
-				{"library", func() { policy.denied = "libraries_get" }},
+				{"download", func() { policy.denied = knowledgesdk.ActionDocumentsDownload }},
+				{"library", func() { policy.denied = knowledgesdk.ActionLibrariesGet }},
 				{"membership", func() { repo.member = false }},
 				{"archived", func() { repo.library.Archived = true }},
 				{"removed", func() { repo.doc.DeleteStarted = true }},
 				{"content", func() { repo.doc.Document.SHA256 = strings.Repeat("d", 64) }},
+				{"content-version", func() { repo.doc.Document.ContentVersion++ }},
+				{"index-generation", func() { repo.doc.Document.IndexGeneration++ }},
 				{"binding", func() { repo.doc.SourceID = "different-source" }},
 				{"source-record", func() { sourcePolicy.denied = true }},
 			} {
@@ -144,7 +167,7 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 					repo.doc = doc
 				})
 			}
-			provider.afterRead = func() { policy.denied = "documents_download" }
+			provider.afterRead = func() { policy.denied = knowledgesdk.ActionDocumentsDownload }
 			if err = sdk.AuthorizeKnowledgeResultRead(t.Context(), k, saved, a); err == nil {
 				t.Fatal("mid-read permission revocation survived")
 			}
@@ -172,7 +195,7 @@ func TestManagedKnowledgeResultReadingUsesCurrentOriginalAndLibraryRights(t *tes
 		})
 	}
 	for _, op := range policy.operations {
-		if op != "libraries_get" && op != "documents_download" {
+		if op != knowledgesdk.ActionLibrariesGet && op != knowledgesdk.ActionDocumentsDownload {
 			t.Fatalf("result reading used professional action %s", op)
 		}
 	}
@@ -191,15 +214,15 @@ func (r *resultReadGuardRegistry) KnowledgeSourceManaged(context.Context, string
 	return r.managed, nil
 }
 
-type resultReadLegacySource struct {
+type resultReadDefaultSource struct {
 	reads     int
 	afterRead func()
 }
 
-func (*resultReadLegacySource) Search(context.Context, string, sdk.ConversationAuthority) (json.RawMessage, error) {
+func (*resultReadDefaultSource) Search(context.Context, string, sdk.ConversationAuthority) (json.RawMessage, error) {
 	panic("execution is not a result-read policy")
 }
-func (s *resultReadLegacySource) AuthorizeKnowledgeResultRead(context.Context, sdk.ConversationKnowledgeResult, sdk.ConversationAuthority) error {
+func (s *resultReadDefaultSource) AuthorizeKnowledgeResultRead(context.Context, sdk.ConversationKnowledgeResult, sdk.ConversationAuthority) error {
 	s.reads++
 	if s.afterRead != nil {
 		s.afterRead()
@@ -208,7 +231,7 @@ func (s *resultReadLegacySource) AuthorizeKnowledgeResultRead(context.Context, s
 }
 func TestKnowledgeResultReaderPreservesManagedSourceGuard(t *testing.T) {
 	registry := &resultReadGuardRegistry{}
-	base := &resultReadLegacySource{}
+	base := &resultReadDefaultSource{}
 	guarded := &DocumentGuardedKnowledge{base: base, source: &resultReadDocumentProvider{}, repo: registry}
 	a := sdk.ConversationAuthority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "reader"}
 	saved := sdk.ConversationKnowledgeResult{Provider: "fixture", Operation: "fetch", DocumentID: "original"}
@@ -217,7 +240,7 @@ func TestKnowledgeResultReaderPreservesManagedSourceGuard(t *testing.T) {
 	}
 	registry.managed = true
 	if err := sdk.AuthorizeKnowledgeResultRead(t.Context(), guarded, saved, a); err == nil || base.reads != 1 {
-		t.Fatal("managed source escaped through legacy reader", err)
+		t.Fatal("managed source escaped through default reader", err)
 	}
 	registry.managed = false
 	base.afterRead = func() { registry.managed = true }

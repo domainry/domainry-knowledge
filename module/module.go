@@ -21,7 +21,6 @@ import (
 	recordstore "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/record"
 	provider "github.com/domainry/domainry-knowledge/internal/infrastructure/provider"
 	lifecyclecontract "github.com/domainry/domainry-lifecycle-sdk/contract"
-	query "github.com/domainry/domainry-orm/query"
 	"net/http"
 	"time"
 )
@@ -50,7 +49,19 @@ func DocumentStorageScope(library string, a agentsdk.ConversationAuthority) agen
 	return application.DocumentStorageScope(library, a)
 }
 func DocumentAccessPolicy(source any) string { return application.DocumentAccessPolicy(source) }
-func DocumentMaxBytes(source any) int64      { return application.DocumentMaxBytes(source) }
+func DocumentOriginalMaximumBytes() int64    { return application.DocumentOriginalMaximumBytes() }
+func BuiltinDocumentSecurityScanner() contract.DocumentSecurityScanner {
+	return application.BuiltinDocumentSecurityScanner()
+}
+func NewClamdDocumentSecurityScanner(network, address string, timeout time.Duration) (contract.DocumentSecurityScanner, error) {
+	return assembly.NewClamdDocumentSecurityScanner(network, address, timeout)
+}
+func DocumentIndexMaximumBytes(source any) int64 {
+	return application.DocumentIndexMaximumBytes(source)
+}
+func DocumentIndexMaximumBytesForFilename(source any, filename string) int64 {
+	return application.DocumentIndexMaximumBytesForFilename(source, filename)
+}
 func ActivateDocumentSources(repo any, runtime string, options Options) error {
 	return application.ActivateDocumentSources(repo, runtime, options)
 }
@@ -68,8 +79,8 @@ func DocumentReadable(r persistence.KnowledgeDocumentRecord, library, source, po
 type LibraryKnowledgeBinding = application.LibraryKnowledgeBinding
 type LibraryKnowledgeSource = application.LibraryKnowledgeSource
 
-func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
-	return application.NewLibraryKnowledgeSource(repo, runtimeID, policy, sourcePolicy, bindings, legacy, catalog)
+func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, defaultSource ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
+	return application.NewLibraryKnowledgeSource(repo, runtimeID, policy, sourcePolicy, bindings, defaultSource, catalog)
 }
 func LibraryKnowledgeAccessError(err error) error {
 	return application.LibraryKnowledgeAccessError(err)
@@ -81,49 +92,16 @@ func CommittedKnowledgeWriteContext(ctx context.Context, expires time.Time) (con
 type ConversationKnowledge = application.ConversationKnowledge
 type SourcePolicy = application.SourcePolicy
 type Options = application.Options
-type Service = application.Service
+type Service = contract.Service
 
-func NewService(repo any, runtimeID string, options Options) *Service {
-	return application.NewService(repo, runtimeID, options)
+func NewService(repo any, runtimeID string, options Options) Service {
+	return assembly.NewRuntime(repo).NewService(runtimeID, options)
 }
 func GuardManagedKnowledge(base ConversationKnowledge, source agentsdk.ManagedKnowledgeDocumentSource, repo persistence.KnowledgeSourceRegistry) ConversationKnowledge {
 	return application.GuardManagedKnowledge(base, source, repo)
 }
 
 type ContextReader = application.ContextReader
-
-type CompatArtifactCursor = store.CompatArtifactCursor
-
-func CompatConversationArtifactMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatConversationArtifactMigration(d)
-}
-func CompatArtifactScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return store.CompatArtifactScope(a, id)
-}
-func CompatArtifactSHA(value string) bool { return store.CompatArtifactSHA(value) }
-func CompatValidateArtifactRecord(in persistence.ConversationArtifactRecord) error {
-	return store.CompatValidateArtifactRecord(in)
-}
-func CompatArtifactRequestKey(digest string, fallback any) (any, error) {
-	return store.CompatArtifactRequestKey(digest, fallback)
-}
-
-const CompatAttachmentIndexJobTable = store.CompatAttachmentIndexJobTable
-
-func CompatAttachmentIndexMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatAttachmentIndexMigration(d)
-}
-
-func CompatAttachmentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return store.CompatAttachmentScope(a, id)
-}
-func CompatAttachmentDeleted(state string) bool { return store.CompatAttachmentDeleted(state) }
-
-var CompatAttachmentErrorCodePattern = store.CompatAttachmentErrorCodePattern
-
-func CompatValidAttachmentReserve(in persistence.ConversationAttachmentReserve) bool {
-	return store.CompatValidAttachmentReserve(in)
-}
 
 type Backend = store.Backend
 type DB = store.DB
@@ -136,62 +114,6 @@ func NewStore(backend Backend, sources Sources, artifacts ArtifactPersistence) *
 }
 
 type SQLBackend = store.SQLBackend
-
-func CompatKnowledgeDocumentReservationID(library, client string, namespace string, a agentsdk.ConversationAuthority) string {
-	return store.CompatKnowledgeDocumentReservationID(library, client, namespace, a)
-}
-func CompatValidAttachmentOrigin(origin persistence.KnowledgeAttachmentOrigin) bool {
-	return store.CompatValidAttachmentOrigin(origin)
-}
-
-func CompatDocumentScopeForLibrary(id string, a agentsdk.ConversationAuthority) agentsdk.KnowledgeDocumentStorageScope {
-	return store.CompatDocumentScopeForLibrary(id, a)
-}
-
-const CompatKnowledgeDocumentTable = store.CompatKnowledgeDocumentTable
-const CompatKnowledgeDocumentJobTable = store.CompatKnowledgeDocumentJobTable
-const CompatKnowledgeSourceTable = store.CompatKnowledgeSourceTable
-
-func CompatKnowledgeDocumentMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatKnowledgeDocumentMigration(d)
-}
-func CompatDocumentScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return store.CompatDocumentScope(a, id)
-}
-func CompatValidKnowledgeDocumentID(id string) bool {
-	return store.CompatValidKnowledgeDocumentID(id)
-}
-func CompatDocumentWriting(l agentsdk.KnowledgeLibrary) error {
-	return store.CompatDocumentWriting(l)
-}
-func CompatValidKnowledgeDocumentOrigin(o persistence.KnowledgeDocumentOrigin) bool {
-	return store.CompatValidKnowledgeDocumentOrigin(o)
-}
-func CompatDocumentLeaseAuthority(l persistence.KnowledgeDocumentLease) agentsdk.ConversationAuthority {
-	return store.CompatDocumentLeaseAuthority(l)
-}
-func CompatKnowledgeDocumentPutRequestID(r persistence.KnowledgeDocumentRecord) string {
-	return store.CompatKnowledgeDocumentPutRequestID(r)
-}
-
-const CompatLibraryTable = store.CompatLibraryTable
-const CompatLibraryMemberTable = store.CompatLibraryMemberTable
-
-func CompatKnowledgeLibraryMigration(d modulehost.Dialect) (modulehost.SchemaMigration, error) {
-	return store.CompatKnowledgeLibraryMigration(d)
-}
-func CompatLibraryScope(a agentsdk.ConversationAuthority) string {
-	return store.CompatLibraryScope(a)
-}
-func CompatLibraryPredicate(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return store.CompatLibraryPredicate(a, id)
-}
-func CompatValidLibraryID(id string) bool     { return store.CompatValidLibraryID(id) }
-func CompatValidLibraryUser(id string) bool   { return store.CompatValidLibraryUser(id) }
-func CompatValidLibraryRole(role string) bool { return store.CompatValidLibraryRole(role) }
-func CompatLibraryPageLimit(after string, limit int, users bool) (int, error) {
-	return store.CompatLibraryPageLimit(after, limit, users)
-}
 
 const MigrationOwner = store.MigrationOwner
 

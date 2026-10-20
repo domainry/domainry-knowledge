@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -50,13 +51,14 @@ type FileStorageOptions struct {
 }
 
 type Service struct {
-	server    *saashttp.Server
-	knowledge knowledgecontract.Service
-	database  *sql.DB
-	artifacts *artifactstorage.Files
-	shared    artifactstorage.SharedStorage
-	documents *documentstorage.Files
-	files     knowledgefiles.Service
+	server          *saashttp.Server
+	knowledge       knowledgecontract.Service
+	database        *sql.DB
+	artifacts       *artifactstorage.Files
+	shared          artifactstorage.SharedStorage
+	documents       agentsdk.KnowledgeDocumentStorage
+	documentsCloser io.Closer
+	files           knowledgefiles.Service
 }
 
 type grantSourceReader struct{ bridge saashttp.GrantBridge }
@@ -129,9 +131,15 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	if err != nil {
 		return nil, err
 	}
-	service.documents, err = documentstorage.NewFiles(filepath.Join(storagePath, "documents"))
-	if err != nil {
-		return nil, err
+	if documents, ok := service.shared.(agentsdk.KnowledgeDocumentStorage); ok {
+		service.documents = documents
+	} else {
+		localDocuments, openErr := documentstorage.NewFiles(filepath.Join(storagePath, "documents"))
+		if openErr != nil {
+			return nil, openErr
+		}
+		service.documents = localDocuments
+		service.documentsCloser = localDocuments
 	}
 	bridge := saashttp.GrantBridge{}
 	repository := store.New(backend, grantSourceReader{bridge: bridge}, store.ArtifactPersistence{Store: artifactStore, Content: service.shared, Writer: service.shared})
@@ -187,8 +195,8 @@ func (service *Service) Close(context.Context) error {
 		service.knowledge.Close()
 	}
 	var values []error
-	if service.documents != nil {
-		values = append(values, service.documents.Close())
+	if service.documentsCloser != nil {
+		values = append(values, service.documentsCloser.Close())
 	}
 	if service.artifacts != nil {
 		values = append(values, service.artifacts.Close())

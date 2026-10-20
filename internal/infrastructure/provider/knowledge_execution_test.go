@@ -155,3 +155,53 @@ func TestKnowledgeBusinessFailureCannotBecomeEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestKnowledgeSearchNormalizesAndRevalidatesDiagnostics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"hits":[],"mode_used":"dense","reranked":false,"degraded_reason":"bm25_unavailable"}`)
+	}))
+	defer upstream.Close()
+	k := mustTestKnowledge(t, upstream)
+	saved, err := k.SearchKnowledge(t.Context(), "policy", knowledgeAuthority())
+	if err != nil || saved.SearchTopK != 5 || saved.SearchMode != "dense" || saved.SearchReranked == nil || *saved.SearchReranked || saved.SearchDegraded != "bm25_unavailable" {
+		t.Fatalf("saved=%+v error=%v", saved, err)
+	}
+	persisted, _ := json.Marshal(saved)
+	if err = json.Unmarshal(persisted, &saved); err != nil || k.RevalidateKnowledge(t.Context(), saved, knowledgeAuthority()) != nil {
+		t.Fatal("persisted diagnostics did not revalidate", err)
+	}
+	forged := saved
+	forged.SearchMode = "hybrid"
+	if err = k.RevalidateKnowledge(t.Context(), forged, knowledgeAuthority()); err == nil {
+		t.Fatal("forged search diagnostics revalidated")
+	}
+}
+
+func TestKnowledgeSearchRejectsInvalidDiagnostics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"hits":[],"mode_used":"private-mode","reranked":"yes"}`)
+	}))
+	defer upstream.Close()
+	if _, err := mustTestKnowledge(t, upstream).SearchKnowledge(t.Context(), "policy", knowledgeAuthority()); err == nil {
+		t.Fatal("invalid search diagnostics accepted")
+	}
+}
+
+func TestManagedKnowledgeSearchPreservesRetrievalDiagnostics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprint(w, `{"hits":[{"record_id":"chunk-1","doc_id":"document-1","doc_version":3,"record_kind":"text","snippet":"policy text","anchor_ref":"{'page': 4}","score":0.91}],"mode_used":"hybrid","reranked":true}`)
+	}))
+	defer upstream.Close()
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{BaseURL: upstream.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: upstream.Client(), DocumentManagement: true, TopK: 9})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := k.SearchKnowledgeDocuments(t.Context(), "policy", knowledgeAuthority())
+	if err != nil || result.TopK != 9 || result.Mode != "hybrid" || result.Reranked == nil || !*result.Reranked || result.DegradedReason != "" || len(result.Passages) != 1 {
+		t.Fatalf("managed search=%+v err=%v", result, err)
+	}
+	passage := result.Passages[0]
+	if passage.DocumentID != "document-1" || passage.ChunkID != "chunk-1" || passage.DocumentVersion != 3 || passage.Score != 0.91 || passage.Location == nil || passage.Location.Page != 4 {
+		t.Fatalf("managed passage=%+v", passage)
+	}
+}

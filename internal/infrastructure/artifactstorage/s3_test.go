@@ -3,7 +3,12 @@ package artifactstorage
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -19,8 +24,19 @@ type fakeS3Object struct {
 }
 
 type fakeS3 struct {
-	mu      sync.Mutex
-	objects map[string]fakeS3Object
+	mu               sync.Mutex
+	objects          map[string]fakeS3Object
+	multipart        map[string]*fakeS3Multipart
+	nextUpload       int
+	uploadedParts    int
+	completedUploads int
+	abortedUploads   int
+}
+
+type fakeS3Multipart struct {
+	key, contentType string
+	metadata         map[string]string
+	parts            map[int32][]byte
 }
 
 func (value *fakeS3) PutObject(_ context.Context, input *s3.PutObjectInput, _ ...func(*s3.Options)) (*s3.PutObjectOutput, error) {
@@ -30,8 +46,79 @@ func (value *fakeS3) PutObject(_ context.Context, input *s3.PutObjectInput, _ ..
 	}
 	value.mu.Lock()
 	defer value.mu.Unlock()
-	value.objects[aws.ToString(input.Key)] = fakeS3Object{content: raw, metadata: input.Metadata}
+	key := aws.ToString(input.Key)
+	if aws.ToString(input.IfNoneMatch) == "*" {
+		if _, exists := value.objects[key]; exists {
+			return nil, errors.New("precondition failed")
+		}
+	}
+	value.objects[key] = fakeS3Object{content: raw, metadata: input.Metadata}
 	return &s3.PutObjectOutput{}, nil
+}
+
+func (value *fakeS3) CreateMultipartUpload(_ context.Context, input *s3.CreateMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CreateMultipartUploadOutput, error) {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	value.nextUpload++
+	id := fmt.Sprintf("upload-%d", value.nextUpload)
+	if value.multipart == nil {
+		value.multipart = map[string]*fakeS3Multipart{}
+	}
+	value.multipart[id] = &fakeS3Multipart{key: aws.ToString(input.Key), contentType: aws.ToString(input.ContentType), metadata: input.Metadata, parts: map[int32][]byte{}}
+	return &s3.CreateMultipartUploadOutput{UploadId: aws.String(id)}, nil
+}
+
+func (value *fakeS3) UploadPart(_ context.Context, input *s3.UploadPartInput, _ ...func(*s3.Options)) (*s3.UploadPartOutput, error) {
+	raw, err := io.ReadAll(input.Body)
+	if err != nil {
+		return nil, err
+	}
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	upload := value.multipart[aws.ToString(input.UploadId)]
+	if upload == nil || upload.key != aws.ToString(input.Key) || int64(len(raw)) != aws.ToInt64(input.ContentLength) {
+		return nil, io.ErrUnexpectedEOF
+	}
+	part := aws.ToInt32(input.PartNumber)
+	upload.parts[part] = append([]byte(nil), raw...)
+	value.uploadedParts++
+	return &s3.UploadPartOutput{ETag: aws.String(fmt.Sprintf("etag-%d", part))}, nil
+}
+
+func (value *fakeS3) CompleteMultipartUpload(_ context.Context, input *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	id := aws.ToString(input.UploadId)
+	upload := value.multipart[id]
+	if upload == nil || upload.key != aws.ToString(input.Key) || input.MultipartUpload == nil {
+		return nil, io.ErrUnexpectedEOF
+	}
+	parts := append([]types.CompletedPart(nil), input.MultipartUpload.Parts...)
+	sort.Slice(parts, func(i, j int) bool { return aws.ToInt32(parts[i].PartNumber) < aws.ToInt32(parts[j].PartNumber) })
+	var content []byte
+	for _, completed := range parts {
+		part := aws.ToInt32(completed.PartNumber)
+		raw, found := upload.parts[part]
+		if !found {
+			return nil, io.ErrUnexpectedEOF
+		}
+		content = append(content, raw...)
+	}
+	value.objects[upload.key] = fakeS3Object{content: content, metadata: upload.metadata}
+	delete(value.multipart, id)
+	value.completedUploads++
+	return &s3.CompleteMultipartUploadOutput{}, nil
+}
+
+func (value *fakeS3) AbortMultipartUpload(_ context.Context, input *s3.AbortMultipartUploadInput, _ ...func(*s3.Options)) (*s3.AbortMultipartUploadOutput, error) {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	id := aws.ToString(input.UploadId)
+	if _, found := value.multipart[id]; found {
+		delete(value.multipart, id)
+		value.abortedUploads++
+	}
+	return &s3.AbortMultipartUploadOutput{}, nil
 }
 
 func (value *fakeS3) GetObject(_ context.Context, input *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
@@ -41,7 +128,29 @@ func (value *fakeS3) GetObject(_ context.Context, input *s3.GetObjectInput, _ ..
 	if !found {
 		return nil, &types.NoSuchKey{}
 	}
-	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(object.content)), ContentLength: aws.Int64(int64(len(object.content))), Metadata: object.metadata}, nil
+	content := object.content
+	if header := aws.ToString(input.Range); header != "" {
+		if !strings.HasPrefix(header, "bytes=") {
+			return nil, io.ErrUnexpectedEOF
+		}
+		bounds := strings.Split(strings.TrimPrefix(header, "bytes="), "-")
+		if len(bounds) != 2 || bounds[0] == "" {
+			return nil, io.ErrUnexpectedEOF
+		}
+		start, err := strconv.ParseInt(bounds[0], 10, 64)
+		if err != nil || start < 0 || start > int64(len(content)) {
+			return nil, io.ErrUnexpectedEOF
+		}
+		end := int64(len(content) - 1)
+		if bounds[1] != "" {
+			end, err = strconv.ParseInt(bounds[1], 10, 64)
+			if err != nil || end < start || end >= int64(len(content)) {
+				return nil, io.ErrUnexpectedEOF
+			}
+		}
+		content = content[start : end+1]
+	}
+	return &s3.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(content)), ContentLength: aws.Int64(int64(len(content))), Metadata: object.metadata}, nil
 }
 
 func (value *fakeS3) HeadObject(_ context.Context, input *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {

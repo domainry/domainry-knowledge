@@ -15,27 +15,27 @@ import (
 	"github.com/domainry/domainry-orm/query"
 )
 
-func CompatArtifactScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
+func artifactScope(a agentsdk.ConversationAuthority, id string) query.Predicate {
 	return query.And(query.Equal("owner_key", conversationOwner(a)), query.Equal("artifact_id", id))
 }
-func CompatArtifactSHA(value string) bool {
+func validArtifactSHA(value string) bool {
 	raw, err := hex.DecodeString(value)
 	return err == nil && len(raw) == 32 && strings.ToLower(value) == value
 }
-func (s *Store) CompatArtifactHead(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifact, error) {
+func (s *Store) artifactHead(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationArtifact, error) {
 	var out agentsdk.ConversationArtifact
 	if !personalMemoryKey(id) {
 		return out, conversationError("bad_request", "artifact_invalid")
 	}
-	found, err := s.executionRead(ctx, db, "_agent_artifacts", CompatArtifactScope(a, id), &out)
+	found, err := s.executionRead(ctx, db, conversationArtifactTable, artifactScope(a, id), &out)
 	if err == nil && !found {
 		err = conversationError("not_found", "artifact_not_found")
 	}
 	return out, err
 }
-func (s *Store) CompatArtifactRecord(ctx context.Context, db conversationDB, id string, version int64, a agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
+func (s *Store) ArtifactRecordInTransaction(ctx context.Context, db conversationDB, id string, version int64, a agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
 	var out persistence.ConversationArtifactRecord
-	head, err := s.CompatArtifactHead(ctx, db, id, a)
+	head, err := s.artifactHead(ctx, db, id, a)
 	if err != nil {
 		return out, err
 	}
@@ -45,7 +45,7 @@ func (s *Store) CompatArtifactRecord(ctx context.Context, db conversationDB, id 
 	if version < 1 || version > head.Version {
 		return out, conversationError("not_found", "artifact_version_not_found")
 	}
-	found, err := s.executionRead(ctx, db, "_agent_artifact_versions", query.And(CompatArtifactScope(a, id), query.Equal("version", version)), &out)
+	found, err := s.executionRead(ctx, db, conversationArtifactVersionTable, query.And(artifactScope(a, id), query.Equal("version", version)), &out)
 	if err == nil && !found {
 		err = conversationError("not_found", "artifact_version_not_found")
 	}
@@ -55,10 +55,10 @@ func (s *Store) ArtifactRecord(ctx context.Context, id string, version int64, a 
 	if err := conversationAuthority(a); err != nil {
 		return persistence.ConversationArtifactRecord{}, err
 	}
-	return s.CompatArtifactRecord(ctx, s.store.Database(), id, version, a)
+	return s.ArtifactRecordInTransaction(ctx, s.store.Database(), id, version, a)
 }
 
-func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation string, input any, a agentsdk.ConversationAuthority, apply func(*sql.Tx) (any, error), out any) error {
+func (s *Store) mutateArtifact(ctx context.Context, clientID, operation string, input any, a agentsdk.ConversationAuthority, apply func(*sql.Tx) (any, error), out any) error {
 	if err := conversationAuthority(a); err != nil {
 		return err
 	}
@@ -89,9 +89,9 @@ func (s *Store) CompatArtifactMutation(ctx context.Context, clientID, operation 
 	})
 }
 
-func CompatValidateArtifactRecord(in persistence.ConversationArtifactRecord) error {
+func validateArtifactRecord(in persistence.ConversationArtifactRecord) error {
 	m := in.Artifact
-	if !artifact.ValidTitle(m.Title) || m.Kind != "markdown" && m.Kind != "table" && m.Kind != "chart" || !CompatArtifactSHA(m.SHA256) || m.Bytes < 1 || m.Bytes > artifact.MaxBytes || (len(in.Body) == 0) == (in.BodyRef == "") || !executionText(in.BodyRef, 1024, false) {
+	if !artifact.ValidTitle(m.Title) || m.Kind != "markdown" && m.Kind != "table" && m.Kind != "chart" || !validArtifactSHA(m.SHA256) || m.Bytes < 1 || m.Bytes > artifact.MaxBytes || (len(in.Body) == 0) == (in.BodyRef == "") || !executionText(in.BodyRef, 1024, false) {
 		return conversationError("bad_request", "artifact_invalid")
 	}
 	if len(in.Body) > 0 {
@@ -115,9 +115,9 @@ func CompatValidateArtifactRecord(in persistence.ConversationArtifactRecord) err
 	return nil
 }
 
-func (s *Store) CompatSaveArtifact(ctx context.Context, tx *sql.Tx, in persistence.ConversationArtifactWrite, a agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
+func (s *Store) SaveArtifactInTransaction(ctx context.Context, tx *sql.Tx, in persistence.ConversationArtifactWrite, a agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
 	out := in.Record
-	if err := CompatValidateArtifactRecord(out); err != nil {
+	if err := validateArtifactRecord(out); err != nil {
 		return out, err
 	}
 	if in.ExpectedVersion < 0 || in.ExpectedVersion >= 1000 || (out.Artifact.ID == "") != (in.ExpectedVersion == 0) {
@@ -145,7 +145,7 @@ func (s *Store) CompatSaveArtifact(ctx context.Context, tx *sql.Tx, in persisten
 	if in.ExpectedVersion == 0 {
 		out.Artifact.ID = "art_" + conversationHash([]string{conversationOwner(a), in.ClientID})[:32]
 		out.Artifact.CreatedAt = now
-		statement, args, err := query.NewSelectBuilder(s.store.Renderer(), "_agent_artifacts").Projections(query.Project(query.CountAll())).Where(query.Equal("owner_key", conversationOwner(a))).Build()
+		statement, args, err := query.NewSelectBuilder(s.store.Renderer(), conversationArtifactTable).Projections(query.Project(query.CountAll())).Where(query.Equal("owner_key", conversationOwner(a))).Build()
 		if err != nil {
 			return out, err
 		}
@@ -157,7 +157,7 @@ func (s *Store) CompatSaveArtifact(ctx context.Context, tx *sql.Tx, in persisten
 			return out, conversationError("conflict", "artifact_limit")
 		}
 	} else {
-		previous, err := s.CompatArtifactRecord(ctx, tx, out.Artifact.ID, in.ExpectedVersion, a)
+		previous, err := s.ArtifactRecordInTransaction(ctx, tx, out.Artifact.ID, in.ExpectedVersion, a)
 		if err != nil {
 			return out, err
 		}
@@ -180,17 +180,17 @@ func (s *Store) CompatSaveArtifact(ctx context.Context, tx *sql.Tx, in persisten
 	out.Artifact.Version = in.ExpectedVersion + 1
 	out.Artifact.UpdatedAt = now
 	if in.ExpectedVersion == 0 {
-		statement, args, err := query.NewInsertBuilder(s.store.Renderer(), "_agent_artifacts").Columns("owner_key", "artifact_id", "version", "created_at", "source_conversation_id", "payload_json").Values(conversationOwner(a), out.Artifact.ID, out.Artifact.Version, out.Artifact.CreatedAt.UnixMilli(), out.Artifact.SourceConversationID, conversationJSON(out.Artifact)).Build()
+		statement, args, err := query.NewInsertBuilder(s.store.Renderer(), conversationArtifactTable).Columns("owner_key", "artifact_id", "version", "created_at", "source_conversation_id", "payload_json").Values(conversationOwner(a), out.Artifact.ID, out.Artifact.Version, out.Artifact.CreatedAt.UnixMilli(), out.Artifact.SourceConversationID, conversationJSON(out.Artifact)).Build()
 		if err = conversationExec(ctx, tx, statement, args, err); err != nil {
 			return out, err
 		}
 	} else {
-		statement, args, err := query.NewUpdateBuilder(s.store.Renderer(), "_agent_artifacts").Set("version", out.Artifact.Version).Set("source_conversation_id", out.Artifact.SourceConversationID).Set("payload_json", conversationJSON(out.Artifact)).Where(query.And(CompatArtifactScope(a, out.Artifact.ID), query.Equal("version", in.ExpectedVersion))).Build()
+		statement, args, err := query.NewUpdateBuilder(s.store.Renderer(), conversationArtifactTable).Set("version", out.Artifact.Version).Set("source_conversation_id", out.Artifact.SourceConversationID).Set("payload_json", conversationJSON(out.Artifact)).Where(query.And(artifactScope(a, out.Artifact.ID), query.Equal("version", in.ExpectedVersion))).Build()
 		if err = conversationCAS(ctx, tx, statement, args, err); err != nil {
 			return out, err
 		}
 	}
-	statement, args, err := query.NewInsertBuilder(s.store.Renderer(), "_agent_artifact_versions").Columns("owner_key", "artifact_id", "version", "payload_json").Values(conversationOwner(a), out.Artifact.ID, out.Artifact.Version, conversationJSON(out)).Build()
+	statement, args, err := query.NewInsertBuilder(s.store.Renderer(), conversationArtifactVersionTable).Columns("owner_key", "artifact_id", "version", "payload_json").Values(conversationOwner(a), out.Artifact.ID, out.Artifact.Version, conversationJSON(out)).Build()
 	if err = conversationExec(ctx, tx, statement, args, err); err != nil {
 		return out, err
 	}
@@ -198,19 +198,19 @@ func (s *Store) CompatSaveArtifact(ctx context.Context, tx *sql.Tx, in persisten
 }
 func (s *Store) SaveArtifact(ctx context.Context, in persistence.ConversationArtifactWrite, a agentsdk.ConversationAuthority) (persistence.ConversationArtifactRecord, error) {
 	var out persistence.ConversationArtifactRecord
-	key, err := CompatArtifactRequestKey(in.RequestSHA256, in)
+	key, err := artifactRequestKey(in.RequestSHA256, in)
 	if err != nil {
 		return out, err
 	}
-	err = s.CompatArtifactMutation(ctx, in.ClientID, "write", key, a, func(tx *sql.Tx) (any, error) { return s.CompatSaveArtifact(ctx, tx, in, a) }, &out)
+	err = s.mutateArtifact(ctx, in.ClientID, "write", key, a, func(tx *sql.Tx) (any, error) { return s.SaveArtifactInTransaction(ctx, tx, in, a) }, &out)
 	return out, err
 }
 
-func CompatArtifactRequestKey(digest string, fallback any) (any, error) {
+func artifactRequestKey(digest string, fallback any) (any, error) {
 	if digest == "" {
 		return fallback, nil
 	}
-	if !CompatArtifactSHA(digest) {
+	if !validArtifactSHA(digest) {
 		return nil, conversationError("bad_request", "artifact_request_invalid")
 	}
 	return struct{ RequestSHA256 string }{digest}, nil

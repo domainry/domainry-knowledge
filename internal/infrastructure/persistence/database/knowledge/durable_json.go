@@ -8,6 +8,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 // These are persistence shapes, not HTTP projections. Each owned instant is
@@ -32,6 +33,63 @@ type storedKnowledgeDocument struct {
 type storedKnowledgeDocumentRecord struct {
 	persistence.KnowledgeDocumentRecord
 	Document storedKnowledgeDocument `json:"document"`
+}
+
+type storedKnowledgePage struct {
+	knowledgesdk.KnowledgePage
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedKnowledgePageDraft struct {
+	knowledgesdk.KnowledgePageDraft
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedKnowledgePageVersion struct {
+	knowledgesdk.KnowledgePageVersion
+	PublishedAt int64 `json:"published_at"`
+}
+
+type storedKnowledgePageView struct {
+	Page        storedKnowledgePage                    `json:"page"`
+	Published   *storedKnowledgePageVersion            `json:"published,omitempty"`
+	Draft       *storedKnowledgePageDraft              `json:"draft,omitempty"`
+	Breadcrumbs []knowledgesdk.KnowledgePageBreadcrumb `json:"breadcrumbs"`
+}
+
+type storedKnowledgePagePage struct {
+	Items     []storedKnowledgePage `json:"items"`
+	NextAfter string                `json:"next_after,omitempty"`
+	Complete  bool                  `json:"complete"`
+}
+
+type storedKnowledgePageComment struct {
+	knowledgesdk.KnowledgePageComment
+	CreatedAt int64 `json:"created_at"`
+	UpdatedAt int64 `json:"updated_at"`
+}
+
+type storedKnowledgePageAttachment struct {
+	knowledgesdk.KnowledgePageAttachment
+	CreatedAt int64 `json:"created_at"`
+}
+
+type storedKnowledgePageAccessGrant struct {
+	knowledgesdk.KnowledgePageAccessGrant
+	CreatedAt int64 `json:"created_at"`
+}
+
+type storedKnowledgePageAccessPolicy struct {
+	knowledgesdk.KnowledgePageAccessPolicy
+	UpdatedAt int64                            `json:"updated_at"`
+	Grants    []storedKnowledgePageAccessGrant `json:"grants"`
+}
+
+type storedPageProjectionJob struct {
+	pageProjectionJob
+	NotBefore  int64 `json:"not_before"`
+	LeaseUntil int64 `json:"lease_until"`
 }
 
 type storedKnowledgeDocumentLease struct {
@@ -93,6 +151,59 @@ func storedDocument(value agentsdk.KnowledgeDocument) storedKnowledgeDocument {
 	return storedKnowledgeDocument{KnowledgeDocument: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
 }
 
+func storedPage(value knowledgesdk.KnowledgePage) storedKnowledgePage {
+	return storedKnowledgePage{KnowledgePage: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedPageDraft(value knowledgesdk.KnowledgePageDraft) storedKnowledgePageDraft {
+	return storedKnowledgePageDraft{KnowledgePageDraft: value, UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedPageVersion(value knowledgesdk.KnowledgePageVersion) storedKnowledgePageVersion {
+	return storedKnowledgePageVersion{KnowledgePageVersion: value, PublishedAt: durableMillis(value.PublishedAt)}
+}
+
+func storedPageView(value knowledgesdk.KnowledgePageView) storedKnowledgePageView {
+	out := storedKnowledgePageView{Page: storedPage(value.Page), Breadcrumbs: append([]knowledgesdk.KnowledgePageBreadcrumb(nil), value.Breadcrumbs...)}
+	if value.Published != nil {
+		published := storedPageVersion(*value.Published)
+		out.Published = &published
+	}
+	if value.Draft != nil {
+		draft := storedPageDraft(*value.Draft)
+		out.Draft = &draft
+	}
+	return out
+}
+
+func storedPagePage(value knowledgesdk.KnowledgePagePage) storedKnowledgePagePage {
+	out := storedKnowledgePagePage{NextAfter: value.NextAfter, Complete: value.Complete, Items: make([]storedKnowledgePage, 0, len(value.Items))}
+	for _, page := range value.Items {
+		out.Items = append(out.Items, storedPage(page))
+	}
+	return out
+}
+
+func storedPageComment(value knowledgesdk.KnowledgePageComment) storedKnowledgePageComment {
+	return storedKnowledgePageComment{KnowledgePageComment: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
+}
+
+func storedPageAttachment(value knowledgesdk.KnowledgePageAttachment) storedKnowledgePageAttachment {
+	return storedKnowledgePageAttachment{KnowledgePageAttachment: value, CreatedAt: durableMillis(value.CreatedAt)}
+}
+
+func storedPageAccessGrant(value knowledgesdk.KnowledgePageAccessGrant) storedKnowledgePageAccessGrant {
+	return storedKnowledgePageAccessGrant{KnowledgePageAccessGrant: value, CreatedAt: durableMillis(value.CreatedAt)}
+}
+
+func storedPageAccessPolicy(value knowledgesdk.KnowledgePageAccessPolicy) storedKnowledgePageAccessPolicy {
+	out := storedKnowledgePageAccessPolicy{KnowledgePageAccessPolicy: value, UpdatedAt: durableMillis(value.UpdatedAt), Grants: make([]storedKnowledgePageAccessGrant, 0, len(value.Grants))}
+	for _, grant := range value.Grants {
+		out.Grants = append(out.Grants, storedPageAccessGrant(grant))
+	}
+	return out
+}
+
 func storedArtifactValue(value agentsdk.ConversationArtifact) storedArtifact {
 	return storedArtifact{ConversationArtifact: value, CreatedAt: durableMillis(value.CreatedAt), UpdatedAt: durableMillis(value.UpdatedAt)}
 }
@@ -123,6 +234,26 @@ func marshalDurableJSON(value any) ([]byte, error) {
 			return json.Marshal(nil)
 		}
 		return marshalDurableJSON(*item)
+	case knowledgesdk.KnowledgePage:
+		return json.Marshal(storedPage(item))
+	case knowledgesdk.KnowledgePageDraft:
+		return json.Marshal(storedPageDraft(item))
+	case knowledgesdk.KnowledgePageVersion:
+		return json.Marshal(storedPageVersion(item))
+	case knowledgesdk.KnowledgePageView:
+		return json.Marshal(storedPageView(item))
+	case knowledgesdk.KnowledgePagePage:
+		return json.Marshal(storedPagePage(item))
+	case knowledgesdk.KnowledgePageComment:
+		return json.Marshal(storedPageComment(item))
+	case knowledgesdk.KnowledgePageAttachment:
+		return json.Marshal(storedPageAttachment(item))
+	case knowledgesdk.KnowledgePageAccessGrant:
+		return json.Marshal(storedPageAccessGrant(item))
+	case knowledgesdk.KnowledgePageAccessPolicy:
+		return json.Marshal(storedPageAccessPolicy(item))
+	case pageProjectionJob:
+		return json.Marshal(storedPageProjectionJob{pageProjectionJob: item, NotBefore: durableMillis(item.NotBefore), LeaseUntil: durableMillis(item.LeaseUntil)})
 	case persistence.KnowledgeDocumentLease:
 		return json.Marshal(storedKnowledgeDocumentLease{KnowledgeDocumentLease: item, ExpiresAt: durableMillis(item.ExpiresAt)})
 	case persistence.ConversationAttachmentIndexLease:
@@ -169,6 +300,100 @@ func unmarshalDurableJSON(raw []byte, destination any) error {
 		*out = stored.KnowledgeDocumentRecord
 		out.Document = stored.Document.KnowledgeDocument
 		out.Document.CreatedAt, out.Document.UpdatedAt = durableTime(stored.Document.CreatedAt), durableTime(stored.Document.UpdatedAt)
+	case *knowledgesdk.KnowledgePage:
+		var stored storedKnowledgePage
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePage
+		out.CreatedAt, out.UpdatedAt = durableTime(stored.CreatedAt), durableTime(stored.UpdatedAt)
+	case *knowledgesdk.KnowledgePageDraft:
+		var stored storedKnowledgePageDraft
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageDraft
+		out.UpdatedAt = durableTime(stored.UpdatedAt)
+	case *knowledgesdk.KnowledgePageVersion:
+		var stored storedKnowledgePageVersion
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageVersion
+		out.PublishedAt = durableTime(stored.PublishedAt)
+	case *knowledgesdk.KnowledgePageView:
+		var stored storedKnowledgePageView
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		out.Page = stored.Page.KnowledgePage
+		out.Page.CreatedAt, out.Page.UpdatedAt = durableTime(stored.Page.CreatedAt), durableTime(stored.Page.UpdatedAt)
+		out.Published = nil
+		if stored.Published != nil {
+			published := stored.Published.KnowledgePageVersion
+			published.PublishedAt = durableTime(stored.Published.PublishedAt)
+			out.Published = &published
+		}
+		out.Draft = nil
+		if stored.Draft != nil {
+			draft := stored.Draft.KnowledgePageDraft
+			draft.UpdatedAt = durableTime(stored.Draft.UpdatedAt)
+			out.Draft = &draft
+		}
+		out.Breadcrumbs = append([]knowledgesdk.KnowledgePageBreadcrumb(nil), stored.Breadcrumbs...)
+	case *knowledgesdk.KnowledgePagePage:
+		var stored storedKnowledgePagePage
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		out.Items = make([]knowledgesdk.KnowledgePage, 0, len(stored.Items))
+		for _, page := range stored.Items {
+			value := page.KnowledgePage
+			value.CreatedAt, value.UpdatedAt = durableTime(page.CreatedAt), durableTime(page.UpdatedAt)
+			out.Items = append(out.Items, value)
+		}
+		out.NextAfter, out.Complete = stored.NextAfter, stored.Complete
+	case *knowledgesdk.KnowledgePageComment:
+		var stored storedKnowledgePageComment
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageComment
+		out.CreatedAt, out.UpdatedAt = durableTime(stored.CreatedAt), durableTime(stored.UpdatedAt)
+	case *knowledgesdk.KnowledgePageAttachment:
+		var stored storedKnowledgePageAttachment
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageAttachment
+		out.CreatedAt = durableTime(stored.CreatedAt)
+	case *knowledgesdk.KnowledgePageAccessGrant:
+		var stored storedKnowledgePageAccessGrant
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageAccessGrant
+		out.CreatedAt = durableTime(stored.CreatedAt)
+	case *knowledgesdk.KnowledgePageAccessPolicy:
+		var stored storedKnowledgePageAccessPolicy
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.KnowledgePageAccessPolicy
+		out.UpdatedAt = durableTime(stored.UpdatedAt)
+		out.Grants = make([]knowledgesdk.KnowledgePageAccessGrant, 0, len(stored.Grants))
+		for _, grant := range stored.Grants {
+			value := grant.KnowledgePageAccessGrant
+			value.CreatedAt = durableTime(grant.CreatedAt)
+			out.Grants = append(out.Grants, value)
+		}
+	case *pageProjectionJob:
+		var stored storedPageProjectionJob
+		if err := json.Unmarshal(raw, &stored); err != nil {
+			return err
+		}
+		*out = stored.pageProjectionJob
+		out.NotBefore, out.LeaseUntil = durableTime(stored.NotBefore), durableTime(stored.LeaseUntil)
 	case *persistence.KnowledgeDocumentLease:
 		var stored storedKnowledgeDocumentLease
 		if err := json.Unmarshal(raw, &stored); err != nil {

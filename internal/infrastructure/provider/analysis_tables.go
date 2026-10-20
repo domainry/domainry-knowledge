@@ -50,7 +50,7 @@ func (k *Knowledge) tableCatalog(ctx context.Context, subject reportmodel.Report
 	if k == nil || len(k.config.AnalysisDocumentIDs) == 0 || subject.Validate() != nil {
 		return httpapi.AnalysisTableCatalogOutput{}, &reportsdk.Error{StatusCode: 503, Code: "backend.report.analysis.table_unavailable"}
 	}
-	out, err := connector.Call(ctx, knowledgeGateway{k, k.reportAuthority(subject)}, httpapi.CatalogAnalysisTables, httpapi.AnalysisTableCatalogInput{})
+	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: k.reportAuthority(subject)}, httpapi.CatalogAnalysisTables, httpapi.AnalysisTableCatalogInput{})
 	if err != nil {
 		return out, reportTableError(err)
 	}
@@ -109,7 +109,7 @@ func sortStringsUnique(values []string) bool {
 }
 
 func (k *Knowledge) readTablePage(ctx context.Context, table httpapi.AnalysisTableCatalogItem, fields []string, offset, limit int, subject reportmodel.ReportSubject) (httpapi.AnalysisTableReadOutput, error) {
-	out, err := connector.Call(ctx, knowledgeGateway{k, k.reportAuthority(subject)}, httpapi.ReadAnalysisTable, httpapi.AnalysisTableReadInput{
+	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: k.reportAuthority(subject)}, httpapi.ReadAnalysisTable, httpapi.AnalysisTableReadInput{
 		DocID: table.DocID, DatasetKey: table.DatasetKey, Generation: table.Generation,
 		DefinitionVersion: table.DefinitionVersion, DataVersion: table.DataVersion,
 		Fields: slices.Clone(fields), Offset: offset, Limit: limit,

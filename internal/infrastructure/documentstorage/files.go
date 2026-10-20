@@ -5,6 +5,7 @@ package documentstorage
 import (
 	"context"
 	"errors"
+	"io"
 	"regexp"
 	"strings"
 
@@ -41,21 +42,34 @@ func documentError(e error) error {
 	}
 	return e
 }
-func (f *Files) PutKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id, hash string, raw []byte) (string, error) {
+func (f *Files) PutKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id, hash string, expectedBytes int64, content io.Reader) (string, error) {
 	a, key, e := namespace(s, id)
 	if e != nil {
 		return "", e
 	}
-	ref, e := f.files.PutAttachmentContent(ctx, key, hash, raw, a)
+	ref, e := f.files.PutAttachmentContentStream(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, content, a)
 	return ref, documentError(e)
 }
-func (f *Files) ReadKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id, ref string) ([]byte, error) {
+
+func (f *Files) PutKnowledgeDocumentContentChunk(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id, hash string, expectedBytes, offset int64, chunkHash string, chunkBytes int64, content io.Reader) (int64, string, error) {
+	a, key, e := namespace(s, id)
+	if e != nil {
+		return 0, "", e
+	}
+	next, ref, e := f.files.PutAttachmentContentChunk(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, offset, chunkHash, chunkBytes, content, a)
+	return next, ref, documentError(e)
+}
+
+func (f *Files) OpenKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id, ref, expectedSHA256 string, expectedBytes int64) (io.ReadSeekCloser, error) {
 	a, key, e := namespace(s, id)
 	if e != nil {
 		return nil, e
 	}
-	raw, e := f.files.ReadAttachmentContent(ctx, key, ref, a)
-	return raw, documentError(e)
+	if ref != key+":"+expectedSHA256 {
+		return nil, documentError(&agentsdk.Error{Class: "unavailable", Code: "agent.conversation.attachment_content_mismatch"})
+	}
+	content, e := f.files.OpenAttachmentContent(ctx, key, ref, expectedBytes, expectedBytes, a)
+	return content, documentError(e)
 }
 func (f *Files) DeleteKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id string) error {
 	a, key, e := namespace(s, id)
@@ -66,3 +80,4 @@ func (f *Files) DeleteKnowledgeDocumentContent(ctx context.Context, s agentsdk.K
 }
 
 var _ agentsdk.KnowledgeDocumentStorage = (*Files)(nil)
+var _ agentsdk.KnowledgeDocumentChunkStorage = (*Files)(nil)

@@ -5,6 +5,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentTransfer, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeDocument, error) {
@@ -12,10 +13,10 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 	if !conversationKey(in.ClientID) || !conversationKey(in.SourceLibraryID) || !conversationKey(in.SourceDocumentID) || library == in.SourceLibraryID || in.ExpectedRevision < 1 || in.Mode != "copy" && in.Mode != "move" {
 		return zero, conversationFailure("bad_request", "document_transfer_invalid")
 	}
-	if _, err := s.DocumentAccess(ctx, library, "documents_transfer", a); err != nil {
+	if _, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsTransfer, a); err != nil {
 		return zero, err
 	}
-	if _, err := s.DocumentAccess(ctx, library, "documents_upload", a); err != nil {
+	if _, err := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsUpload, a); err != nil {
 		return zero, err
 	}
 	repo, ok := s.repo.(persistence.KnowledgeDocumentTransferRepository)
@@ -44,15 +45,15 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 		return zero, err
 	}
 	recheck := func() error {
-		if _, e := s.DocumentAccess(ctx, in.SourceLibraryID, "documents_download", a); e != nil {
+		if _, e := s.DocumentAccess(ctx, in.SourceLibraryID, knowledgesdk.ActionDocumentsDownload, a); e != nil {
 			return e
 		}
 		if in.Mode == "move" {
-			if _, e := s.DocumentAccess(ctx, in.SourceLibraryID, "documents_delete", a); e != nil {
+			if _, e := s.DocumentAccess(ctx, in.SourceLibraryID, knowledgesdk.ActionDocumentsDelete, a); e != nil {
 				return e
 			}
 		}
-		_, e := s.DocumentAccess(ctx, library, "documents_transfer", a)
+		_, e := s.DocumentAccess(ctx, library, knowledgesdk.ActionDocumentsTransfer, a)
 		return e
 	}
 	if err = recheck(); err != nil {
@@ -62,6 +63,7 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 	if err != nil {
 		return zero, err
 	}
+	defer source.Content.Close()
 	if source.Document.Revision != in.ExpectedRevision {
 		return zero, conversationFailure("conflict", "revision_conflict")
 	}
@@ -73,7 +75,7 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 	if err != nil {
 		return zero, err
 	}
-	return s.uploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Data: source.Data}, nil, &origin, recheck, cloneDocumentSourceAccess(sourceRecord.SourceAccess), a)
+	return s.uploadDocumentContent(ctx, library, agentsdk.KnowledgeDocumentUpload{ClientID: in.ClientID, Filename: source.Document.Filename, Bytes: source.Document.Bytes, SHA256: source.Document.SHA256, Content: source.Content}, nil, &origin, recheck, cloneDocumentSourceAccess(sourceRecord.SourceAccess), a)
 }
 
 var _ agentsdk.KnowledgeDocumentTransferService = (*Service)(nil)

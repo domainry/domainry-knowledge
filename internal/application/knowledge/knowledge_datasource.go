@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func (s *Service) DatasourceAccess(ctx context.Context, id, op string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
@@ -23,7 +25,7 @@ func (s *Service) DatasourceAccess(ctx context.Context, id, op string, a agentsd
 	if library.Role != "manager" {
 		return agentsdk.KnowledgeLibrary{}, conversationFailure("forbidden", "library_manage_required")
 	}
-	if op == "libraries_bind_source" && library.Archived {
+	if op == knowledgesdk.ActionSourcesBind && library.Archived {
 		return agentsdk.KnowledgeLibrary{}, conversationFailure("conflict", "library_archived")
 	}
 	if err = s.LibraryAuthorize(ctx, op, library, a); err != nil {
@@ -59,7 +61,7 @@ func (s *Service) DatasourceDefinitions(ctx context.Context, library string, a a
 }
 func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrarySources, error) {
 	var zero agentsdk.KnowledgeLibrarySources
-	library, err := s.DatasourceAccess(ctx, id, "libraries_sources", a)
+	library, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesList, a)
 	if err != nil {
 		return zero, err
 	}
@@ -78,7 +80,7 @@ func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string,
 		return zero, err
 	}
 	out := agentsdk.KnowledgeLibrarySources{LibraryID: id, Revision: library.Revision, Status: "unbound", Items: []agentsdk.KnowledgeDatasourceChoice{}, Complete: true}
-	bindErr := s.LibraryAuthorize(ctx, "libraries_bind_source", library, a)
+	bindErr := s.LibraryAuthorize(ctx, knowledgesdk.ActionSourcesBind, library, a)
 	if bindErr != nil {
 		var coded *agentsdk.Error
 		if !errors.As(bindErr, &coded) || coded.Class != "forbidden" {
@@ -131,7 +133,7 @@ func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string,
 		}
 		out.Items = append(out.Items, agentsdk.KnowledgeDatasourceChoice{Key: definition.Key, Name: definition.Name, Description: definition.Description, Available: !found && !static && !used && out.CanBind})
 	}
-	currentLibrary, err := s.DatasourceAccess(ctx, id, "libraries_sources", a)
+	currentLibrary, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesList, a)
 	if err != nil {
 		return zero, err
 	}
@@ -145,7 +147,7 @@ func (s *Service) BindKnowledgeLibrarySource(ctx context.Context, id string, in 
 	if !conversationKey(in.DatasourceKey) || in.ExpectedRevision < 1 {
 		return zero, conversationFailure("bad_request", "datasource_binding_invalid")
 	}
-	if _, err := s.DatasourceAccess(ctx, id, "libraries_bind_source", a); err != nil {
+	if _, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesBind, a); err != nil {
 		return zero, err
 	}
 	if s.options.DocumentStorage == nil || s.options.KnowledgeDatasources == nil {
@@ -173,10 +175,10 @@ func (s *Service) BindKnowledgeLibrarySource(ctx context.Context, id string, in 
 		return zero, conversationFailure("not_found", "datasource_not_found")
 	}
 	source, err := s.options.KnowledgeDatasources.OpenKnowledgeDatasource(ctx, in.DatasourceKey, DocumentStorageScope(id, a))
-	if err != nil || source == nil || source.KnowledgeDocumentSourceIdentity() != definition.SourceID || !DatasourceIdentity(DocumentAccessPolicy(source)) || source.KnowledgeDocumentManagementReady() != nil || source.KnowledgeDocumentMaxBytes() < 1 {
+	if err != nil || source == nil || source.KnowledgeDocumentSourceIdentity() != definition.SourceID || !DatasourceIdentity(DocumentAccessPolicy(source)) || source.KnowledgeDocumentManagementReady() != nil || DocumentIndexMaximumBytes(source) < 1 {
 		return zero, conversationFailure("unavailable", "datasource_unavailable")
 	}
-	if _, err = s.DatasourceAccess(ctx, id, "libraries_bind_source", a); err != nil {
+	if _, err = s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesBind, a); err != nil {
 		return zero, err
 	}
 	repo, ok := s.repo.(persistence.KnowledgeDatasourceRepository)
@@ -187,8 +189,16 @@ func (s *Service) BindKnowledgeLibrarySource(ctx context.Context, id string, in 
 	if err != nil {
 		return zero, err
 	}
-	library, err := s.DatasourceAccess(ctx, id, "libraries_bind_source", a)
-	return s.LibraryResult(ctx, library, err, a)
+	library, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesBind, a)
+	library, err = s.LibraryResult(ctx, library, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionSourcesBind, "knowledge.source.bound", id, "", definition.SourceID, "", library.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(in.ExpectedRevision, 10),
+		}, map[string]string{
+			"datasource_key": in.DatasourceKey, "source_id": definition.SourceID,
+		}, a)
+	}
+	return library, err
 }
 
 var _ agentsdk.KnowledgeDatasourceService = (*Service)(nil)

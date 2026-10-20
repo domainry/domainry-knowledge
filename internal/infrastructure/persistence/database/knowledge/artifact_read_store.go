@@ -12,7 +12,7 @@ import (
 	"github.com/domainry/domainry-orm/query"
 )
 
-type CompatArtifactCursor struct {
+type artifactCursor struct {
 	Owner, Query, ID string
 	Created, Cutoff  int64
 }
@@ -31,7 +31,7 @@ func (s *Store) Artifacts(ctx context.Context, in agentsdk.ConversationArtifactQ
 	key := in
 	key.Cursor = ""
 	owner, hash := conversationOwner(a), conversationHash(key)
-	cursor := CompatArtifactCursor{Owner: owner, Query: hash, Cutoff: time.Now().UnixMilli()}
+	cursor := artifactCursor{Owner: owner, Query: hash, Cutoff: time.Now().UnixMilli()}
 	filters := []query.Predicate{query.Equal("owner_key", owner)}
 	if in.Cursor != "" {
 		raw, err := base64.RawURLEncoding.DecodeString(in.Cursor)
@@ -44,7 +44,7 @@ func (s *Store) Artifacts(ctx context.Context, in agentsdk.ConversationArtifactQ
 	if in.SourceConversationID != "" {
 		filters = append(filters, query.Equal("source_conversation_id", in.SourceConversationID))
 	}
-	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), "_agent_artifacts").Columns("payload_json").Where(query.And(filters...)).OrderBy(query.Descending("created_at"), query.Descending("artifact_id")).Limit(301).Build()
+	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), conversationArtifactTable).Columns("payload_json").Where(query.And(filters...)).OrderBy(query.Descending("created_at"), query.Descending("artifact_id")).Limit(301).Build()
 	if err != nil {
 		return out, err
 	}
@@ -93,14 +93,14 @@ func (s *Store) ArtifactVersions(ctx context.Context, id string, before int64, l
 	if limit == 0 {
 		limit = 20
 	}
-	head, err := s.CompatArtifactHead(ctx, s.store.Database(), id, a)
+	head, err := s.artifactHead(ctx, s.store.Database(), id, a)
 	if err != nil {
 		return out, err
 	}
 	if before == 0 || before > head.Version+1 {
 		before = head.Version + 1
 	}
-	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), "_agent_artifact_versions").Columns("payload_json").Where(query.And(CompatArtifactScope(a, id), query.LessThan("version", before))).OrderBy(query.Descending("version")).Limit(limit + 1).Build()
+	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), conversationArtifactVersionTable).Columns("payload_json").Where(query.And(artifactScope(a, id), query.LessThan("version", before))).OrderBy(query.Descending("version")).Limit(limit + 1).Build()
 	if err != nil {
 		return out, err
 	}

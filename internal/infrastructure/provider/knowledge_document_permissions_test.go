@@ -1,18 +1,100 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 )
+
+func TestKnowledgePagePermissionSearchBatchesWithoutTruncationAndGloballyRanks(t *testing.T) {
+	pagePermissions := make([]string, 5000)
+	for index := range pagePermissions {
+		pagePermissions[index] = fmt.Sprintf("page:%04d", index)
+	}
+	var mu sync.Mutex
+	seen := map[string]int{}
+	requests := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			PermissionIDs []string `json:"permission_ids"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			t.Error("invalid search body")
+		}
+		mu.Lock()
+		requests++
+		requestNumber := requests
+		for _, id := range input.PermissionIDs {
+			seen[id]++
+		}
+		mu.Unlock()
+		hitID, score := "remote-first", 0.6
+		if requestNumber == 2 {
+			hitID, score = "remote-second", 0.9
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"hits": []map[string]any{
+			{"doc_id": "remote-public", "record_id": "public", "doc_version": 1, "record_kind": "text", "title": "public", "source_url": "", "anchor_ref": "", "snippet": "public", "score": 0.5},
+			{"doc_id": hitID, "record_id": hitID, "doc_version": 1, "record_kind": "text", "title": hitID, "source_url": "", "anchor_ref": "", "snippet": hitID, "score": score},
+		}, "mode_used": "hybrid", "reranked": true})
+	}))
+	defer upstream.Close()
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentPermissionIDs: []string{"library:read"}, ReadPermissionIDs: []string{"library:read"}, TopK: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := k.SearchKnowledgeDocumentsWithPermissions(t.Context(), "query", pagePermissions, knowledgeAuthority())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(seen) != len(pagePermissions)+1 || seen["library:read"] != 2 {
+		t.Fatalf("permissions were truncated or base policy was not repeated: requests=%d seen=%d base=%d", requests, len(seen), seen["library:read"])
+	}
+	for _, id := range pagePermissions {
+		if seen[id] != 1 {
+			t.Fatalf("permission %q was lost or repeated: %d", id, seen[id])
+		}
+	}
+	if len(result.Passages) != 3 || result.Passages[0].DocumentID != "remote-second" || result.Passages[1].DocumentID != "remote-first" || result.Passages[2].DocumentID != "remote-public" {
+		t.Fatalf("batch results were not globally ranked and deduplicated: %+v", result.Passages)
+	}
+}
+
+func TestKnowledgePermissionBatchingHonorsMeasuredASCIIByteBoundary(t *testing.T) {
+	permissions := make([]string, 1200)
+	for index := range permissions {
+		permissions[index] = fmt.Sprintf("%04d:%s", index, strings.Repeat("x", 120))
+	}
+	batches, err := knowledgeQueryPermissionBatches([]string{"library"}, permissions)
+	if err != nil || len(batches) < 2 {
+		t.Fatalf("byte-bound permission set was not split: batches=%d err=%v", len(batches), err)
+	}
+	seen := map[string]bool{}
+	for _, batch := range batches {
+		if len(batch) > knowledgeQueryPermissionMaximumIDs || knowledgeQueryPermissionBytes(batch) > knowledgeQueryPermissionMaximumBytes || !slices.Contains(batch, "library") {
+			t.Fatalf("invalid permission batch count=%d bytes=%d", len(batch), knowledgeQueryPermissionBytes(batch))
+		}
+		for _, id := range batch {
+			if id != "library" {
+				seen[id] = true
+			}
+		}
+	}
+	if len(seen) != len(permissions) {
+		t.Fatalf("byte batching truncated tokens: got=%d want=%d", len(seen), len(permissions))
+	}
+}
 
 func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.T) {
 	var calls atomic.Int64
@@ -49,13 +131,14 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	}
 	ids[0] = "changed"
 	a := knowledgeAuthority()
-	in := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "季度费用.XLSX", Data: []byte("fixture"), RequestID: "persisted-request", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}
+	raw := []byte("fixture")
+	in := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "季度费用.XLSX", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw), RequestID: "persisted-request", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}
 	if len(in.AccessPolicySHA256) != 64 {
 		t.Fatal("missing access fingerprint")
 	}
 	for _, invalid := range []agentsdk.KnowledgeDocumentContent{
-		{DocumentID: in.DocumentID, Filename: in.Filename, Data: in.Data, RequestID: in.RequestID},
-		{DocumentID: in.DocumentID, Filename: in.Filename, Data: in.Data, AccessPolicySHA256: in.AccessPolicySHA256},
+		{DocumentID: in.DocumentID, Filename: in.Filename, Bytes: in.Bytes, SHA256: in.SHA256, Content: bytes.NewReader(raw), RequestID: in.RequestID},
+		{DocumentID: in.DocumentID, Filename: in.Filename, Bytes: in.Bytes, SHA256: in.SHA256, Content: bytes.NewReader(raw), AccessPolicySHA256: in.AccessPolicySHA256},
 	} {
 		if k.PutKnowledgeDocument(t.Context(), invalid, a) == nil {
 			t.Fatal("unfrozen policy or missing command accepted")
@@ -130,7 +213,8 @@ func TestKnowledgeSeparatesDocumentGrantsFromPrincipalReadIdentities(t *testing.
 		t.Fatal(err)
 	}
 	a := knowledgeAuthority()
-	if err = k.PutKnowledgeDocument(t.Context(), agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "private.txt", Data: []byte("private"), RequestID: "request-1", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
+	raw := []byte("private")
+	if err = k.PutKnowledgeDocument(t.Context(), agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "private.txt", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw), RequestID: "request-1", AccessPolicySHA256: k.KnowledgeDocumentAccessPolicySHA256()}, a); err != nil {
 		t.Fatal(err)
 	}
 	if _, err = k.Search(t.Context(), "private", a); err != nil {

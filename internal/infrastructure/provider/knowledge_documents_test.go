@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
+	"github.com/domainry/domainry-agent-sdk/artifact"
 )
 
 func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
@@ -64,7 +65,8 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := knowledgeAuthority()
-	content := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "费用.pdf", Data: bytes.Repeat([]byte{0, 0xff, 0x80, 1}, 65536)}
+	raw := bytes.Repeat([]byte{0, 0xff, 0x80, 1}, 65536)
+	content := agentsdk.KnowledgeDocumentContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: artifact.Hash(raw), Content: bytes.NewReader(raw)}
 	if err := read.PutKnowledgeDocument(t.Context(), content, a); err == nil {
 		t.Fatal("retrieval config granted writes")
 	}
@@ -99,7 +101,7 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 		t.Fatal("pending treated as ready", state, err)
 	}
 	mu.Lock()
-	if !bytes.Equal(stored, content.Data) {
+	if !bytes.Equal(stored, raw) {
 		t.Error("original byte stream changed")
 	}
 	phase = "INDEXED"

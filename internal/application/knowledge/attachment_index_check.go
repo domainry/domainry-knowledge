@@ -19,7 +19,7 @@ func (s *Service) AttachmentIndexView(ctx context.Context, r persistence.Convers
 		v.Reason = "attachment_index_unavailable"
 		return out
 	}
-	v.MaxBytes = DocumentMaxBytes(scope.Source)
+	v.MaxBytes = DocumentIndexMaximumBytesForFilename(scope.Source, r.Attachment.Filename)
 	if r.Source != nil && (r.Source.Identity != scope.Source.KnowledgeDocumentSourceIdentity() || r.Source.AccessPolicySHA256 != scope.Source.KnowledgeDocumentAccessPolicySHA256() || !slices.Equal(r.Source.DocumentPermissionIDs, scope.DocumentPermissionIDs)) {
 		v.Reason = "attachment_source_changed"
 		return out

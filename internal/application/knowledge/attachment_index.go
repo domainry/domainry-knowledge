@@ -30,7 +30,7 @@ func ValidateAttachmentKnowledge(repo any, options *Options) error {
 			return fmt.Errorf("attachment sources must have unique workspace and physical knowledge base")
 		}
 		workspaces[b.WorkspaceID], sources[id] = true, true
-		if legacy, ok := options.Knowledge.(agentsdk.ManagedKnowledgeDocumentSource); ok && legacy.KnowledgeDocumentSourceIdentity() == id {
+		if defaultSource, ok := options.Knowledge.(agentsdk.ManagedKnowledgeDocumentSource); ok && defaultSource.KnowledgeDocumentSourceIdentity() == id {
 			return fmt.Errorf("attachment and default knowledge must not share a physical knowledge base")
 		}
 		for _, library := range options.LibraryKnowledge {
@@ -77,7 +77,7 @@ func (s *Service) AttachmentKnowledgeBinding(ctx context.Context, conversation s
 		if err != nil {
 			return zero, err
 		}
-		if scope.Source == nil || scope.Source.KnowledgeDocumentManagementReady() != nil || scope.Source.KnowledgeDocumentSourceIdentity() != b.Knowledge.AttachmentKnowledgeSourceIdentity() || !ValidAttachmentSourceHash(scope.Source.KnowledgeDocumentAccessPolicySHA256()) || !validAttachmentPermissionIDs(scope.DocumentPermissionIDs, 1) || !validAttachmentPermissionIDs(scope.ReadPermissionIDs, 100) || scope.Source.KnowledgeDocumentMaxBytes() < 1 {
+		if scope.Source == nil || scope.Source.KnowledgeDocumentManagementReady() != nil || scope.Source.KnowledgeDocumentSourceIdentity() != b.Knowledge.AttachmentKnowledgeSourceIdentity() || !ValidAttachmentSourceHash(scope.Source.KnowledgeDocumentAccessPolicySHA256()) || !validAttachmentPermissionIDs(scope.DocumentPermissionIDs, 1) || !validAttachmentPermissionIDs(scope.ReadPermissionIDs, 100) || DocumentIndexMaximumBytes(scope.Source) < 1 {
 			return zero, conversationFailure("unavailable", "attachment_source_invalid")
 		}
 		return scope, nil
@@ -118,7 +118,7 @@ func (s *Service) IndexAttachment(ctx context.Context, conversation, id string, 
 	if err != nil {
 		return zero, err
 	}
-	if r.Attachment.Bytes > DocumentMaxBytes(scope.Source) {
+	if maximum := DocumentIndexMaximumBytesForFilename(scope.Source, r.Attachment.Filename); maximum < 1 || r.Attachment.Bytes > maximum {
 		return zero, conversationFailure("bad_request", "attachment_size_invalid")
 	}
 	source := persistence.ConversationAttachmentSource{Identity: scope.Source.KnowledgeDocumentSourceIdentity(), DocumentPermissionIDs: slices.Clone(scope.DocumentPermissionIDs), AccessPolicySHA256: scope.Source.KnowledgeDocumentAccessPolicySHA256()}

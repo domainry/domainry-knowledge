@@ -81,8 +81,11 @@ func reserveSubjectDocument(t *testing.T, store *Store, storage agentsdk.Knowled
 	if err != nil {
 		t.Fatal(err)
 	}
+	if record.Document.ContentVersion != 1 {
+		t.Fatalf("new document content version=%d", record.Document.ContentVersion)
+	}
 	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: library.ID}
-	ref, err := storage.PutKnowledgeDocumentContent(t.Context(), scope, record.Document.ID, record.Document.SHA256, body)
+	ref, err := storage.PutKnowledgeDocumentContent(t.Context(), scope, record.Document.ID, record.Document.SHA256, int64(len(body)), bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +126,7 @@ func TestSubjectLifecycleRemovesPersonalCopiesAndAnonymizesSharedReferences(t *t
 	sharedDocument := reserveSubjectDocument(t, store, documents, shared, "shared-doc", a)
 	sharedDocument.AttachmentOrigin = &persistence.KnowledgeAttachmentOrigin{ConversationID: "conv_source", AttachmentID: "att_source", Revision: 1}
 	sharedDocument.DocumentOrigin = &persistence.KnowledgeDocumentOrigin{LibraryID: aliceLibrary.ID, DocumentID: aliceDocument.Document.ID, Revision: 1, Mode: "copy"}
-	if _, err = store.store.Database().ExecContext(t.Context(), `UPDATE _agent_knowledge_documents SET payload_json=? WHERE scope_key=? AND document_id=?`, conversationJSON(sharedDocument), CompatLibraryScope(a), sharedDocument.Document.ID); err != nil {
+	if _, err = store.store.Database().ExecContext(t.Context(), `UPDATE _knowledge_documents SET payload_json=? WHERE scope_key=? AND document_id=?`, conversationJSON(sharedDocument), libraryScope(a), sharedDocument.Document.ID); err != nil {
 		t.Fatal(err)
 	}
 	lifecycle := NewSubjectLifecycle(store, a.RuntimeID, SubjectLifecycleOptions{DocumentStorage: documents})
@@ -157,7 +160,8 @@ func TestSubjectLifecycleRemovesPersonalCopiesAndAnonymizesSharedReferences(t *t
 		t.Fatal("personal document row survived")
 	}
 	aliceScope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: aliceLibrary.ID}
-	if _, err = documents.ReadKnowledgeDocumentContent(t.Context(), aliceScope, aliceDocument.Document.ID, aliceDocument.BodyRef); err == nil {
+	if content, openErr := documents.OpenKnowledgeDocumentContent(t.Context(), aliceScope, aliceDocument.Document.ID, aliceDocument.BodyRef, aliceDocument.Document.SHA256, aliceDocument.Document.Bytes); openErr == nil {
+		_ = content.Close()
 		t.Fatal("personal document content survived")
 	}
 	if _, err = store.KnowledgeDocumentRecord(t.Context(), bobDocument.Document.ID, b); err != nil {
@@ -168,8 +172,10 @@ func TestSubjectLifecycleRemovesPersonalCopiesAndAnonymizesSharedReferences(t *t
 		t.Fatalf("shared reference=%+v err=%v", sharedAfter, err)
 	}
 	sharedScope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: shared.ID}
-	if _, err = documents.ReadKnowledgeDocumentContent(t.Context(), sharedScope, sharedDocument.Document.ID, sharedDocument.BodyRef); err != nil {
-		t.Fatal("shared saved copy was removed", err)
+	if content, openErr := documents.OpenKnowledgeDocumentContent(t.Context(), sharedScope, sharedDocument.Document.ID, sharedDocument.BodyRef, sharedDocument.Document.SHA256, sharedDocument.Document.Bytes); openErr != nil {
+		t.Fatal("shared saved copy was removed", openErr)
+	} else {
+		_ = content.Close()
 	}
 }
 
@@ -189,7 +195,7 @@ func TestSubjectLifecycleKeepsRemoteDeletionEvidenceUntilAcknowledged(t *testing
 		t.Fatal(err)
 	}
 	record.Document.State, record.PutStarted, record.IndexObserved = "ready", true, true
-	if _, err = db.ExecContext(t.Context(), `UPDATE _agent_knowledge_documents SET state='ready', payload_json=? WHERE scope_key=? AND document_id=?`, conversationJSON(record), CompatLibraryScope(a), record.Document.ID); err != nil {
+	if _, err = db.ExecContext(t.Context(), `UPDATE _knowledge_documents SET state='ready', payload_json=? WHERE scope_key=? AND document_id=?`, conversationJSON(record), libraryScope(a), record.Document.ID); err != nil {
 		t.Fatal(err)
 	}
 	lifecycle := NewSubjectLifecycle(store, a.RuntimeID, SubjectLifecycleOptions{})
@@ -201,7 +207,7 @@ func TestSubjectLifecycleKeepsRemoteDeletionEvidenceUntilAcknowledged(t *testing
 		t.Fatalf("remote deletion evidence=%+v err=%v", after, err)
 	}
 	var jobs, receipts int
-	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _agent_knowledge_document_jobs WHERE scope_key=? AND document_id=?`, CompatLibraryScope(a), record.Document.ID).Scan(&jobs); err != nil || jobs != 1 {
+	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _knowledge_document_jobs WHERE scope_key=? AND document_id=?`, libraryScope(a), record.Document.ID).Scan(&jobs); err != nil || jobs != 1 {
 		t.Fatalf("jobs=%d err=%v", jobs, err)
 	}
 	if err = db.QueryRowContext(t.Context(), `SELECT count(*) FROM _subject_steps WHERE owner='knowledge'`).Scan(&receipts); err != nil || receipts != 0 {

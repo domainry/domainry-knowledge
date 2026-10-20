@@ -63,7 +63,7 @@ func AttachmentKnowledgeReceipt(scope agentsdk.ConversationAttachmentKnowledgeSc
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_context_exceeded")
 	}
 	identity := []any{AttachmentKnowledgeProvider, scope.Source.KnowledgeDocumentSourceIdentity(), scope.Source.KnowledgeDocumentAccessPolicySHA256(), scope.DocumentPermissionIDs, scope.ReadPermissionIDs, a.RuntimeID, a.WorkspaceID, a.UserID, conversation}
-	out := agentsdk.ConversationKnowledgeResult{Provider: AttachmentKnowledgeProvider, ConversationID: conversation, Operation: op, Query: q, DocumentID: id, Data: raw}
+	out := agentsdk.ConversationKnowledgeResult{Provider: AttachmentKnowledgeProvider, ConversationID: conversation, Operation: op, Query: q, DocumentID: id, SearchTopK: data.SearchTopK, SearchMode: data.SearchMode, SearchReranked: data.SearchReranked, SearchDegraded: data.SearchDegraded, Data: raw}
 	for i, p := range data.Passages {
 		if i >= 50 {
 			break
@@ -75,7 +75,7 @@ func AttachmentKnowledgeReceipt(scope agentsdk.ConversationAttachmentKnowledgeSc
 				excerpt = excerpt[:len(excerpt)-1]
 			}
 		}
-		out.Citations = append(out.Citations, agentsdk.ConversationCitation{ID: "kc_" + conversationDigest([]any{identity, op, q, id, data, i})[:32], Provider: AttachmentKnowledgeProvider, ConversationID: conversation, Operation: op, DocumentID: p.DocumentID, Title: p.Title, Excerpt: excerpt, ExcerptTruncated: len(excerpt) < len(p.Content), Location: p.Location})
+		out.Citations = append(out.Citations, agentsdk.ConversationCitation{ID: "kc_" + conversationDigest([]any{identity, op, q, id, data, i})[:32], Provider: AttachmentKnowledgeProvider, ConversationID: conversation, Operation: op, DocumentID: p.DocumentID, ChunkID: p.ChunkID, DocumentVersion: p.DocumentVersion, ContentSHA256: p.ContentSHA256, SourceRevision: p.SourceRevision, Score: p.Score, Title: p.Title, Excerpt: excerpt, ExcerptTruncated: len(excerpt) < len(p.Content), Location: p.Location})
 	}
 	out.ScopeSHA256 = conversationDigest([]any{identity, out})
 	return out, nil
@@ -88,8 +88,10 @@ func (s *Service) AttachmentKnowledge(ctx context.Context, conversation, op, q, 
 		return zero, err
 	}
 	var passages []agentsdk.KnowledgeDocumentPassage
+	var search agentsdk.KnowledgeDocumentSearch
 	if op == "search" {
-		passages, err = scope.Source.SearchKnowledgeDocumentPassages(ctx, q, a)
+		search, err = managedKnowledgeSearch(ctx, scope.Source, q, a)
+		passages = search.Passages
 	} else if op == "fetch" {
 		remote := ""
 		for remoteID, r := range allowed {
@@ -119,7 +121,7 @@ func (s *Service) AttachmentKnowledge(ctx context.Context, conversation, op, q, 
 	if currentScope.Source.KnowledgeDocumentSourceIdentity() != scope.Source.KnowledgeDocumentSourceIdentity() || currentScope.Source.KnowledgeDocumentAccessPolicySHA256() != scope.Source.KnowledgeDocumentAccessPolicySHA256() || !slices.Equal(currentScope.DocumentPermissionIDs, scope.DocumentPermissionIDs) || !slices.Equal(currentScope.ReadPermissionIDs, scope.ReadPermissionIDs) {
 		return zero, conversationFailure("forbidden", "knowledge_access_denied")
 	}
-	data := DocumentEvidence{Passages: []agentsdk.KnowledgeDocumentPassage{}, Documents: []DocumentSnapshot{}, Partial: true}
+	data := DocumentEvidence{Passages: []agentsdk.KnowledgeDocumentPassage{}, Documents: []DocumentSnapshot{}, SearchTopK: search.TopK, SearchMode: search.Mode, SearchReranked: search.Reranked, SearchDegraded: search.DegradedReason, Partial: true}
 	seen := map[string]bool{}
 	for _, p := range passages {
 		before, known := allowed[p.DocumentID]
@@ -136,7 +138,11 @@ func (s *Service) AttachmentKnowledge(ctx context.Context, conversation, op, q, 
 		if !conversationText(p.Content, 512*1024, true) {
 			return zero, conversationFailure("unavailable", "knowledge_response_invalid")
 		}
+		if !conversationText(p.ChunkID, 512, false) || !conversationText(p.SourceRevision, 512, false) || p.DocumentVersion < 0 || p.ContentSHA256 != "" && p.ContentSHA256 != r.Attachment.SHA256 {
+			return zero, conversationFailure("unavailable", "knowledge_response_invalid")
+		}
 		p.DocumentID, p.Title, p.URL = r.Attachment.ID, r.Attachment.Filename, ""
+		p.ContentSHA256 = r.Attachment.SHA256
 		data.Passages = append(data.Passages, p)
 		if !seen[p.DocumentID] {
 			seen[p.DocumentID] = true

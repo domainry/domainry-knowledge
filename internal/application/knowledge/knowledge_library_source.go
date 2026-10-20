@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
 	"strings"
 
@@ -18,29 +19,46 @@ import (
 // visible documents in a shared remote KB cannot isolate two different libraries.
 type LibraryKnowledgeBinding = contract.LibraryKnowledgeBinding
 
-type LibraryKnowledgeSource struct {
-	repo         persistence.KnowledgeLibraryRepository
-	policy       agentsdk.KnowledgeLibraryAuthorizer
-	sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer
-	bindings     map[string]LibraryKnowledgeBinding
-	legacy       ConversationKnowledge
-	runtimeID    string
-	documents    persistence.KnowledgeDocumentRepository
-	catalog      agentsdk.KnowledgeDatasourceCatalog
-	datasources  persistence.KnowledgeDatasourceRepository
+// liveKnowledgeResultAuthorizationFailure marks a permission/source check that
+// failed after a remote knowledge call had already started. Callers must not
+// downgrade it to a model-visible tool error because an earlier result from the
+// same live operation may already be present in the model context.
+type liveKnowledgeResultAuthorizationFailure struct{ cause error }
+
+func (e *liveKnowledgeResultAuthorizationFailure) Error() string                        { return e.cause.Error() }
+func (e *liveKnowledgeResultAuthorizationFailure) Unwrap() error                        { return e.cause }
+func (*liveKnowledgeResultAuthorizationFailure) ConversationResultAuthorizationFailed() {}
+
+func liveKnowledgeResultAuthorization(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &liveKnowledgeResultAuthorizationFailure{cause: err}
 }
 
-func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, legacy ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
+type LibraryKnowledgeSource struct {
+	repo          persistence.KnowledgeLibraryRepository
+	policy        agentsdk.KnowledgeLibraryAuthorizer
+	sourcePolicy  agentsdk.KnowledgeDocumentSourceAuthorizer
+	bindings      map[string]LibraryKnowledgeBinding
+	defaultSource ConversationKnowledge
+	runtimeID     string
+	documents     persistence.KnowledgeDocumentRepository
+	catalog       agentsdk.KnowledgeDatasourceCatalog
+	datasources   persistence.KnowledgeDatasourceRepository
+}
+
+func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.KnowledgeLibraryAuthorizer, sourcePolicy agentsdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, defaultSource ConversationKnowledge, catalog agentsdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
 	libraries, ok := repo.(persistence.KnowledgeLibraryRepository)
 	if !ok || policy == nil || len(bindings) == 0 && catalog == nil || len(bindings) > 1000 {
 		return nil, fmt.Errorf("library retrieval requires library persistence, live authorization and at most 1000 host bindings")
 	}
-	if legacy != nil {
-		if _, ok := legacy.(agentsdk.ConversationKnowledgeSource); !ok {
-			return nil, fmt.Errorf("legacy knowledge source must support revalidation")
+	if defaultSource != nil {
+		if _, ok := defaultSource.(agentsdk.ConversationKnowledgeSource); !ok {
+			return nil, fmt.Errorf("default knowledge source must support revalidation")
 		}
 	}
-	out := &LibraryKnowledgeSource{repo: libraries, policy: policy, sourcePolicy: sourcePolicy, bindings: map[string]LibraryKnowledgeBinding{}, legacy: legacy, runtimeID: runtimeID}
+	out := &LibraryKnowledgeSource{repo: libraries, policy: policy, sourcePolicy: sourcePolicy, bindings: map[string]LibraryKnowledgeBinding{}, defaultSource: defaultSource, runtimeID: runtimeID}
 	out.documents, _ = repo.(persistence.KnowledgeDocumentRepository)
 	out.catalog = catalog
 	out.datasources, _ = repo.(persistence.KnowledgeDatasourceRepository)
@@ -105,7 +123,7 @@ func (k *LibraryKnowledgeSource) Access(ctx context.Context, id string, a agents
 	if library.Archived {
 		return LibraryKnowledgeBinding{}, conversationFailure("forbidden", "knowledge_access_denied")
 	}
-	if err = k.policy.AuthorizeKnowledgeLibrary(ctx, "libraries_get", library, a); err != nil {
+	if err = k.policy.AuthorizeKnowledgeLibrary(ctx, knowledgesdk.ActionLibrariesGet, library, a); err != nil {
 		return LibraryKnowledgeBinding{}, LibraryKnowledgeAccessError(err)
 	}
 	Binding, ok, err := k.Binding(ctx, id, a)
@@ -125,22 +143,22 @@ func LibraryKnowledgeAccessError(err error) error {
 	return err
 }
 func (k *LibraryKnowledgeSource) Search(ctx context.Context, q string, a agentsdk.ConversationAuthority) (json.RawMessage, error) {
-	if k.legacy == nil {
+	if k.defaultSource == nil {
 		return nil, conversationFailure("bad_request", "knowledge_library_required")
 	}
-	return k.legacy.Search(ctx, q, a)
+	return k.defaultSource.Search(ctx, q, a)
 }
 func (k *LibraryKnowledgeSource) SearchKnowledge(ctx context.Context, q string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
-	if k.legacy == nil {
+	if k.defaultSource == nil {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("bad_request", "knowledge_library_required")
 	}
-	return k.legacy.(agentsdk.ConversationKnowledgeSource).SearchKnowledge(ctx, q, a)
+	return k.defaultSource.(agentsdk.ConversationKnowledgeSource).SearchKnowledge(ctx, q, a)
 }
 func (k *LibraryKnowledgeSource) ReadKnowledge(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
-	if k.legacy == nil {
+	if k.defaultSource == nil {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("bad_request", "knowledge_library_required")
 	}
-	return k.legacy.(agentsdk.ConversationKnowledgeSource).ReadKnowledge(ctx, id, a)
+	return k.defaultSource.(agentsdk.ConversationKnowledgeSource).ReadKnowledge(ctx, id, a)
 }
 func (k *LibraryKnowledgeSource) SearchLibraryKnowledge(ctx context.Context, id, q string, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
 	Binding, err := k.Access(ctx, id, a)
@@ -187,12 +205,12 @@ func (k *LibraryKnowledgeSource) ReadLibraryKnowledge(ctx context.Context, id, d
 func (k *LibraryKnowledgeSource) Wrap(ctx context.Context, id string, evidence agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority) (agentsdk.ConversationKnowledgeResult, error) {
 	Binding, err := k.Access(ctx, id, a)
 	if err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(err)
 	}
 	if _, managed, err := k.ManagedSource(ctx, Binding, a); err != nil {
-		return agentsdk.ConversationKnowledgeResult{}, err
+		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(err)
 	} else if managed {
-		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("conflict", "knowledge_source_changed")
+		return agentsdk.ConversationKnowledgeResult{}, liveKnowledgeResultAuthorization(conversationFailure("conflict", "knowledge_source_changed"))
 	}
 	if evidence.LibraryID != "" {
 		return agentsdk.ConversationKnowledgeResult{}, conversationFailure("unavailable", "knowledge_response_invalid")
@@ -271,7 +289,7 @@ func (k *LibraryKnowledgeSource) RevalidateKnowledge(ctx context.Context, saved 
 func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved agentsdk.ConversationKnowledgeResult, a agentsdk.ConversationAuthority, resultRead bool) error {
 	if saved.Operation == "libraries" {
 		if resultRead {
-			if err := k.authorizeResultReadLibrary(ctx, "", "libraries_list", a); err != nil {
+			if err := k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, a); err != nil {
 				return err
 			}
 		}
@@ -303,18 +321,18 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 		// unrelated members or restoring a reader must not rewrite that snapshot
 		// or prevent resuming it when every referenced library is readable again.
 		if resultRead {
-			return k.authorizeResultReadLibrary(ctx, "", "libraries_list", a)
+			return k.authorizeResultReadLibrary(ctx, "", knowledgesdk.ActionLibrariesList, a)
 		}
 		return nil
 	}
 	if saved.LibraryID == "" {
-		if k.legacy == nil {
+		if k.defaultSource == nil {
 			return conversationFailure("forbidden", "knowledge_access_denied")
 		}
 		if resultRead {
-			return agentsdk.AuthorizeKnowledgeResultRead(ctx, k.legacy, saved, a)
+			return agentsdk.AuthorizeKnowledgeResultRead(ctx, k.defaultSource, saved, a)
 		}
-		return k.legacy.(agentsdk.ConversationKnowledgeSource).RevalidateKnowledge(ctx, saved, a)
+		return k.defaultSource.(agentsdk.ConversationKnowledgeSource).RevalidateKnowledge(ctx, saved, a)
 	}
 	Binding, err := k.Access(ctx, saved.LibraryID, a)
 	if err != nil {
@@ -328,13 +346,13 @@ func (k *LibraryKnowledgeSource) revalidateKnowledge(ctx context.Context, saved 
 		if resultRead {
 			// Current original-file read access permits this historical passage
 			// projection, without granting search/extraction execution rights.
-			if err = k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", a); err != nil {
+			if err = k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, a); err != nil {
 				return err
 			}
 			if err = k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a); err != nil {
 				return err
 			}
-			return k.authorizeResultReadLibrary(ctx, saved.LibraryID, "documents_download", a)
+			return k.authorizeResultReadLibrary(ctx, saved.LibraryID, knowledgesdk.ActionDocumentsDownload, a)
 		}
 		return k.RevalidateManagedKnowledge(ctx, Binding, source, saved, a)
 	}

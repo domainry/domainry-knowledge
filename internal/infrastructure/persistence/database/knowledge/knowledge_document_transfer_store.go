@@ -8,19 +8,19 @@ import (
 	"github.com/domainry/domainry-agent-sdk/persistence"
 )
 
-func CompatValidKnowledgeDocumentOrigin(o persistence.KnowledgeDocumentOrigin) bool {
-	return CompatValidLibraryID(o.LibraryID) && CompatValidKnowledgeDocumentID(o.DocumentID) && o.Revision > 0 && (o.Mode == "copy" || o.Mode == "move")
+func validKnowledgeDocumentOrigin(o persistence.KnowledgeDocumentOrigin) bool {
+	return validLibraryID(o.LibraryID) && validKnowledgeDocumentID(o.DocumentID) && o.Revision > 0 && (o.Mode == "copy" || o.Mode == "move")
 }
 func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, client string, origin persistence.KnowledgeDocumentOrigin, a agentsdk.ConversationAuthority) (out persistence.KnowledgeDocumentRecord, found bool, err error) {
-	if conversationAuthority(a) != nil || !CompatValidLibraryID(library) || !personalMemoryKey(client) || !CompatValidKnowledgeDocumentOrigin(origin) || library == origin.LibraryID {
+	if conversationAuthority(a) != nil || !validLibraryID(library) || !personalMemoryKey(client) || !validKnowledgeDocumentOrigin(origin) || library == origin.LibraryID {
 		return out, false, conversationError("bad_request", "document_transfer_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		if _, e := s.CompatLibrary(ctx, tx, library, a); e != nil {
+		if _, e := s.libraryRecord(ctx, tx, library, a); e != nil {
 			return e
 		}
 		var e error
-		found, e = s.executionRead(ctx, tx, CompatKnowledgeDocumentTable, CompatDocumentScope(a, CompatKnowledgeDocumentReservationID(library, client, "knowledge_document_transfer.v1", a)), &out)
+		found, e = s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, knowledgeDocumentReservationID(library, client, "knowledge_document_transfer.v1", a)), &out)
 		if e != nil {
 			return e
 		}
@@ -32,14 +32,14 @@ func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, clie
 	return
 }
 
-func (s *Store) CompatCheckKnowledgeDocumentOrigin(ctx context.Context, tx *sql.Tx, origin *persistence.KnowledgeDocumentOrigin, target agentsdk.KnowledgeDocument, a agentsdk.ConversationAuthority) (source persistence.KnowledgeDocumentRecord, err error) {
+func (s *Store) checkKnowledgeDocumentOrigin(ctx context.Context, tx *sql.Tx, origin *persistence.KnowledgeDocumentOrigin, target agentsdk.KnowledgeDocument, a agentsdk.ConversationAuthority) (source persistence.KnowledgeDocumentRecord, err error) {
 	if origin == nil {
 		return source, nil
 	}
-	if !CompatValidKnowledgeDocumentOrigin(*origin) || origin.LibraryID == target.LibraryID {
+	if !validKnowledgeDocumentOrigin(*origin) || origin.LibraryID == target.LibraryID {
 		return source, conversationError("bad_request", "document_transfer_invalid")
 	}
-	library, err := s.CompatLibrary(ctx, tx, origin.LibraryID, a)
+	library, err := s.libraryRecord(ctx, tx, origin.LibraryID, a)
 	if err != nil {
 		return source, err
 	}
@@ -47,11 +47,11 @@ func (s *Store) CompatCheckKnowledgeDocumentOrigin(ctx context.Context, tx *sql.
 		return source, conversationError("conflict", "library_archived")
 	}
 	if origin.Mode == "move" {
-		if err = CompatDocumentWriting(library); err != nil {
+		if err = requireDocumentWriting(library); err != nil {
 			return source, err
 		}
 	}
-	source, err = s.CompatDocument(ctx, tx, origin.DocumentID, a)
+	source, err = s.documentRecord(ctx, tx, origin.DocumentID, a)
 	if err != nil {
 		return source, err
 	}
@@ -67,19 +67,23 @@ func (s *Store) CompatCheckKnowledgeDocumentOrigin(ctx context.Context, tx *sql.
 	return source, nil
 }
 
-func (s *Store) CompatRetireKnowledgeDocument(ctx context.Context, tx *sql.Tx, record *persistence.KnowledgeDocumentRecord, expected int64) error {
+func (s *Store) retireKnowledgeDocument(ctx context.Context, tx *sql.Tx, record *persistence.KnowledgeDocumentRecord, expected int64) error {
+	if record.Reindex != nil || record.RetiredRemoteID != "" {
+		return conversationError("conflict", "document_reindex_in_progress")
+	}
 	if record.Document.State == "deleting" {
-		return s.CompatQueueDocumentWork(ctx, tx, *record)
+		return s.queueDocumentWork(ctx, tx, *record)
 	}
 	if record.Document.State == "deleted" {
 		return nil
 	}
 	record.Document.State = "deleting"
+	record.Document.ProcessingStage = "delete"
 	record.Document.ErrorCode = ""
-	if err := s.CompatSaveDocument(ctx, tx, record, expected); err != nil {
+	if err := s.saveDocumentRecord(ctx, tx, record, expected); err != nil {
 		return err
 	}
-	return s.CompatQueueDocumentWork(ctx, tx, *record)
+	return s.queueDocumentWork(ctx, tx, *record)
 }
 
 var _ persistence.KnowledgeDocumentTransferRepository = (*Store)(nil)

@@ -7,19 +7,21 @@ import (
 	"time"
 )
 
-func TestServiceStartsAndStopsGeneratedArtifactCleanup(t *testing.T) {
+func TestGeneratedArtifactCleanupWorkerTick(t *testing.T) {
 	repo := &generatedArtifactCleanupTestRepository{called: make(chan struct{})}
 	service := NewService(repo, "runtime-a", Options{})
-	service.Start(t.Context())
+	result, err := service.GeneratedArtifactCleanupWorkerTick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case <-repo.called:
 	case <-time.After(time.Second):
 		t.Fatal("generated artifact cleanup did not start")
 	}
-	service.Close()
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
-	if repo.calls != 1 || repo.limit != generatedArtifactCleanupBatchSize || repo.at.IsZero() {
+	if !result.Worked || result.ProcessedCount != 1 || repo.calls != 1 || repo.limit != generatedArtifactCleanupBatchSize || repo.at.IsZero() {
 		t.Fatalf("calls=%d limit=%d at=%s", repo.calls, repo.limit, repo.at)
 	}
 }

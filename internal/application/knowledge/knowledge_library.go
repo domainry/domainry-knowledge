@@ -2,9 +2,11 @@ package application
 
 import (
 	"context"
+	"strconv"
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func (s *Service) LibraryAccess(ctx context.Context, op string, a agentsdk.ConversationAuthority) (persistence.KnowledgeLibraryRepository, error) {
@@ -19,25 +21,31 @@ func (s *Service) LibraryAccess(ctx context.Context, op string, a agentsdk.Conve
 	return repo, nil
 }
 func (s *Service) LibraryAuthorize(ctx context.Context, op string, item agentsdk.KnowledgeLibrary, a agentsdk.ConversationAuthority) error {
-	return s.options.LibraryAuthorizer.AuthorizeKnowledgeLibrary(ctx, op, item, a)
+	return s.authorizeLibraryAction(ctx, op, item, a)
 }
 func (s *Service) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.KnowledgeLibraryCreate, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_create", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesCreate, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_create", agentsdk.KnowledgeLibrary{Kind: in.Kind, OwnerUserID: a.UserID}, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibrariesCreate, agentsdk.KnowledgeLibrary{Kind: in.Kind, OwnerUserID: a.UserID}, a); e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	out, err := repo.CreateKnowledgeLibrary(ctx, in, a)
-	return s.LibraryResult(ctx, out, err, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionLibrariesCreate, "knowledge.library.created", out.ID, "", out.ID, in.ClientID, out.Revision, nil, map[string]string{
+			"kind": out.Kind, "state": libraryState(out.Archived),
+		}, a)
+	}
+	return out, err
 }
 func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibraryPage, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_list", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesList, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibraryPage{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_list", agentsdk.KnowledgeLibrary{}, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibrariesList, agentsdk.KnowledgeLibrary{}, a); e != nil {
 		return agentsdk.KnowledgeLibraryPage{}, e
 	}
 	page, e := repo.KnowledgeLibraries(ctx, after, limit, a)
@@ -46,7 +54,7 @@ func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit in
 	}
 	// Resolve Identity again at return time. The repository only ever selects
 	// the caller's memberships; knowledge provider scopes are not inferred here.
-	if e = s.LibraryAuthorize(ctx, "libraries_list", agentsdk.KnowledgeLibrary{}, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibrariesList, agentsdk.KnowledgeLibrary{}, a); e != nil {
 		return agentsdk.KnowledgeLibraryPage{}, e
 	}
 	for i := range page.Items {
@@ -58,7 +66,7 @@ func (s *Service) KnowledgeLibraries(ctx context.Context, after string, limit in
 	return page, nil
 }
 func (s *Service) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_get", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesGet, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
@@ -66,13 +74,13 @@ func (s *Service) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.Co
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_get", item, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibrariesGet, item, a); e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	return s.LibraryResult(ctx, item, nil, a)
 }
 func (s *Service) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_update", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibrariesUpdate, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
@@ -80,14 +88,36 @@ func (s *Service) UpdateKnowledgeLibrary(ctx context.Context, id string, in agen
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_update", item, a); e != nil {
+	action := knowledgesdk.ActionLibrariesUpdate
+	if item.Archived != in.Archived {
+		if in.Archived {
+			action = knowledgesdk.ActionLibrariesArchive
+		} else {
+			action = knowledgesdk.ActionLibrariesRestore
+		}
+	}
+	if e = s.LibraryAuthorize(ctx, action, item, a); e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	out, err := repo.UpdateKnowledgeLibrary(ctx, id, in, a)
-	return s.LibraryResult(ctx, out, err, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		eventType := "knowledge.library.updated"
+		if action == knowledgesdk.ActionLibrariesArchive {
+			eventType = "knowledge.library.archived"
+		} else if action == knowledgesdk.ActionLibrariesRestore {
+			eventType = "knowledge.library.restored"
+		}
+		s.appendKnowledgeAudit(ctx, action, eventType, id, "", id, "", out.Revision, map[string]string{
+			"revision": strconv.FormatInt(item.Revision, 10), "state": libraryState(item.Archived),
+		}, map[string]string{
+			"revision": strconv.FormatInt(out.Revision, 10), "state": libraryState(out.Archived),
+		}, a)
+	}
+	return out, err
 }
 func (s *Service) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibraryMembers, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_members", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersList, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibraryMembers{}, e
 	}
@@ -95,13 +125,13 @@ func (s *Service) KnowledgeLibraryMembers(ctx context.Context, id, after string,
 	if e != nil {
 		return agentsdk.KnowledgeLibraryMembers{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_members", item, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryMembersList, item, a); e != nil {
 		return agentsdk.KnowledgeLibraryMembers{}, e
 	}
 	return repo.KnowledgeLibraryMembers(ctx, id, after, limit, a)
 }
 func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_set_member", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersSet, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
@@ -109,7 +139,7 @@ func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_set_member", item, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryMembersSet, item, a); e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	if item.Kind != "shared" || item.Role != "manager" {
@@ -119,10 +149,16 @@ func (s *Service) SetKnowledgeLibraryMember(ctx context.Context, id, user string
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	out, err := repo.SetKnowledgeLibraryMember(ctx, id, user, in, a)
-	return s.LibraryResult(ctx, out, err, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionLibraryMembersSet, "knowledge.library_member.set", id, "", user, "", out.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(in.ExpectedRevision, 10),
+		}, map[string]string{"user_id": user, "role": in.Role}, a)
+	}
+	return out, err
 }
 func (s *Service) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, revision int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	repo, e := s.LibraryAccess(ctx, "libraries_remove_member", a)
+	repo, e := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersRemove, a)
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
@@ -130,12 +166,25 @@ func (s *Service) RemoveKnowledgeLibraryMember(ctx context.Context, id, user str
 	if e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
-	if e = s.LibraryAuthorize(ctx, "libraries_remove_member", item, a); e != nil {
+	if e = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryMembersRemove, item, a); e != nil {
 		return agentsdk.KnowledgeLibrary{}, e
 	}
 	// Removing an inactive account must remain possible; validate only additions.
 	out, err := repo.RemoveKnowledgeLibraryMember(ctx, id, user, revision, a)
-	return s.LibraryResult(ctx, out, err, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionLibraryMembersRemove, "knowledge.library_member.removed", id, "", user, "", out.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(revision, 10), "user_id": user,
+		}, nil, a)
+	}
+	return out, err
+}
+
+func libraryState(archived bool) string {
+	if archived {
+		return "archived"
+	}
+	return "active"
 }
 
 var _ agentsdk.KnowledgeLibraryService = (*Service)(nil)
@@ -154,10 +203,14 @@ func (s *Service) LibraryResult(ctx context.Context, item agentsdk.KnowledgeLibr
 		Binding, unavailable := s.DocumentBinding(ctx, item.ID, a)
 		item.DocumentsConfigured = unavailable == nil
 		if unavailable == nil {
-			item.DocumentMaxBytes = DocumentMaxBytes(Binding)
+			formats := KnowledgeDocumentFormats(Binding)
+			item.DocumentsConfigured = len(formats) > 0
+			item.DocumentMaxBytes = DocumentOriginalMaximumBytes()
+			item.DocumentIndexMaxBytes = DocumentIndexMaximumBytes(Binding)
+			item.DocumentFormats = formats
 		}
 	}
-	item.SourcesManageable = item.Role == "manager" && s.options.LibraryAuthorizer != nil && s.LibraryAuthorize(ctx, "libraries_sources", item, a) == nil
+	item.SourcesManageable = item.Role == "manager" && s.options.LibraryAuthorizer != nil && s.LibraryAuthorize(ctx, knowledgesdk.ActionSourcesList, item, a) == nil
 	if item.SourcesManageable {
 		if bindings, ok := s.repo.(persistence.KnowledgeDatasourceRepository); ok {
 			Binding, found, e := bindings.KnowledgeDatasourceBinding(ctx, DocumentStorageScope(item.ID, a))

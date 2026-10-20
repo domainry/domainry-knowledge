@@ -9,6 +9,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-agent-sdk"
 	"github.com/domainry/domainry-agent-sdk/persistence"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
 func TestDurableJSONUsesUnixMillisecondsAndRejectsStringTime(t *testing.T) {
@@ -66,6 +67,8 @@ func TestOwnedKnowledgeStorageShapesUseNumericInstants(t *testing.T) {
 		{"document lease", persistence.KnowledgeDocumentLease{ExpiresAt: instant}, &persistence.KnowledgeDocumentLease{}},
 		{"attachment lease", persistence.ConversationAttachmentIndexLease{ExpiresAt: instant}, &persistence.ConversationAttachmentIndexLease{}},
 		{"datasource", persistence.KnowledgeDatasourceBinding{CreatedAt: instant}, &persistence.KnowledgeDatasourceBinding{}},
+		{"page view", knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Published: &knowledgesdk.KnowledgePageVersion{PublishedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}}, &knowledgesdk.KnowledgePageView{}},
+		{"page page", knowledgesdk.KnowledgePagePage{Items: []knowledgesdk.KnowledgePage{{CreatedAt: instant, UpdatedAt: instant}}, Complete: true}, &knowledgesdk.KnowledgePagePage{}},
 		{"artifact", artifact, &agentsdk.ConversationArtifact{}},
 		{"artifact record", persistence.ConversationArtifactRecord{Artifact: artifact, Body: json.RawMessage(`{"updated_at":"author text"}`)}, &persistence.ConversationArtifactRecord{}},
 		{"export", agentsdk.ConversationArtifactExport{CreatedAt: instant, ExpiresAt: instant, LastDownloadedAt: &last}, &agentsdk.ConversationArtifactExport{}},

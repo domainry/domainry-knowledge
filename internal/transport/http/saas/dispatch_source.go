@@ -19,20 +19,6 @@ func (server *Server) source(handle string) (agentsdk.ManagedKnowledgeDocumentSo
 
 func (server *Server) dispatchSource(ctx context.Context, operation string, raw json.RawMessage) (any, error, bool) {
 	switch operation {
-	case "source.document.put":
-		var in struct {
-			Handle    string                            `json:"handle"`
-			Input     agentsdk.KnowledgeDocumentContent `json:"input"`
-			Authority agentsdk.ConversationAuthority    `json:"authority"`
-		}
-		if e := decodeInput(raw, &in); e != nil {
-			return nil, e, true
-		}
-		source, e := server.source(in.Handle)
-		if e == nil {
-			e = source.PutKnowledgeDocument(ctx, in.Input, in.Authority)
-		}
-		return struct{}{}, e, true
 	case "source.document.inspect":
 		var in struct {
 			Handle    string                         `json:"handle"`

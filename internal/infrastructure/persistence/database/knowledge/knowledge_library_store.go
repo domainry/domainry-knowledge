@@ -11,39 +11,39 @@ import (
 	"github.com/domainry/domainry-orm/query"
 )
 
-func CompatLibraryScope(a agentsdk.ConversationAuthority) string {
+func libraryScope(a agentsdk.ConversationAuthority) string {
 	return conversationHash([]string{a.RuntimeID, a.WorkspaceID})
 }
-func CompatLibraryPredicate(a agentsdk.ConversationAuthority, id string) query.Predicate {
-	return query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("library_id", id))
+func libraryPredicate(a agentsdk.ConversationAuthority, id string) query.Predicate {
+	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", id))
 }
-func CompatValidLibraryID(id string) bool {
+func validLibraryID(id string) bool {
 	return strings.HasPrefix(id, "lib_") && len(id) == 36 && personalMemoryKey(id)
 }
-func CompatValidLibraryUser(id string) bool {
+func validLibraryUser(id string) bool {
 	return executionText(id, 255, true) && strings.TrimSpace(id) == id
 }
-func CompatValidLibraryRole(role string) bool {
+func validLibraryRole(role string) bool {
 	return role == "reader" || role == "editor" || role == "manager"
 }
 
-func (s *Store) CompatLibrary(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
+func (s *Store) libraryRecord(ctx context.Context, db conversationDB, id string, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
 	var out agentsdk.KnowledgeLibrary
 	if err := conversationAuthority(a); err != nil {
 		return out, err
 	}
-	if !CompatValidLibraryID(id) {
+	if !validLibraryID(id) {
 		return out, conversationError("bad_request", "library_invalid")
 	}
 	var member agentsdk.KnowledgeLibraryMember
-	found, err := s.executionRead(ctx, db, CompatLibraryMemberTable, query.And(CompatLibraryPredicate(a, id), query.Equal("user_id", a.UserID)), &member)
+	found, err := s.executionRead(ctx, db, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, id), query.Equal("user_id", a.UserID)), &member)
 	if err != nil {
 		return out, err
 	}
-	if !found || !CompatValidLibraryRole(member.Role) {
+	if !found || !validLibraryRole(member.Role) {
 		return out, conversationError("not_found", "library_not_found")
 	}
-	found, err = s.executionRead(ctx, db, CompatLibraryTable, CompatLibraryPredicate(a, id), &out)
+	found, err = s.executionRead(ctx, db, knowledgeLibraryTable, libraryPredicate(a, id), &out)
 	if err == nil && (!found || out.Kind == "personal" && out.OwnerUserID != a.UserID) {
 		err = conversationError("not_found", "library_not_found")
 	}
@@ -51,7 +51,7 @@ func (s *Store) CompatLibrary(ctx context.Context, db conversationDB, id string,
 	return out, err
 }
 func (s *Store) KnowledgeLibrary(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
-	err = s.transaction(ctx, func(tx *sql.Tx) error { var e error; out, e = s.CompatLibrary(ctx, tx, id, a); return e })
+	err = s.transaction(ctx, func(tx *sql.Tx) error { var e error; out, e = s.libraryRecord(ctx, tx, id, a); return e })
 	return
 }
 
@@ -69,13 +69,13 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		out = agentsdk.KnowledgeLibrary{}
 		var prior agentsdk.KnowledgeLibrary
-		found, e := s.executionRead(ctx, tx, CompatLibraryTable, CompatLibraryPredicate(a, id), &prior)
+		found, e := s.executionRead(ctx, tx, knowledgeLibraryTable, libraryPredicate(a, id), &prior)
 		if e != nil {
 			return e
 		}
 		if found {
 			if in.Kind != "personal" {
-				q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryTable).Columns("request_hash").Where(CompatLibraryPredicate(a, id)).Build()
+				q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryTable).Columns("request_hash").Where(libraryPredicate(a, id)).Build()
 				if e != nil {
 					return e
 				}
@@ -87,10 +87,10 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 					return conversationError("conflict", "idempotency_conflict")
 				}
 			}
-			out, e = s.CompatLibrary(ctx, tx, id, a)
+			out, e = s.libraryRecord(ctx, tx, id, a)
 			return e
 		}
-		q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryTable).Projections(query.Project(query.CountAll())).Where(query.Equal("scope_key", CompatLibraryScope(a))).Build()
+		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryTable).Projections(query.Project(query.CountAll())).Where(query.Equal("scope_key", libraryScope(a))).Build()
 		if e != nil {
 			return e
 		}
@@ -103,12 +103,12 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		out = agentsdk.KnowledgeLibrary{ID: id, Kind: in.Kind, Name: in.Name, Description: in.Description, OwnerUserID: a.UserID, Revision: 1, CreatedAt: now, UpdatedAt: now}
-		q, args, e = query.NewInsertBuilder(s.store.Renderer(), CompatLibraryTable).Columns("scope_key", "library_id", "request_hash", "revision", "payload_json").Values(CompatLibraryScope(a), id, conversationHash(in), 1, conversationJSON(out)).Build()
+		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgeLibraryTable).Columns("scope_key", "library_id", "request_hash", "revision", "payload_json").Values(libraryScope(a), id, conversationHash(in), 1, conversationJSON(out)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return e
 		}
 		member := agentsdk.KnowledgeLibraryMember{UserID: a.UserID, Role: "manager", UpdatedAt: now}
-		q, args, e = query.NewInsertBuilder(s.store.Renderer(), CompatLibraryMemberTable).Columns("scope_key", "library_id", "user_id", "role", "payload_json").Values(CompatLibraryScope(a), id, a.UserID, member.Role, conversationJSON(member)).Build()
+		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Columns("scope_key", "library_id", "user_id", "role", "payload_json").Values(libraryScope(a), id, a.UserID, member.Role, conversationJSON(member)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return e
 		}
@@ -118,11 +118,11 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 	return
 }
 
-func CompatLibraryPageLimit(after string, limit int, users bool) (int, error) {
+func libraryPageLimit(after string, limit int, users bool) (int, error) {
 	if limit == 0 {
 		limit = 20
 	}
-	if limit < 1 || limit > 50 || after != "" && ((!users && !CompatValidLibraryID(after)) || (users && !CompatValidLibraryUser(after))) {
+	if limit < 1 || limit > 50 || after != "" && ((!users && !validLibraryID(after)) || (users && !validLibraryUser(after))) {
 		return 0, conversationError("bad_request", "library_query_invalid")
 	}
 	return limit, nil
@@ -133,12 +133,12 @@ func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int,
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
-	if limit, err = CompatLibraryPageLimit(after, limit, false); err != nil {
+	if limit, err = libraryPageLimit(after, limit, false); err != nil {
 		return
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		out = agentsdk.KnowledgeLibraryPage{Items: []agentsdk.KnowledgeLibrary{}, Complete: true}
-		q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryMemberTable).Columns("library_id").Where(query.And(query.Equal("scope_key", CompatLibraryScope(a)), query.Equal("user_id", a.UserID), query.GreaterThan("library_id", after))).OrderBy(query.Ascending("library_id")).Limit(limit + 1).Build()
+		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Columns("library_id").Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("user_id", a.UserID), query.GreaterThan("library_id", after))).OrderBy(query.Ascending("library_id")).Limit(limit + 1).Build()
 		if e != nil {
 			return e
 		}
@@ -167,7 +167,7 @@ func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int,
 			out.NextAfter = ids[len(ids)-1]
 		}
 		for _, id := range ids {
-			item, e := s.CompatLibrary(ctx, tx, id, a)
+			item, e := s.libraryRecord(ctx, tx, id, a)
 			if e != nil {
 				return e
 			}
@@ -178,7 +178,7 @@ func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int,
 	return
 }
 
-func (s *Store) CompatSaveLibrary(ctx context.Context, tx *sql.Tx, item *agentsdk.KnowledgeLibrary, expected int64, a agentsdk.ConversationAuthority) error {
+func (s *Store) saveLibraryRecord(ctx context.Context, tx *sql.Tx, item *agentsdk.KnowledgeLibrary, expected int64, a agentsdk.ConversationAuthority) error {
 	if expected < 1 || item.Revision != expected {
 		return conversationError("conflict", "revision_conflict")
 	}
@@ -186,7 +186,7 @@ func (s *Store) CompatSaveLibrary(ctx context.Context, tx *sql.Tx, item *agentsd
 	item.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
 	stored := *item
 	stored.Role = ""
-	q, args, e := query.NewUpdateBuilder(s.store.Renderer(), CompatLibraryTable).Set("revision", item.Revision).Set("payload_json", conversationJSON(stored)).Where(query.And(CompatLibraryPredicate(a, item.ID), query.Equal("revision", expected))).Build()
+	q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeLibraryTable).Set("revision", item.Revision).Set("payload_json", conversationJSON(stored)).Where(query.And(libraryPredicate(a, item.ID), query.Equal("revision", expected))).Build()
 	return conversationCAS(ctx, tx, q, args, e)
 }
 func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agentsdk.KnowledgeLibraryUpdate, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
@@ -195,7 +195,7 @@ func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agents
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		var e error
-		out, e = s.CompatLibrary(ctx, tx, id, a)
+		out, e = s.libraryRecord(ctx, tx, id, a)
 		if e != nil {
 			return e
 		}
@@ -203,19 +203,19 @@ func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agents
 			return conversationError("forbidden", "library_manage_required")
 		}
 		out.Name, out.Description, out.Archived = in.Name, in.Description, in.Archived
-		return s.CompatSaveLibrary(ctx, tx, &out, in.ExpectedRevision, a)
+		return s.saveLibraryRecord(ctx, tx, &out, in.ExpectedRevision, a)
 	})
 	return
 }
 func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibraryMembers, err error) {
 	out.Items = []agentsdk.KnowledgeLibraryMember{}
 	out.Complete = true
-	if limit, err = CompatLibraryPageLimit(after, limit, true); err != nil {
+	if limit, err = libraryPageLimit(after, limit, true); err != nil {
 		return
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		out = agentsdk.KnowledgeLibraryMembers{Items: []agentsdk.KnowledgeLibraryMember{}, Complete: true}
-		item, e := s.CompatLibrary(ctx, tx, id, a)
+		item, e := s.libraryRecord(ctx, tx, id, a)
 		if e != nil {
 			return e
 		}
@@ -223,7 +223,7 @@ func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, l
 			return conversationError("forbidden", "library_manage_required")
 		}
 		out.Revision = item.Revision
-		q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryMemberTable).Columns("payload_json").Where(query.And(CompatLibraryPredicate(a, id), query.GreaterThan("user_id", after))).OrderBy(query.Ascending("user_id")).Limit(limit + 1).Build()
+		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Columns("payload_json").Where(query.And(libraryPredicate(a, id), query.GreaterThan("user_id", after))).OrderBy(query.Ascending("user_id")).Limit(limit + 1).Build()
 		if e != nil {
 			return e
 		}
@@ -255,22 +255,114 @@ func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, l
 	})
 	return
 }
+
+// KnowledgeLibraryMemberIDs is the narrow mention-picker projection. Any
+// current member may resolve the members of this one library, but roles and
+// the workspace-wide directory remain hidden.
+func (s *Store) KnowledgeLibraryMemberIDs(ctx context.Context, id string, a agentsdk.ConversationAuthority) (out []string, err error) {
+	out = []string{}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		if _, readErr := s.libraryRecord(ctx, tx, id, a); readErr != nil {
+			return readErr
+		}
+		statement, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).
+			Columns("user_id").
+			Where(libraryPredicate(a, id)).
+			OrderBy(query.Ascending("user_id")).
+			Limit(1001).
+			Build()
+		if buildErr != nil {
+			return buildErr
+		}
+		rows, queryErr := tx.QueryContext(ctx, statement, args...)
+		if queryErr != nil {
+			return queryErr
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var userID string
+			if scanErr := rows.Scan(&userID); scanErr != nil {
+				return scanErr
+			}
+			out = append(out, userID)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return rowsErr
+		}
+		if len(out) > 1000 {
+			return conversationError("unavailable", "library_members_limit_exceeded")
+		}
+		return nil
+	})
+	return out, err
+}
+
+// KnowledgeLibraryRoleForUser resolves current membership for an access
+// explanation after the caller has already passed manager authorization. It
+// returns no cached Identity profile and never mutates membership.
+func (s *Store) KnowledgeLibraryRoleForUser(ctx context.Context, id, user string, a agentsdk.ConversationAuthority) (role string, err error) {
+	if !validLibraryUser(user) {
+		return "", conversationError("bad_request", "library_member_invalid")
+	}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		library, readErr := s.libraryRecord(ctx, tx, id, a)
+		if readErr != nil {
+			return readErr
+		}
+		if library.Role != "manager" {
+			return conversationError("forbidden", "library_manage_required")
+		}
+		if library.Kind == "personal" {
+			if library.OwnerUserID == user {
+				role = "manager"
+			}
+			return nil
+		}
+		var member agentsdk.KnowledgeLibraryMember
+		found, readErr := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, id), query.Equal("user_id", user)), &member)
+		if readErr != nil {
+			return readErr
+		}
+		if found {
+			role = member.Role
+		}
+		return nil
+	})
+	return role, err
+}
+
+func (s *Store) KnowledgeLibraryPageCount(ctx context.Context, id string, a agentsdk.ConversationAuthority) (count int, err error) {
+	if err = conversationAuthority(a); err != nil {
+		return
+	}
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		if _, readErr := s.libraryRecord(ctx, tx, id, a); readErr != nil {
+			return readErr
+		}
+		statement, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Projections(query.Project(query.CountAll())).Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", id), query.Equal("state", "active"))).Build()
+		if buildErr != nil {
+			return buildErr
+		}
+		return tx.QueryRowContext(ctx, statement, args...).Scan(&count)
+	})
+	return
+}
 func (s *Store) SetKnowledgeLibraryMember(ctx context.Context, id, user string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	if !CompatValidLibraryRole(in.Role) {
+	if !validLibraryRole(in.Role) {
 		return agentsdk.KnowledgeLibrary{}, conversationError("bad_request", "library_role_invalid")
 	}
-	return s.CompatMutateLibraryMember(ctx, id, user, in.Role, in.ExpectedRevision, a)
+	return s.mutateLibraryMember(ctx, id, user, in.Role, in.ExpectedRevision, a)
 }
 func (s *Store) RemoveKnowledgeLibraryMember(ctx context.Context, id, user string, expected int64, a agentsdk.ConversationAuthority) (agentsdk.KnowledgeLibrary, error) {
-	return s.CompatMutateLibraryMember(ctx, id, user, "", expected, a)
+	return s.mutateLibraryMember(ctx, id, user, "", expected, a)
 }
-func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role string, expected int64, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
-	if !CompatValidLibraryUser(user) {
+func (s *Store) mutateLibraryMember(ctx context.Context, id, user, role string, expected int64, a agentsdk.ConversationAuthority) (out agentsdk.KnowledgeLibrary, err error) {
+	if !validLibraryUser(user) {
 		return out, conversationError("bad_request", "library_member_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		var e error
-		out, e = s.CompatLibrary(ctx, tx, id, a)
+		out, e = s.libraryRecord(ctx, tx, id, a)
 		if e != nil {
 			return e
 		}
@@ -283,9 +375,9 @@ func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role st
 		if expected < 1 || out.Revision != expected {
 			return conversationError("conflict", "revision_conflict")
 		}
-		predicate := query.And(CompatLibraryPredicate(a, id), query.Equal("user_id", user))
+		predicate := query.And(libraryPredicate(a, id), query.Equal("user_id", user))
 		var prior agentsdk.KnowledgeLibraryMember
-		found, e := s.executionRead(ctx, tx, CompatLibraryMemberTable, predicate, &prior)
+		found, e := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, predicate, &prior)
 		if e != nil {
 			return e
 		}
@@ -296,7 +388,7 @@ func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role st
 			return nil
 		}
 		if prior.Role == "manager" && role != "manager" {
-			q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryMemberTable).Projections(query.Project(query.CountAll())).Where(query.And(CompatLibraryPredicate(a, id), query.Equal("role", "manager"))).Build()
+			q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Projections(query.Project(query.CountAll())).Where(query.And(libraryPredicate(a, id), query.Equal("role", "manager"))).Build()
 			if e != nil {
 				return e
 			}
@@ -309,7 +401,7 @@ func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role st
 			}
 		}
 		if !found {
-			q, args, e := query.NewSelectBuilder(s.store.Renderer(), CompatLibraryMemberTable).Projections(query.Project(query.CountAll())).Where(CompatLibraryPredicate(a, id)).Build()
+			q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Projections(query.Project(query.CountAll())).Where(libraryPredicate(a, id)).Build()
 			if e != nil {
 				return e
 			}
@@ -323,23 +415,27 @@ func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role st
 		}
 		// Advancing the library revision serializes all settings/member changes,
 		// including concurrent attempts to remove the final two managers.
-		if e = s.CompatSaveLibrary(ctx, tx, &out, expected, a); e != nil {
+		if e = s.saveLibraryRecord(ctx, tx, &out, expected, a); e != nil {
 			return e
 		}
 		if role == "" {
-			q, args, e := query.NewDeleteBuilder(s.store.Renderer(), CompatLibraryMemberTable).Where(predicate).Build()
+			q, args, e := query.NewDeleteBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Where(predicate).Build()
+			if e = conversationExec(ctx, tx, q, args, e); e != nil {
+				return e
+			}
+			q, args, e = query.NewDeleteBuilder(s.store.Renderer(), knowledgePageGrantTable).Where(query.And(libraryPredicate(a, id), query.Equal("user_id", user))).Build()
 			if e = conversationExec(ctx, tx, q, args, e); e != nil {
 				return e
 			}
 		} else {
 			member := agentsdk.KnowledgeLibraryMember{UserID: user, Role: role, UpdatedAt: out.UpdatedAt}
 			if found {
-				q, args, e := query.NewUpdateBuilder(s.store.Renderer(), CompatLibraryMemberTable).Set("role", role).Set("payload_json", conversationJSON(member)).Where(predicate).Build()
+				q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Set("role", role).Set("payload_json", conversationJSON(member)).Where(predicate).Build()
 				if e = conversationExec(ctx, tx, q, args, e); e != nil {
 					return e
 				}
 			} else {
-				q, args, e := query.NewInsertBuilder(s.store.Renderer(), CompatLibraryMemberTable).Columns("scope_key", "library_id", "user_id", "role", "payload_json").Values(CompatLibraryScope(a), id, user, role, conversationJSON(member)).Build()
+				q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Columns("scope_key", "library_id", "user_id", "role", "payload_json").Values(libraryScope(a), id, user, role, conversationJSON(member)).Build()
 				if e = conversationExec(ctx, tx, q, args, e); e != nil {
 					return e
 				}
@@ -347,6 +443,11 @@ func (s *Store) CompatMutateLibraryMember(ctx context.Context, id, user, role st
 		}
 		if user == a.UserID {
 			out.Role = role
+		}
+		if role == "" || role == "reader" {
+			if e = s.revokeKnowledgeCollaborationSessions(ctx, tx, query.And(libraryPredicate(a, id), query.Equal("user_id", user))); e != nil {
+				return e
+			}
 		}
 		return nil
 	})

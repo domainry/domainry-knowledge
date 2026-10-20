@@ -2,6 +2,8 @@ package connectortransport
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +11,13 @@ import (
 	"testing"
 
 	connector "github.com/domainry/domainry-connector-sdk"
+	connectorhttpapi "github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 )
+
+func streamedRequest(target string, data []byte) connector.HTTPRequest {
+	digest := sha256.Sum256(data)
+	return connector.HTTPRequest{Method: http.MethodPost, URL: target, Content: bytes.NewReader(data), ContentLength: int64(len(data)), ContentSHA256: hex.EncodeToString(digest[:]), MaxResponseBytes: 512 * 1024, Headers: map[string][]string{"Content-Type": {"application/octet-stream"}}, SecretHeaders: map[string][]string{"Authorization": {"Bearer test-secret"}}}
+}
 
 func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 	var calls atomic.Int32
@@ -34,16 +42,17 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	put := connector.HTTPRequest{Method: http.MethodPost, URL: server.URL + "/v1/kb/kbs/one/documents?doc_id=d&filename=f.md", Body: data, MaxResponseBytes: 512 * 1024, Headers: map[string][]string{"Content-Type": {"application/octet-stream"}}, SecretHeaders: map[string][]string{"Authorization": {"Bearer test-secret"}}}
+	target := server.URL + "/v1/kb/kbs/one/documents?doc_id=d&filename=f.md"
+	put := streamedRequest(target, data)
 	if _, err := read.RoundTripHTTP(t.Context(), put); err == nil || calls.Load() != 0 {
 		t.Fatal("read transport accepted document write")
 	}
-	if _, err := doc.RoundTripHTTP(t.Context(), put); err != nil {
+	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(target, data)); err != nil {
 		t.Fatal(err)
 	}
 	remove := put
 	remove.Method = http.MethodDelete
-	remove.Body = nil
+	remove.Content, remove.ContentLength, remove.ContentSHA256 = nil, 0, ""
 	remove.URL = server.URL + "/v1/kb/kbs/one/documents?doc_id=d"
 	if _, err := doc.RoundTripHTTP(t.Context(), remove); err != nil {
 		t.Fatal(err)
@@ -69,12 +78,12 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 		},
 		func(r *connector.HTTPRequest) { r.Method = http.MethodGet },
 		func(r *connector.HTTPRequest) { r.Method = http.MethodDelete },
-		func(r *connector.HTTPRequest) { r.Body = make([]byte, (16<<20)+1) },
+		func(r *connector.HTTPRequest) { r.ContentLength = connectorhttpapi.MaximumInlineDocumentBytes + 1 },
 		func(r *connector.HTTPRequest) { r.SecretQuery = map[string]string{"key": "secret"} },
 		func(r *connector.HTTPRequest) { r.MaxResponseBytes = 1024 * 1024 },
 		func(r *connector.HTTPRequest) { r.Headers = map[string][]string{"Authorization": {"public"}} },
 	} {
-		in := put
+		in := streamedRequest(target, data)
 		mutate(&in)
 		if _, err := doc.RoundTripHTTP(t.Context(), in); err == nil {
 			t.Fatal("ungranted document request accepted")
@@ -100,7 +109,9 @@ func TestKnowledgeDocumentTransportDoesNotFollowRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := transport.RoundTripHTTP(t.Context(), connector.HTTPRequest{Method: http.MethodPost, URL: source.URL + "/v1/kb/kbs/kb/documents?doc_id=d&filename=f", Body: []byte("private document"), MaxResponseBytes: 512 * 1024, SecretHeaders: map[string][]string{"Authorization": {"Bearer secret"}}})
+	request := streamedRequest(source.URL+"/v1/kb/kbs/kb/documents?doc_id=d&filename=f.txt", []byte("private document"))
+	request.SecretHeaders = map[string][]string{"Authorization": {"Bearer secret"}}
+	out, err := transport.RoundTripHTTP(t.Context(), request)
 	if err != nil || out.StatusCode != 307 || redirected.Load() != 0 {
 		t.Fatal("redirect forwarded document or credentials", err)
 	}

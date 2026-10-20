@@ -1,7 +1,9 @@
 package application
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -10,31 +12,34 @@ import (
 	"github.com/domainry/domainry-agent-sdk/persistence"
 )
 
-func (s *Service) AttachmentIndexWorker(ctx context.Context, repo persistence.ConversationAttachmentIndexRepository) {
-	defer s.wg.Done()
-	for ctx.Err() == nil {
-		lease, found, err := repo.ClaimAttachmentIndexWork(ctx, s.runtimeID, s.owner, time.Now().UTC(), time.Minute)
-		if err == nil && found {
-			attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
-			s.ProcessAttachmentIndex(attempt, repo, lease)
-			cancel()
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.attachmentIndexWake:
-		case <-time.After(s.options.DocumentPoll):
-		}
-	}
+func (s *Service) AttachmentIndexWorkerEnabled() bool {
+	_, ok := s.repo.(persistence.ConversationAttachmentIndexRepository)
+	return s.options.AttachmentAuthorizer != nil && ok
 }
 
-func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.ConversationAttachmentIndexRepository, lease persistence.ConversationAttachmentIndexLease) {
+func (s *Service) AttachmentIndexWorkerWakeups() <-chan struct{} { return s.attachmentIndexWake }
+
+func (s *Service) AttachmentIndexWorkerTick(ctx context.Context) (WorkerTickResult, error) {
+	repo, ok := s.repo.(persistence.ConversationAttachmentIndexRepository)
+	if !ok || s.options.AttachmentAuthorizer == nil {
+		return WorkerTickResult{}, nil
+	}
+	lease, found, err := repo.ClaimAttachmentIndexWork(ctx, s.runtimeID, s.owner, time.Now().UTC(), time.Minute)
+	if err != nil || !found {
+		return WorkerTickResult{}, err
+	}
+	attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
+	err = s.ProcessAttachmentIndex(attempt, repo, lease)
+	cancel()
+	return WorkerTickResult{Worked: true, ProcessedCount: 1}, err
+}
+
+func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.ConversationAttachmentIndexRepository, lease persistence.ConversationAttachmentIndexLease) (resultErr error) {
 	progress := persistence.ConversationAttachmentIndexProgress{Event: "retry", ErrorCode: "attachment_index_unavailable", RetryAt: time.Now().UTC().Add(30 * time.Second)}
 	defer func() {
 		finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		_ = repo.ApplyAttachmentIndexProgress(finish, lease, progress)
+		resultErr = errors.Join(resultErr, repo.ApplyAttachmentIndexProgress(finish, lease, progress))
 	}()
 	r, err := repo.AttachmentIndexWorkRecord(ctx, lease)
 	if err != nil {
@@ -72,7 +77,7 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 		return
 	}
 	if !r.Index.PutStarted {
-		if r.Attachment.Bytes > DocumentMaxBytes(source) {
+		if maximum := DocumentIndexMaximumBytesForFilename(source, r.Attachment.Filename); maximum < 1 || r.Attachment.Bytes > maximum {
 			progress.ErrorCode = "attachment_size_invalid"
 			return
 		}
@@ -109,7 +114,7 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 		}
 		// The source is an SDK port. Original bytes are forwarded unchanged;
 		// all parsing, chunking and indexing belongs to the knowledge service.
-		err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentContent{DocumentID: current.Source.DocID, Filename: current.Attachment.Filename, Data: raw, RequestID: current.Source.RequestID, AccessPolicySHA256: current.Source.AccessPolicySHA256}, current.Index.Actor)
+		err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentContent{DocumentID: current.Source.DocID, Filename: current.Attachment.Filename, Bytes: current.Attachment.Bytes, SHA256: current.Attachment.SHA256, Content: bytes.NewReader(raw), RequestID: current.Source.RequestID, AccessPolicySHA256: current.Source.AccessPolicySHA256}, current.Index.Actor)
 		if err != nil {
 			progress.ErrorCode = "attachment_put_uncertain"
 			return
@@ -163,6 +168,7 @@ func (s *Service) ProcessAttachmentIndex(ctx context.Context, repo persistence.C
 		progress.ErrorCode = "attachment_index_failed"
 		progress.RetryAt = time.Now().UTC().Add(30 * time.Second)
 	}
+	return resultErr
 }
 
 func (s *Service) AttachmentIndexWriteAllowed(ctx context.Context, r persistence.ConversationAttachmentRecord) bool {

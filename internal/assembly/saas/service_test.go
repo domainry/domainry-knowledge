@@ -112,7 +112,7 @@ func TestRemoteKnowledgeOwnsDatabaseAndSurvivesRestart(t *testing.T) {
 		t.Fatalf("Agent conversation tables=%d err=%v", agentConversationTables, err)
 	}
 	var knowledgeTables int
-	if err = database.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='_agent_knowledge_libraries'`).Scan(&knowledgeTables); err != nil || knowledgeTables == 0 {
+	if err = database.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type='table' AND name='_knowledge_libraries'`).Scan(&knowledgeTables); err != nil || knowledgeTables == 0 {
 		t.Fatalf("knowledge tables=%d err=%v", knowledgeTables, err)
 	}
 }

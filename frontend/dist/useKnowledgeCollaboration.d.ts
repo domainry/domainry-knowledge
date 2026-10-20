@@ -1,0 +1,31 @@
+import type { KnowledgeEditorChange, KnowledgeEditorCollaboration } from "./editors/types.ts";
+import type { KnowledgeClient, KnowledgeCollaborationPresence, KnowledgePageView } from "./types.ts";
+export type KnowledgeCollaborationConnectionState = "unavailable" | "connecting" | "connected" | "syncing" | "reconnecting" | "error";
+type Options = {
+    active: boolean;
+    client: KnowledgeClient;
+    libraryID: string;
+    pageID: string;
+    initialTitle: string;
+    initialContent: string;
+    onDocument(title: string, content: string, synced: boolean): void;
+    onError(error: unknown): void;
+};
+export declare function useKnowledgeCollaboration(options: Options): {
+    available: boolean;
+    ready: boolean;
+    editorCollaboration: KnowledgeEditorCollaboration;
+    state: KnowledgeCollaborationConnectionState;
+    presence: KnowledgeCollaborationPresence[];
+    onlineUsers: number;
+    mergedUserIDs: string[];
+    mergeCount: number;
+    serverClock: number;
+    draftRevision: number;
+    userID: string;
+    edit: (title: string, content: string, change?: KnowledgeEditorChange) => void;
+    publish: (publishNote?: string) => Promise<KnowledgePageView>;
+    reconnect: () => void;
+    encodeState: () => string;
+};
+export {};

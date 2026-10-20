@@ -265,6 +265,36 @@ func (server *Server) dispatchDocumentRepository(ctx context.Context, operation 
 		}
 		v, e := repo.RequestKnowledgeDocumentDeletion(ctx, in.ID, in.Revision, in.Authority)
 		return v, e, true
+	case "documents.request_retry":
+		retry, supported := repo.(persistence.KnowledgeDocumentRetryRepository)
+		if !supported {
+			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.document_retry_unavailable"}, true
+		}
+		var in struct {
+			ID        string                         `json:"id"`
+			Revision  int64                          `json:"revision"`
+			Authority agentsdk.ConversationAuthority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := retry.RequestKnowledgeDocumentRetry(ctx, in.ID, in.Revision, in.Authority)
+		return v, e, true
+	case "documents.request_reindex":
+		reindex, supported := repo.(persistence.KnowledgeDocumentReindexRepository)
+		if !supported {
+			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.document_reindex_unavailable"}, true
+		}
+		var in struct {
+			ID        string                         `json:"id"`
+			Revision  int64                          `json:"revision"`
+			Authority agentsdk.ConversationAuthority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := reindex.RequestKnowledgeDocumentReindex(ctx, in.ID, in.Revision, in.Authority)
+		return v, e, true
 	case "documents.claim_work":
 		var in struct {
 			Owner    string        `json:"owner"`
@@ -293,6 +323,36 @@ func (server *Server) dispatchDocumentRepository(ctx context.Context, operation 
 			return nil, e, true
 		}
 		record, started, e := repo.StartKnowledgeDocumentPut(ctx, in)
+		return struct {
+			Record  persistence.KnowledgeDocumentRecord `json:"record"`
+			Started bool                                `json:"started"`
+		}{record, started}, e, true
+	case "documents.start_reindex_put":
+		var in persistence.KnowledgeDocumentLease
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		record, started, e := repo.StartKnowledgeDocumentReindexPut(ctx, in)
+		return struct {
+			Record  persistence.KnowledgeDocumentRecord `json:"record"`
+			Started bool                                `json:"started"`
+		}{record, started}, e, true
+	case "documents.start_retired_delete":
+		var in persistence.KnowledgeDocumentLease
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		record, started, e := repo.StartKnowledgeDocumentRetiredDelete(ctx, in)
+		return struct {
+			Record  persistence.KnowledgeDocumentRecord `json:"record"`
+			Started bool                                `json:"started"`
+		}{record, started}, e, true
+	case "documents.start_scan":
+		var in persistence.KnowledgeDocumentLease
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		record, started, e := repo.StartKnowledgeDocumentScan(ctx, in)
 		return struct {
 			Record  persistence.KnowledgeDocumentRecord `json:"record"`
 			Started bool                                `json:"started"`

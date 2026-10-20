@@ -1,6 +1,9 @@
 package documentstorage
 
 import (
+	"bytes"
+	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,18 +21,30 @@ func TestLibraryOriginalIsolationAndDurableDeletionFence(t *testing.T) {
 	defer func() { f.Close() }()
 	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("a", 32)}
 	id, raw := "kdoc_"+strings.Repeat("b", 32), []byte("shared immutable original")
-	ref, err := f.PutKnowledgeDocumentContent(t.Context(), scope, id, artifact.Hash(raw), raw)
+	ref, err := f.PutKnowledgeDocumentContent(t.Context(), scope, id, artifact.Hash(raw), int64(len(raw)), bytes.NewReader(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
+	stream, err := f.OpenKnowledgeDocumentContent(t.Context(), scope, id, ref, artifact.Hash(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	if _, err = stream.Seek(7, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	part := make([]byte, 9)
+	if _, err = io.ReadFull(stream, part); err != nil || string(part) != "immutable" {
+		t.Fatalf("range=%q err=%v", part, err)
+	}
 	other := scope
 	other.LibraryID = "lib_" + strings.Repeat("c", 32)
-	if _, err = f.ReadKnowledgeDocumentContent(t.Context(), other, id, ref); err == nil {
+	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), other, id, ref, artifact.Hash(raw), int64(len(raw))); err == nil {
 		t.Fatal("cross-library original read")
 	}
 	other = scope
 	other.WorkspaceID = "other"
-	if _, err = f.ReadKnowledgeDocumentContent(t.Context(), other, id, ref); err == nil {
+	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), other, id, ref, artifact.Hash(raw), int64(len(raw))); err == nil {
 		t.Fatal("cross-workspace original read")
 	}
 	if err = f.DeleteKnowledgeDocumentContent(t.Context(), scope, id); err != nil {
@@ -40,10 +55,69 @@ func TestLibraryOriginalIsolationAndDurableDeletionFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.PutKnowledgeDocumentContent(t.Context(), scope, id, artifact.Hash(raw), raw); err == nil {
+	if _, err = f.PutKnowledgeDocumentContent(t.Context(), scope, id, artifact.Hash(raw), int64(len(raw)), bytes.NewReader(raw)); err == nil {
 		t.Fatal("late upload escaped persistent tombstone")
 	}
-	if _, err = f.ReadKnowledgeDocumentContent(t.Context(), scope, id, ref); err == nil {
+	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), scope, id, ref, artifact.Hash(raw), int64(len(raw))); err == nil {
 		t.Fatal("deleted original returned")
+	}
+}
+
+func TestLibraryOriginalChunkUploadResumesAndPublishesAtomically(t *testing.T) {
+	f, err := NewFiles(filepath.Join(t.TempDir(), "private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("d", 32)}
+	id := "kdoc_" + strings.Repeat("e", 32)
+	raw := bytes.Repeat([]byte("chunked-original-"), int(2*agentsdk.KnowledgeDocumentUploadChunkBytes/17)+2)
+	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]
+	second := raw[agentsdk.KnowledgeDocumentUploadChunkBytes : 2*agentsdk.KnowledgeDocumentUploadChunkBytes]
+	last := raw[2*agentsdk.KnowledgeDocumentUploadChunkBytes:]
+	digest := artifact.Hash(raw)
+	next, ref, err := f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), 0, artifact.Hash(first), int64(len(first)), bytes.NewReader(first))
+	if err != nil || next != int64(len(first)) || ref != "" {
+		t.Fatalf("first next=%d ref=%q err=%v", next, ref, err)
+	}
+	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), scope, id, id+":"+digest, digest, int64(len(raw))); err == nil {
+		t.Fatal("incomplete staged upload became readable")
+	}
+	wrong := append([]byte(nil), first...)
+	wrong[0] ^= 0xff
+	if _, _, err = f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), 0, artifact.Hash(wrong), int64(len(wrong)), bytes.NewReader(wrong)); err == nil {
+		t.Fatal("conflicting replay was accepted")
+	}
+	var coded *agentsdk.Error
+	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_upload_content_conflict" {
+		t.Fatalf("conflicting replay err=%v", err)
+	}
+	if _, _, err = f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), int64(len(first)+len(second)), artifact.Hash(last), int64(len(last)), bytes.NewReader(last)); err == nil {
+		t.Fatal("upload gap was accepted")
+	}
+	if !errors.As(err, &coded) || coded.Code != "agent.conversation.document_upload_offset_conflict" {
+		t.Fatalf("upload gap err=%v", err)
+	}
+	next, ref, err = f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), int64(len(first)), artifact.Hash(second), int64(len(second)), bytes.NewReader(second))
+	if err != nil || next != int64(len(first)+len(second)) || ref != "" {
+		t.Fatalf("second next=%d ref=%q err=%v", next, ref, err)
+	}
+	next, ref, err = f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), 0, artifact.Hash(first), int64(len(first)), bytes.NewReader(first))
+	if err != nil || next != int64(len(first)+len(second)) || ref != "" {
+		t.Fatalf("replay next=%d ref=%q err=%v", next, ref, err)
+	}
+	next, ref, err = f.PutKnowledgeDocumentContentChunk(t.Context(), scope, id, digest, int64(len(raw)), int64(len(first)+len(second)), artifact.Hash(last), int64(len(last)), bytes.NewReader(last))
+	wantRef := "att_" + strings.Repeat("e", 32) + ":" + digest
+	if err != nil || next != int64(len(raw)) || ref != wantRef {
+		t.Fatalf("final next=%d ref=%q err=%v", next, ref, err)
+	}
+	reader, err := f.OpenKnowledgeDocumentContent(t.Context(), scope, id, ref, digest, int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, readErr := io.ReadAll(reader)
+	_ = reader.Close()
+	if readErr != nil || !bytes.Equal(loaded, raw) {
+		t.Fatalf("loaded bytes=%d err=%v", len(loaded), readErr)
 	}
 }
