@@ -140,3 +140,6 @@ func NewProviderFactory(adapterFactory knowledgeprovider.AdapterFactory) knowled
 	return assembly.NewProviderFactory(adapterFactory)
 }
 func NewServiceRuntime(repository any) contract.Runtime { return assembly.NewRuntime(repository) }
+func NewSingleDatasourceCatalog(runtimeID, workspaceID, key, name, description string, source knowledgeprovider.Source) (knowledgesdk.KnowledgeDatasourceCatalog, error) {
+	return assembly.NewSingleDatasourceCatalog(runtimeID, workspaceID, key, name, description, source)
+}
