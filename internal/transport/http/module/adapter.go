@@ -603,16 +603,32 @@ func collaborationRevocationCode(err error) (string, bool) {
 	return "", false
 }
 
+func collaborationResponseSupportsFlush(response http.ResponseWriter) bool {
+	for response != nil {
+		switch current := response.(type) {
+		case interface{ FlushError() error }:
+			return true
+		case http.Flusher:
+			return true
+		case interface{ Unwrap() http.ResponseWriter }:
+			response = current.Unwrap()
+		default:
+			return false
+		}
+	}
+	return false
+}
+
 func (a *adapter) streamPageCollaborationEvents(response http.ResponseWriter, request *http.Request) {
 	authority, ok := authorityOrWriteError(a, response, request)
 	if !ok {
 		return
 	}
-	flusher, ok := response.(http.Flusher)
-	if !ok {
+	if !collaborationResponseSupportsFlush(response) {
 		writeCode(response, http.StatusInternalServerError, "knowledge.streaming_unavailable")
 		return
 	}
+	controller := http.NewResponseController(response)
 	afterClock, err := collaborationLastEventID(request)
 	if err != nil {
 		writeError(response, err)
@@ -643,7 +659,9 @@ func (a *adapter) streamPageCollaborationEvents(response http.ResponseWriter, re
 				return false
 			}
 		}
-		flusher.Flush()
+		if err = controller.Flush(); err != nil {
+			return false
+		}
 		return true
 	}
 	if !writeBatch(batch) {
@@ -655,7 +673,7 @@ func (a *adapter) streamPageCollaborationEvents(response http.ResponseWriter, re
 		if err != nil {
 			if code, revoked := collaborationRevocationCode(err); revoked && request.Context().Err() == nil {
 				_ = writeCollaborationSSE(response, knowledgesdk.KnowledgeCollaborationServerEvent{Type: knowledgesdk.KnowledgeCollaborationEventRevoked, Clock: afterClock, Code: code})
-				flusher.Flush()
+				_ = controller.Flush()
 			}
 			return
 		}

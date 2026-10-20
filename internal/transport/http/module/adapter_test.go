@@ -25,6 +25,10 @@ type collaborationEventAdapterService struct {
 	inputs []knowledgesdk.KnowledgeCollaborationEvents
 }
 
+type unwrapOnlyResponseWriter struct{ http.ResponseWriter }
+
+func (writer unwrapOnlyResponseWriter) Unwrap() http.ResponseWriter { return writer.ResponseWriter }
+
 func (service *collaborationEventAdapterService) KnowledgeCollaborationEvents(_ context.Context, _, _ string, input knowledgesdk.KnowledgeCollaborationEvents, _ knowledgesdk.Authority) (knowledgesdk.KnowledgeCollaborationEventBatch, error) {
 	service.calls++
 	service.inputs = append(service.inputs, input)
@@ -108,7 +112,7 @@ func TestKnowledgeCollaborationEventsStreamsSSEAndClosesOnRevocation(t *testing.
 	identity := identitysdk.RequestIdentity{Principal: identitysdk.Principal{Known: true, WorkspaceID: "workspace-a", UserID: "alice"}}
 	request = request.WithContext(identitysdk.WithRequestIdentity(request.Context(), identity))
 	response := httptest.NewRecorder()
-	projected.Handler().ServeHTTP(response, request)
+	projected.Handler().ServeHTTP(unwrapOnlyResponseWriter{ResponseWriter: response}, request)
 	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/event-stream; charset=utf-8" || response.Header().Get("X-Accel-Buffering") != "no" || !response.Flushed {
 		t.Fatalf("SSE headers/status invalid: status=%d headers=%v flushed=%v body=%s", response.Code, response.Header(), response.Flushed, response.Body.String())
 	}
