@@ -36,7 +36,7 @@ function changedDocumentBlockIDs(before: string, after: string) {
   return [...changed].slice(0, 2048);
 }
 
-function DocumentBlockEditor({ body, readOnly, collaboration, onChange }: KnowledgeEditorProps) {
+function DocumentBlockEditor({ body, readOnly, collaboration, onChange, onPresence }: KnowledgeEditorProps) {
   const applying = useRef(false), emitted = useRef(body), seeded = useRef(false);
   const editor = useCreateBlockNote({
     schema: knowledgeDocumentSchema,
@@ -63,6 +63,13 @@ function DocumentBlockEditor({ body, readOnly, collaboration, onChange }: Knowle
       cursorBlockID: cursorBlockID || undefined,
       selectionBlockID: cursorBlockID || undefined,
     });
+  };
+
+  const emitPresence = () => {
+    if (!collaboration || readOnly) return;
+    let cursorBlockID = "";
+    try { cursorBlockID = editor.getTextCursorPosition().block.id; } catch { /* Selection can be outside the editor. */ }
+    onPresence?.(cursorBlockID || undefined, cursorBlockID || undefined);
   };
 
   useEffect(() => {
@@ -95,6 +102,7 @@ function DocumentBlockEditor({ body, readOnly, collaboration, onChange }: Knowle
         if (applying.current || readOnly) return;
         emitDocument();
       }}
+      onSelectionChange={emitPresence}
     >
       {!readOnly && <SuggestionMenuController triggerCharacter="/" getItems={query => getKnowledgeSlashMenuItems(editor, query)} />}
     </BlockNoteView>

@@ -178,6 +178,18 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		}
 		value, err := service.SyncKnowledgeCollaboration(ctx, input.LibraryID, input.PageID, input.Input, input.Authority)
 		return value, err, true
+	case knowledgesdk.ActionPageCollaborationEvents:
+		var input struct {
+			LibraryID string                                    `json:"library_id"`
+			PageID    string                                    `json:"page_id"`
+			Input     knowledgesdk.KnowledgeCollaborationEvents `json:"input"`
+			Authority agentsdk.Authority                        `json:"authority"`
+		}
+		if err := decodeInput(raw, &input); err != nil {
+			return nil, err, true
+		}
+		value, err := service.KnowledgeCollaborationEvents(ctx, input.LibraryID, input.PageID, input.Input, input.Authority)
+		return value, err, true
 	case knowledgesdk.ActionPageCollaborationClose:
 		var input struct {
 			LibraryID string             `json:"library_id"`

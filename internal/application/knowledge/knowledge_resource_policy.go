@@ -45,6 +45,7 @@ var KnowledgeResourcePolicy = map[string]KnowledgeResourceRule{
 	knowledgesdk.ActionPageAccessSet:            {MinimumRole: "manager", Writable: true, ManagerOnly: true},
 	knowledgesdk.ActionPageCollaborationConnect: {MinimumRole: "editor", Writable: true},
 	knowledgesdk.ActionPageCollaborationSync:    {MinimumRole: "editor", Writable: true},
+	knowledgesdk.ActionPageCollaborationEvents:  {MinimumRole: "editor", Writable: true},
 	knowledgesdk.ActionPageCollaborationClose:   {MinimumRole: "editor", Writable: true},
 	knowledgesdk.ActionPageCollaborationPublish: {MinimumRole: "editor", Writable: true},
 	knowledgesdk.ActionPageVersionsList:         {MinimumRole: "reader"},

@@ -931,6 +931,9 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 		}
 		return out, nil
 	}, &out)
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+	}
 	return
 }
 

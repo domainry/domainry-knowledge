@@ -1,6 +1,6 @@
 import { fileSHA256Header } from "../src/file-preview.ts";
 import type {
-  KnowledgeAccessExplanation, KnowledgeClient, KnowledgeCollaborationSession, KnowledgeCollaborationSyncResult,
+  KnowledgeAccessExplanation, KnowledgeClient, KnowledgeCollaborationServerEvent, KnowledgeCollaborationSession, KnowledgeCollaborationSyncResult,
   KnowledgeDocument, KnowledgeDocumentPage, KnowledgeLibrary, KnowledgeLibraryMemberPage, KnowledgeLibraryPage,
   KnowledgeLibrarySources, KnowledgePage, KnowledgePageAccessPolicy, KnowledgePageAttachment, KnowledgePageAttachmentPage,
   KnowledgePageComment, KnowledgePageCommentPage, KnowledgePageMoveImpact, KnowledgePagePage, KnowledgePageVersion,
@@ -22,6 +22,63 @@ async function sha256(bytes: ArrayBuffer) {
 async function checked(response: Response) {
   if (response.ok) return response;
   throw await errorFrom(response);
+}
+
+async function readCollaborationEventStream(response: Response, onEvent: (event: KnowledgeCollaborationServerEvent) => void, signal: AbortSignal) {
+  const contentType = response.headers.get("Content-Type")?.toLowerCase() || "";
+  if (!contentType.startsWith("text/event-stream") || !response.body) throw new APIError("knowledge.collaboration_stream_invalid", 502);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let eventName = "message";
+  let eventID = "";
+  let data: string[] = [];
+  const dispatch = () => {
+    if (data.length === 0) return;
+    let value: KnowledgeCollaborationServerEvent;
+    try {
+      value = JSON.parse(data.join("\n")) as KnowledgeCollaborationServerEvent;
+    } catch {
+      throw new APIError("knowledge.collaboration_event_invalid", 502);
+    }
+    const clock = Number(eventID);
+    if (!Number.isSafeInteger(value.clock) || value.clock < 0 || !Number.isSafeInteger(clock) || clock !== value.clock || value.type !== eventName || !["update", "snapshot", "presence", "revoked", "heartbeat"].includes(value.type)) {
+      throw new APIError("knowledge.collaboration_event_invalid", 502);
+    }
+    onEvent(value);
+  };
+  try {
+    while (true) {
+      signal.throwIfAborted();
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline).replace(/\r$/, "");
+        buffer = buffer.slice(newline + 1);
+        if (line === "") {
+          dispatch();
+          eventName = "message";
+          eventID = "";
+          data = [];
+        } else if (!line.startsWith(":")) {
+          const separator = line.indexOf(":");
+          const field = separator < 0 ? line : line.slice(0, separator);
+          const value = separator < 0 ? "" : line.slice(separator + 1).replace(/^ /, "");
+          if (field === "event") eventName = value;
+          else if (field === "id") eventID = value;
+          else if (field === "data") data.push(value);
+        }
+        newline = buffer.indexOf("\n");
+      }
+      if (chunk.done) {
+        if (buffer.trim() !== "") throw new APIError("knowledge.collaboration_event_invalid", 502);
+        return;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 export const knowledgeClient: KnowledgeClient = {
@@ -60,6 +117,10 @@ export const knowledgeClient: KnowledgeClient = {
   publishPage(libraryID, pageID, input, signal) { return request<KnowledgePageView>(`${pagePath(libraryID, pageID)}/publish`, "POST", input, signal); },
   connectKnowledgeCollaboration(libraryID, pageID, input, signal) { return request<KnowledgeCollaborationSession>(`${pagePath(libraryID, pageID)}/collaboration/connect`, "POST", input, signal); },
   syncKnowledgeCollaboration(libraryID, pageID, input, signal) { return request<KnowledgeCollaborationSyncResult>(`${pagePath(libraryID, pageID)}/collaboration/sync`, "POST", input, signal); },
+  async streamKnowledgeCollaborationEvents(libraryID, pageID, sessionID, afterClock, onEvent, signal) {
+    const response = await checked(await sessionFetch(`${pagePath(libraryID, pageID)}/collaboration/${encodeURIComponent(sessionID)}/events`, { method: "GET", headers: { Accept: "text/event-stream", "Last-Event-ID": String(afterClock) }, signal }));
+    await readCollaborationEventStream(response, onEvent, signal);
+  },
   closeKnowledgeCollaboration(libraryID, pageID, sessionID, signal) { return request<void>(`${pagePath(libraryID, pageID)}/collaboration/${encodeURIComponent(sessionID)}`, "DELETE", undefined, signal); },
   publishKnowledgeCollaboration(libraryID, pageID, input, signal) { return request<KnowledgePageView>(`${pagePath(libraryID, pageID)}/collaboration/publish`, "POST", input, signal); },
   listPageVersions(libraryID, pageID, before, limit, signal) { const query = new URLSearchParams({ limit: String(limit) }); if (before > 0) query.set("before", String(before)); return request<KnowledgePageVersionPage>(`${pagePath(libraryID, pageID)}/versions?${query}`, "GET", undefined, signal); },

@@ -26,6 +26,10 @@ func (repository *realtimeAuthorizationRepository) SyncKnowledgeCollaboration(_ 
 	return knowledgesdk.KnowledgeCollaborationSyncResult{Applied: true, Complete: true, Session: knowledgesdk.KnowledgeCollaborationSession{ID: input.SessionID, LibraryID: libraryID, PageID: pageID, UserID: a.UserID, State: "connected", ServerClock: 4, Snapshot: knowledgesdk.KnowledgeCollaborationSnapshot{PageID: pageID, DraftRevision: 3, ServerClock: 4}}}, nil
 }
 
+func (*realtimeAuthorizationRepository) KnowledgeCollaborationEvents(_ context.Context, _, _ string, input knowledgesdk.KnowledgeCollaborationEvents, _ agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationEventBatch, error) {
+	return knowledgesdk.KnowledgeCollaborationEventBatch{SessionID: input.SessionID, ServerClock: input.AfterClock, Events: []knowledgesdk.KnowledgeCollaborationServerEvent{}, Complete: true}, nil
+}
+
 func (*realtimeAuthorizationRepository) CloseKnowledgeCollaboration(context.Context, string, string, string, agentsdk.Authority) error {
 	return nil
 }

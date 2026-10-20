@@ -56,6 +56,18 @@ func (s *Service) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pag
 	return result, err
 }
 
+func (s *Service) KnowledgeCollaborationEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationEvents, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationEventBatch, error) {
+	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationEvents, a)
+	if err != nil {
+		return knowledgesdk.KnowledgeCollaborationEventBatch{}, err
+	}
+	result, err := repository.KnowledgeCollaborationEvents(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationEvents, a)
+	}
+	return result, err
+}
+
 func (s *Service) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.Authority) error {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationClose, a)
 	if err != nil {

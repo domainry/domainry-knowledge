@@ -137,6 +137,15 @@ export type KnowledgeCollaborationUpdateEvent = {
   snapshot?: KnowledgeCollaborationSnapshot;
 };
 export type KnowledgeCollaborationSyncResult = { session: KnowledgeCollaborationSession; events: KnowledgeCollaborationUpdateEvent[]; applied: boolean; complete: boolean };
+export type KnowledgeCollaborationServerEvent = {
+  type: "update" | "snapshot" | "presence" | "revoked" | "heartbeat";
+  clock: number;
+  user_id?: string;
+  update?: KnowledgeCollaborationUpdate;
+  snapshot?: KnowledgeCollaborationSnapshot;
+  presence?: KnowledgeCollaborationPresence[];
+  code?: string;
+};
 
 export type KnowledgePageAccessGrant = {
   user_id: string;
@@ -417,6 +426,7 @@ export interface KnowledgeClient {
   publishPage(libraryID: string, pageID: string, request: { client_id: string; expected_page_revision: number; expected_draft_revision: number; publish_note?: string }, signal: AbortSignal): Promise<KnowledgePageView>;
   connectKnowledgeCollaboration?(libraryID: string, pageID: string, request: { client_id: string }, signal: AbortSignal): Promise<KnowledgeCollaborationSession>;
   syncKnowledgeCollaboration?(libraryID: string, pageID: string, request: { session_id: string; after_clock: number; update?: KnowledgeCollaborationUpdate; cursor_block_id?: string; selection_block_id?: string }, signal: AbortSignal): Promise<KnowledgeCollaborationSyncResult>;
+  streamKnowledgeCollaborationEvents?(libraryID: string, pageID: string, sessionID: string, afterClock: number, onEvent: (event: KnowledgeCollaborationServerEvent) => void, signal: AbortSignal): Promise<void>;
   closeKnowledgeCollaboration?(libraryID: string, pageID: string, sessionID: string, signal: AbortSignal): Promise<void>;
   publishKnowledgeCollaboration?(libraryID: string, pageID: string, request: { session_id: string; client_id: string; publish_note?: string }, signal: AbortSignal): Promise<KnowledgePageView>;
   listPageVersions(libraryID: string, pageID: string, before: number, limit: number, signal: AbortSignal): Promise<KnowledgePageVersionPage>;

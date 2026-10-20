@@ -142,6 +142,7 @@ func (a *adapter) handlers() map[string]http.HandlerFunc {
 		knowledgesdk.ActionPageAccessSet:            a.setPageAccess,
 		knowledgesdk.ActionPageCollaborationConnect: a.connectPageCollaboration,
 		knowledgesdk.ActionPageCollaborationSync:    a.syncPageCollaboration,
+		knowledgesdk.ActionPageCollaborationEvents:  a.streamPageCollaborationEvents,
 		knowledgesdk.ActionPageCollaborationClose:   a.closePageCollaboration,
 		knowledgesdk.ActionPageCollaborationPublish: a.publishPageCollaboration,
 		knowledgesdk.ActionPageVersionsList:         a.listVersions,
@@ -563,6 +564,106 @@ func (a *adapter) syncPageCollaboration(response http.ResponseWriter, request *h
 	}
 	result, err := a.service.SyncKnowledgeCollaboration(request.Context(), request.PathValue("libraryID"), request.PathValue("pageID"), input, authority)
 	writeResult(response, result, err, http.StatusOK)
+}
+
+func collaborationLastEventID(request *http.Request) (int64, error) {
+	raw := strings.TrimSpace(request.Header.Get("Last-Event-ID"))
+	if raw == "" {
+		return 0, nil
+	}
+	clock, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || clock < 0 {
+		return 0, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.collaboration_event_id_invalid"}
+	}
+	return clock, nil
+}
+
+func writeCollaborationSSE(response http.ResponseWriter, event knowledgesdk.KnowledgeCollaborationServerEvent) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	if event.Clock >= 0 {
+		if _, err = fmt.Fprintf(response, "id: %d\n", event.Clock); err != nil {
+			return err
+		}
+	}
+	_, err = fmt.Fprintf(response, "event: %s\ndata: %s\n\n", event.Type, payload)
+	return err
+}
+
+func collaborationRevocationCode(err error) (string, bool) {
+	var failure *knowledgesdk.Error
+	if errors.As(err, &failure) && strings.TrimSpace(failure.Code) != "" {
+		if failure.Class == "unavailable" || failure.Retryable {
+			return "", false
+		}
+		return failure.Code, true
+	}
+	return "", false
+}
+
+func (a *adapter) streamPageCollaborationEvents(response http.ResponseWriter, request *http.Request) {
+	authority, ok := authorityOrWriteError(a, response, request)
+	if !ok {
+		return
+	}
+	flusher, ok := response.(http.Flusher)
+	if !ok {
+		writeCode(response, http.StatusInternalServerError, "knowledge.streaming_unavailable")
+		return
+	}
+	afterClock, err := collaborationLastEventID(request)
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	libraryID, pageID, sessionID := request.PathValue("libraryID"), request.PathValue("pageID"), request.PathValue("sessionID")
+	batch, err := a.service.KnowledgeCollaborationEvents(request.Context(), libraryID, pageID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: sessionID, AfterClock: afterClock}, authority)
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	response.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-cache, no-transform")
+	response.Header().Set("Connection", "keep-alive")
+	response.Header().Set("X-Accel-Buffering", "no")
+	if _, err = io.WriteString(response, "retry: 1000\n\n"); err != nil {
+		return
+	}
+	writeBatch := func(current knowledgesdk.KnowledgeCollaborationEventBatch) bool {
+		if len(current.Events) == 0 {
+			if _, err = io.WriteString(response, ": heartbeat\n"); err != nil {
+				return false
+			}
+			current.Events = []knowledgesdk.KnowledgeCollaborationServerEvent{{Type: knowledgesdk.KnowledgeCollaborationEventHeartbeat, Clock: current.ServerClock}}
+		}
+		for _, event := range current.Events {
+			if writeCollaborationSSE(response, event) != nil {
+				return false
+			}
+		}
+		flusher.Flush()
+		return true
+	}
+	if !writeBatch(batch) {
+		return
+	}
+	afterClock = batch.ServerClock
+	for {
+		batch, err = a.service.KnowledgeCollaborationEvents(request.Context(), libraryID, pageID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: sessionID, AfterClock: afterClock, WaitMillis: 15_000}, authority)
+		if err != nil {
+			if code, revoked := collaborationRevocationCode(err); revoked && request.Context().Err() == nil {
+				_ = writeCollaborationSSE(response, knowledgesdk.KnowledgeCollaborationServerEvent{Type: knowledgesdk.KnowledgeCollaborationEventRevoked, Clock: afterClock, Code: code})
+				flusher.Flush()
+			}
+			return
+		}
+		if !writeBatch(batch) {
+			return
+		}
+		afterClock = batch.ServerClock
+	}
 }
 
 func (a *adapter) closePageCollaboration(response http.ResponseWriter, request *http.Request) {

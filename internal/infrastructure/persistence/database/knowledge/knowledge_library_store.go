@@ -203,8 +203,17 @@ func (s *Store) UpdateKnowledgeLibrary(ctx context.Context, id string, in agents
 			return conversationError("forbidden", "library_manage_required")
 		}
 		out.Name, out.Description, out.Archived = in.Name, in.Description, in.Archived
-		return s.saveLibraryRecord(ctx, tx, &out, in.ExpectedRevision, a)
+		if e = s.saveLibraryRecord(ctx, tx, &out, in.ExpectedRevision, a); e != nil {
+			return e
+		}
+		if out.Archived {
+			return s.revokeKnowledgeCollaborationSessions(ctx, tx, libraryPredicate(a, id))
+		}
+		return nil
 	})
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, id, "")
+	}
 	return
 }
 func (s *Store) KnowledgeLibraryMembers(ctx context.Context, id, after string, limit int, a agentsdk.Authority) (out agentsdk.KnowledgeLibraryMembers, err error) {
@@ -451,6 +460,9 @@ func (s *Store) mutateLibraryMember(ctx context.Context, id, user, role string, 
 		}
 		return nil
 	})
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, id, "")
+	}
 	return
 }
 

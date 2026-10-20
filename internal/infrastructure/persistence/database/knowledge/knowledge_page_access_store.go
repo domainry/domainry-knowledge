@@ -396,6 +396,9 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 		}
 		return out, nil
 	}, &out)
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+	}
 	return
 }
 

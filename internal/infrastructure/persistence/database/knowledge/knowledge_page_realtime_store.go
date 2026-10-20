@@ -15,11 +15,28 @@ import (
 
 const (
 	knowledgeCollaborationLease               = 30 * time.Second
+	knowledgeCollaborationMaximumWait         = 15 * time.Second
 	knowledgeCollaborationRetainedEvents      = int64(256)
 	knowledgeCollaborationMaximumUpdateBytes  = knowledgePageMaximumBytes
 	knowledgeCollaborationMaximumStateBytes   = knowledgePageMaximumBytes * 4
 	knowledgeCollaborationMaximumEditedBlocks = 2048
 )
+
+func knowledgeCollaborationLibraryNotifierKey(a agentsdk.Authority, libraryID string) string {
+	return libraryScope(a) + ":library:" + libraryID
+}
+
+func knowledgeCollaborationPageNotifierKey(a agentsdk.Authority, libraryID, pageID string) string {
+	return libraryScope(a) + ":page:" + libraryID + ":" + pageID
+}
+
+func (s *Store) notifyKnowledgeCollaboration(a agentsdk.Authority, libraryID, pageID string) {
+	keys := []string{knowledgeCollaborationLibraryNotifierKey(a, libraryID)}
+	if pageID != "" {
+		keys = append(keys, knowledgeCollaborationPageNotifierKey(a, libraryID, pageID))
+	}
+	s.collaboration.notify(keys...)
+}
 
 type knowledgeCollaborationSessionRecord struct {
 	ID, LibraryID, PageID, ClientID, UserID string
@@ -236,6 +253,9 @@ func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pa
 		out = collaborationSessionAPI(record, snapshot, presence)
 		return nil
 	})
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+	}
 	return
 }
 
@@ -388,7 +408,88 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 		out.Complete = true
 		return readErr
 	})
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+	}
 	return
+}
+
+func collaborationServerEvents(events []knowledgesdk.KnowledgeCollaborationUpdateEvent, presence []knowledgesdk.KnowledgeCollaborationPresence, clock int64, includePresence bool) []knowledgesdk.KnowledgeCollaborationServerEvent {
+	out := make([]knowledgesdk.KnowledgeCollaborationServerEvent, 0, len(events)+1)
+	for _, event := range events {
+		kind := knowledgesdk.KnowledgeCollaborationEventUpdate
+		if event.Snapshot != nil {
+			kind = knowledgesdk.KnowledgeCollaborationEventSnapshot
+		}
+		out = append(out, knowledgesdk.KnowledgeCollaborationServerEvent{Type: kind, Clock: event.Clock, UserID: event.UserID, Update: event.Update, Snapshot: event.Snapshot})
+	}
+	if includePresence {
+		out = append(out, knowledgesdk.KnowledgeCollaborationServerEvent{Type: knowledgesdk.KnowledgeCollaborationEventPresence, Clock: clock, Presence: presence})
+	}
+	return out
+}
+
+func (s *Store) readKnowledgeCollaborationEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationEvents, includePresence bool, a agentsdk.Authority) (out knowledgesdk.KnowledgeCollaborationEventBatch, err error) {
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		_, _, draft, authorizeErr := s.authorizeKnowledgeCollaboration(ctx, tx, libraryID, pageID, a)
+		if authorizeErr != nil {
+			return authorizeErr
+		}
+		record, readErr := s.collaborationSession(ctx, tx, libraryID, pageID, input.SessionID, a)
+		if readErr != nil {
+			return readErr
+		}
+		snapshot, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
+		if readErr != nil {
+			return readErr
+		}
+		if input.AfterClock > snapshot.ServerClock {
+			return conversationError("bad_request", "collaboration_clock_invalid")
+		}
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		record.ServerClock, record.LeaseUntilMillis, record.LastSeenMillis = snapshot.ServerClock, now.Add(knowledgeCollaborationLease).UnixMilli(), now.UnixMilli()
+		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Set("lease_until", record.LeaseUntilMillis).Set("server_clock", record.ServerClock).Set("payload_json", conversationJSON(record)).Where(query.And(knowledgeCollaborationSessionScope(a, record.ID), query.Equal("state", "connected"))).Build()
+		if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
+			return readErr
+		}
+		updates, readErr := s.collaborationEvents(ctx, tx, pageID, input.AfterClock, snapshot, a)
+		if readErr != nil {
+			return readErr
+		}
+		presence, readErr := s.knowledgeCollaborationPresence(ctx, tx, pageID, now, a)
+		if readErr != nil {
+			return readErr
+		}
+		out = knowledgesdk.KnowledgeCollaborationEventBatch{SessionID: record.ID, ServerClock: snapshot.ServerClock, Events: collaborationServerEvents(updates, presence, snapshot.ServerClock, includePresence), Complete: true}
+		return nil
+	})
+	return
+}
+
+func (s *Store) KnowledgeCollaborationEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationEvents, a agentsdk.Authority) (out knowledgesdk.KnowledgeCollaborationEventBatch, err error) {
+	if input.AfterClock < 0 || input.WaitMillis < 0 || input.WaitMillis > knowledgeCollaborationMaximumWait.Milliseconds() || conversationAuthority(a) != nil {
+		return out, conversationError("bad_request", "collaboration_events_invalid")
+	}
+	updates, unsubscribe := s.collaboration.subscribe(
+		knowledgeCollaborationLibraryNotifierKey(a, libraryID),
+		knowledgeCollaborationPageNotifierKey(a, libraryID, pageID),
+	)
+	defer unsubscribe()
+	out, err = s.readKnowledgeCollaborationEvents(ctx, libraryID, pageID, input, input.WaitMillis == 0, a)
+	if err != nil || len(out.Events) > 0 || input.WaitMillis == 0 {
+		return out, err
+	}
+	timer := time.NewTimer(time.Duration(input.WaitMillis) * time.Millisecond)
+	defer timer.Stop()
+	changed := false
+	select {
+	case <-ctx.Done():
+		return out, ctx.Err()
+	case <-updates:
+		changed = true
+	case <-timer.C:
+	}
+	return s.readKnowledgeCollaborationEvents(ctx, libraryID, pageID, input, changed, a)
 }
 
 func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, pageID, sessionID string, a agentsdk.Authority) (err error) {
@@ -404,6 +505,9 @@ func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, page
 		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Set("state", record.State).Set("payload_json", conversationJSON(record)).Where(knowledgeCollaborationSessionScope(a, sessionID)).Build()
 		return conversationExec(ctx, tx, q, args, buildErr)
 	})
+	if err == nil {
+		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+	}
 	return
 }
 

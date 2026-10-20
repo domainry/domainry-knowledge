@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { applyKnowledgeYjsState, collaborationContentSHA256, encodeKnowledgeYjsState } from "./collaboration.ts";
 import type { KnowledgeEditorChange, KnowledgeEditorCollaboration } from "./editors/types.ts";
-import type { KnowledgeClient, KnowledgeCollaborationPresence, KnowledgeCollaborationSession, KnowledgeCollaborationSnapshot, KnowledgeCollaborationUpdate, KnowledgePageView } from "./types.ts";
+import type { KnowledgeClient, KnowledgeCollaborationPresence, KnowledgeCollaborationServerEvent, KnowledgeCollaborationSession, KnowledgeCollaborationSnapshot, KnowledgeCollaborationUpdate, KnowledgePageView } from "./types.ts";
 
 export type KnowledgeCollaborationConnectionState = "unavailable" | "connecting" | "connected" | "syncing" | "reconnecting" | "error";
 
@@ -25,7 +25,7 @@ type PendingDocument = {
 };
 
 export function useKnowledgeCollaboration(options: Options) {
-  const available = !!(options.client.connectKnowledgeCollaboration && options.client.syncKnowledgeCollaboration && options.client.closeKnowledgeCollaboration && options.client.publishKnowledgeCollaboration);
+  const available = !!(options.client.connectKnowledgeCollaboration && options.client.syncKnowledgeCollaboration && options.client.streamKnowledgeCollaborationEvents && options.client.closeKnowledgeCollaboration && options.client.publishKnowledgeCollaboration);
   const document = useMemo(() => new Y.Doc(), [options.pageID]);
   const fragment = useMemo(() => document.getXmlFragment("knowledge-document"), [document]);
   const [state, setState] = useState<KnowledgeCollaborationConnectionState>(available ? "connecting" : "unavailable");
@@ -44,6 +44,9 @@ export function useKnowledgeCollaboration(options: Options) {
   const cursorRef = useRef({ cursor: "", selection: "" });
   const drainRef = useRef<Promise<void> | null>(null);
   const pumpRef = useRef<() => Promise<void>>(async () => undefined);
+  const presenceRef = useRef<() => Promise<void>>(async () => undefined);
+  const bodyTimerRef = useRef<number | null>(null);
+  const presenceTimerRef = useRef<number | null>(null);
   const generationRef = useRef(0);
   const clientIDRef = useRef(crypto.randomUUID());
   const lastAppliedStateRef = useRef("");
@@ -70,6 +73,48 @@ export function useKnowledgeCollaboration(options: Options) {
     callbacksRef.current.onDocument(pendingRef.current?.title || session.snapshot.title, session.snapshot.content, synced);
   }
 
+  function applyStreamEvent(event: KnowledgeCollaborationServerEvent) {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (event.type === "presence") {
+      const nextPresence = event.presence || [];
+      sessionRef.current = { ...session, presence: nextPresence };
+      setPresence(nextPresence);
+      return;
+    }
+    if (event.type === "heartbeat") {
+      if (!pendingRef.current && !drainRef.current) setState("connected");
+      return;
+    }
+    if (event.type !== "update" && event.type !== "snapshot") return;
+    const confirmed = confirmedRef.current;
+    const next = event.snapshot || (event.update && confirmed ? {
+      ...confirmed,
+      draft_revision: confirmed.draft_revision + 1,
+      server_clock: event.clock,
+      title: event.update.title?.trim() || confirmed.title,
+      content: event.update.content,
+      content_sha256: event.update.content_sha256,
+      yjs_state: event.update.yjs_state,
+    } : undefined);
+    if (!next) return;
+    confirmedRef.current = next;
+    sessionRef.current = { ...session, server_clock: next.server_clock, snapshot: next };
+    if (next.yjs_state && next.yjs_state !== lastAppliedStateRef.current) {
+      applyKnowledgeYjsState(document, next.yjs_state);
+      lastAppliedStateRef.current = next.yjs_state;
+      setInitializeFromBody(false);
+    }
+    setServerClock(next.server_clock);
+    setDraftRevision(next.draft_revision);
+    if (event.user_id && event.user_id !== session.user_id) {
+      setMergedUserIDs([event.user_id]);
+      setMergeCount(count => count + 1);
+    }
+    callbacksRef.current.onDocument(pendingRef.current?.title || next.title, next.content, !pendingRef.current);
+    if (!pendingRef.current && !drainRef.current) setState("connected");
+  }
+
   useEffect(() => {
     if (!options.active || !available) {
       setState(available ? "connecting" : "unavailable");
@@ -85,6 +130,10 @@ export function useKnowledgeCollaboration(options: Options) {
     confirmedRef.current = null;
     pendingRef.current = null;
     drainRef.current = null;
+	if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+	if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+	bodyTimerRef.current = null;
+	presenceTimerRef.current = null;
     setReady(false);
     setState(retryNonce > 0 ? "reconnecting" : "connecting");
     setPresence([]);
@@ -142,6 +191,24 @@ export function useKnowledgeCollaboration(options: Options) {
     };
     pumpRef.current = pump;
 
+    presenceRef.current = async () => {
+      const session = sessionRef.current;
+      if (!session || pendingRef.current || drainRef.current || generationRef.current !== generation) return;
+      try {
+        await options.client.syncKnowledgeCollaboration!(options.libraryID, options.pageID, {
+          session_id: session.id,
+          after_clock: confirmedRef.current?.server_clock || 0,
+          cursor_block_id: cursorRef.current.cursor || undefined,
+          selection_block_id: cursorRef.current.selection || undefined,
+        }, AbortSignal.timeout(10_000));
+      } catch (failure) {
+        if (generationRef.current === generation) {
+          setState("reconnecting");
+          callbacksRef.current.onError(failure);
+        }
+      }
+    };
+
     void options.client.connectKnowledgeCollaboration!(options.libraryID, options.pageID, { client_id: clientID }, abort.signal).then(session => {
       if (abort.signal.aborted || generationRef.current !== generation) return;
       sessionRef.current = session;
@@ -150,6 +217,38 @@ export function useKnowledgeCollaboration(options: Options) {
       applyServerResult(session, [], true);
       setReady(true);
       setState("connected");
+      void (async () => {
+        let failures = 0;
+        while (!abort.signal.aborted && generationRef.current === generation && sessionRef.current) {
+          let revokedCode = "";
+          try {
+            await options.client.streamKnowledgeCollaborationEvents!(options.libraryID, options.pageID, session.id, confirmedRef.current?.server_clock || 0, event => {
+              if (event.type === "revoked") {
+                revokedCode = event.code || "knowledge.collaboration_revoked";
+                throw new Error(revokedCode);
+              }
+              applyStreamEvent(event);
+            }, abort.signal);
+            if (abort.signal.aborted || generationRef.current !== generation) return;
+            throw new Error("knowledge.collaboration_stream_closed");
+          } catch (failure) {
+            if (abort.signal.aborted || generationRef.current !== generation) return;
+            if (revokedCode) {
+              setState("error");
+              callbacksRef.current.onError(failure);
+              return;
+            }
+            failures++;
+            setState("reconnecting");
+            if (failures >= 5) {
+              callbacksRef.current.onError(failure);
+              setRetryNonce(value => value + 1);
+              return;
+            }
+            await new Promise(resolve => window.setTimeout(resolve, Math.min(4_000, 500 * 2 ** (failures - 1))));
+          }
+        }
+      })();
     }).catch(failure => {
       if (!abort.signal.aborted && generationRef.current === generation) {
         setState("error");
@@ -157,28 +256,13 @@ export function useKnowledgeCollaboration(options: Options) {
       }
     });
 
-    const heartbeat = window.setInterval(() => {
-      const session = sessionRef.current;
-      if (!session || drainRef.current || pendingRef.current || generationRef.current !== generation) return;
-      void options.client.syncKnowledgeCollaboration!(options.libraryID, options.pageID, {
-        session_id: session.id,
-        after_clock: confirmedRef.current?.server_clock || 0,
-        cursor_block_id: cursorRef.current.cursor || undefined,
-        selection_block_id: cursorRef.current.selection || undefined,
-      }, AbortSignal.timeout(15_000)).then(response => {
-        if (generationRef.current === generation) applyServerResult(response.session, response.events, true);
-      }).catch(failure => {
-        if (generationRef.current === generation) {
-          setState("error");
-          callbacksRef.current.onError(failure);
-        }
-      });
-    }, 2_000);
-
     return () => {
       abort.abort();
-      window.clearInterval(heartbeat);
       generationRef.current++;
+	  if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+	  if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+	  bodyTimerRef.current = null;
+	  presenceTimerRef.current = null;
       drainRef.current = null;
       pendingRef.current = null;
       const session = sessionRef.current;
@@ -198,10 +282,28 @@ export function useKnowledgeCollaboration(options: Options) {
     pendingRef.current = { updateID: crypto.randomUUID(), title, content, change: currentState };
     cursorRef.current = { cursor: currentState.cursorBlockID || "", selection: currentState.selectionBlockID || "" };
     setState("syncing");
-    void pumpRef.current();
+	if (bodyTimerRef.current !== null) window.clearTimeout(bodyTimerRef.current);
+	bodyTimerRef.current = window.setTimeout(() => {
+	  bodyTimerRef.current = null;
+	  void pumpRef.current();
+	}, 120);
   }
 
+  function updatePresence(cursorBlockID?: string, selectionBlockID?: string) {
+	cursorRef.current = { cursor: cursorBlockID || "", selection: selectionBlockID || "" };
+	if (!ready || state === "connecting" || state === "reconnecting" || state === "error") return;
+	if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);
+	presenceTimerRef.current = window.setTimeout(() => {
+	  presenceTimerRef.current = null;
+	  void presenceRef.current();
+	}, 250);
+	}
+
   async function publish(publishNote?: string): Promise<KnowledgePageView> {
+	if (bodyTimerRef.current !== null) {
+	  window.clearTimeout(bodyTimerRef.current);
+	  bodyTimerRef.current = null;
+	}
     await pumpRef.current();
     const session = sessionRef.current;
     if (!session || pendingRef.current) throw new Error("协作更改尚未完成合并");
@@ -232,6 +334,7 @@ export function useKnowledgeCollaboration(options: Options) {
     draftRevision,
     userID,
     edit,
+	updatePresence,
     publish,
     reconnect: () => setRetryNonce(value => value + 1),
     encodeState: () => encodeKnowledgeYjsState(document),
