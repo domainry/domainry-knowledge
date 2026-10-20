@@ -10,6 +10,11 @@ import (
 
 const MigrationOwner = "knowledge"
 
+// KnowledgeSchemaVersion identifies the complete pre-release Knowledge schema.
+// Any statement change must increment this version so an already-recorded
+// Runtime migration can never be reinterpreted with a different checksum.
+const KnowledgeSchemaVersion uint = 2
+
 type MigrationRegistrar interface {
 	ApplyOwnedMigrations(context.Context, string, []modulehost.SchemaMigration) error
 }
@@ -35,7 +40,7 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 
 // SchemaMigrations is the only source of the fresh Knowledge-owned schema.
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
-	final := modulehost.SchemaMigration{Version: 1, Name: "create_knowledge_schema"}
+	final := modulehost.SchemaMigration{Version: KnowledgeSchemaVersion, Name: "create_knowledge_schema"}
 	for _, build := range []func(modulehost.Dialect) ([]string, error){knowledgeLibrarySchema, knowledgePageSchema, knowledgeDocumentSchema} {
 		statements, err := build(d)
 		if err != nil {
