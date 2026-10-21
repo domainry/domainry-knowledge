@@ -170,7 +170,7 @@ func TestKnowledgeAnalysisTableFailsClosedBeforeAndDuringRead(t *testing.T) {
 	}
 	_, err = k.ReadReportAnalysisTableVersion(t.Context(), knowledgeAnalysisTable().DatasetKey, []string{"amount"}, knowledgeAnalysisSubject())
 	var reportErr *reportsdk.Error
-	if !errors.As(err, &reportErr) || reportErr.StatusCode != 409 {
+	if !errors.As(err, &reportErr) || reportErr.Class != reportsdk.ErrorClassConflict {
 		t.Fatalf("source change err=%v", err)
 	}
 }

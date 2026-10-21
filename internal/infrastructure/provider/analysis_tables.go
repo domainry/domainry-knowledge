@@ -28,34 +28,34 @@ func reportTableError(err error) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	status, code := 502, "backend.report.analysis.table_source_failed"
+	class, code := reportsdk.ErrorClassUnavailable, "backend.report.analysis.table_source_failed"
 	if providerCode, ok := connector.ProviderErrorCodeOf(err); ok {
 		switch strings.TrimPrefix(providerCode, "knowledge_api.") {
 		case "access_denied":
-			status, code = 403, "backend.permission.denied"
+			class, code = reportsdk.ErrorClassForbidden, "backend.permission.denied"
 		case "not_found":
-			status, code = 404, "backend.report.analysis.dataset_not_found"
+			class, code = reportsdk.ErrorClassNotFound, "backend.report.analysis.dataset_not_found"
 		case "source_changed":
-			status, code = 409, "backend.report.analysis.source_changed"
+			class, code = reportsdk.ErrorClassConflict, "backend.report.analysis.source_changed"
 		case "request_invalid":
-			status, code = 400, "backend.report.analysis.source_request_invalid"
+			class, code = reportsdk.ErrorClassBadRequest, "backend.report.analysis.source_request_invalid"
 		case "analysis_unavailable":
-			status, code = 503, "backend.report.analysis.table_unavailable"
+			class, code = reportsdk.ErrorClassUnavailable, "backend.report.analysis.table_unavailable"
 		}
 	}
-	return &reportsdk.Error{StatusCode: status, Code: code}
+	return &reportsdk.Error{Class: class, Code: code}
 }
 
 func (k *Knowledge) tableCatalog(ctx context.Context, subject reportmodel.ReportSubject) (httpapi.AnalysisTableCatalogOutput, error) {
 	if k == nil || len(k.config.AnalysisDocumentIDs) == 0 || subject.Validate() != nil {
-		return httpapi.AnalysisTableCatalogOutput{}, &reportsdk.Error{StatusCode: 503, Code: "backend.report.analysis.table_unavailable"}
+		return httpapi.AnalysisTableCatalogOutput{}, &reportsdk.Error{Class: reportsdk.ErrorClassUnavailable, Code: "backend.report.analysis.table_unavailable"}
 	}
 	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: k.reportAuthority(subject)}, httpapi.CatalogAnalysisTables, httpapi.AnalysisTableCatalogInput{})
 	if err != nil {
 		return out, reportTableError(err)
 	}
 	if out.Provider != httpapi.ProviderKey || out.KBID != k.config.KBID {
-		return out, &reportsdk.Error{StatusCode: 502, Code: "backend.report.analysis.table_source_invalid"}
+		return out, &reportsdk.Error{Class: reportsdk.ErrorClassUnavailable, Code: "backend.report.analysis.table_source_invalid"}
 	}
 	return out, nil
 }
@@ -85,7 +85,7 @@ func findAnalysisTable(catalog httpapi.AnalysisTableCatalogOutput, dataset strin
 			return table, nil
 		}
 	}
-	return httpapi.AnalysisTableCatalogItem{}, &reportsdk.Error{StatusCode: 404, Code: "backend.report.analysis.dataset_not_found"}
+	return httpapi.AnalysisTableCatalogItem{}, &reportsdk.Error{Class: reportsdk.ErrorClassNotFound, Code: "backend.report.analysis.dataset_not_found"}
 }
 
 func validateAnalysisFields(table httpapi.AnalysisTableCatalogItem, fields []string) bool {
@@ -138,7 +138,7 @@ func (k *Knowledge) ReadReportAnalysisTableVersion(ctx context.Context, dataset 
 		if err != nil {
 			return modulehost.AnalysisTableVersion{}, err
 		}
-		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{StatusCode: 400, Code: "backend.report.analysis.source_request_invalid"}
+		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{Class: reportsdk.ErrorClassBadRequest, Code: "backend.report.analysis.source_request_invalid"}
 	}
 	page, err := k.readTablePage(ctx, table, fields, 0, 0, subject)
 	if err != nil {
@@ -157,7 +157,7 @@ func (k *Knowledge) StreamReportAnalysisTable(ctx context.Context, expected modu
 		if err != nil {
 			return modulehost.AnalysisTableVersion{}, err
 		}
-		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{StatusCode: 409, Code: "backend.report.analysis.source_changed"}
+		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{Class: reportsdk.ErrorClassConflict, Code: "backend.report.analysis.source_changed"}
 	}
 	offset := 0
 	for {
@@ -166,7 +166,7 @@ func (k *Knowledge) StreamReportAnalysisTable(ctx context.Context, expected modu
 			return modulehost.AnalysisTableVersion{}, err
 		}
 		if page.ContentSHA256 != expected.ContentSHA256 || page.RowCount != expected.Rows || page.Offset != offset {
-			return modulehost.AnalysisTableVersion{}, &reportsdk.Error{StatusCode: 409, Code: "backend.report.analysis.source_changed"}
+			return modulehost.AnalysisTableVersion{}, &reportsdk.Error{Class: reportsdk.ErrorClassConflict, Code: "backend.report.analysis.source_changed"}
 		}
 		for _, values := range page.Rows {
 			row := reportmodel.AnalysisTableRow{}
@@ -193,7 +193,7 @@ func (k *Knowledge) StreamReportAnalysisTable(ctx context.Context, expected modu
 	}
 	version := tableVersion(table, final)
 	if version != expected {
-		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{StatusCode: 409, Code: "backend.report.analysis.source_changed"}
+		return modulehost.AnalysisTableVersion{}, &reportsdk.Error{Class: reportsdk.ErrorClassConflict, Code: "backend.report.analysis.source_changed"}
 	}
 	return version, nil
 }
