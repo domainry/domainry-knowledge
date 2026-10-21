@@ -286,6 +286,8 @@ func digest(value []string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func failure(class, code string) error { return &knowledgefiles.Error{Class: class, Code: code} }
+func failure(class knowledgefiles.ErrorClass, code string) error {
+	return &knowledgefiles.Error{Class: class, Code: code}
+}
 
 var _ knowledgefiles.Service = (*Service)(nil)

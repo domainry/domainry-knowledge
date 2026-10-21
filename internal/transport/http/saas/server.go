@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/domainry/domainry-foundation/apperror"
 	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/telemetry"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
@@ -155,14 +156,20 @@ func safeError(err error) *knowledgecontract.SaaSError {
 		}
 		return result
 	}
-	return &knowledgecontract.SaaSError{Class: "unavailable", Code: "knowledge.internal_unavailable"}
+	return &knowledgecontract.SaaSError{Class: string(apperror.KindInternal), Code: "knowledge.internal_unavailable"}
 }
-func safeClass(value string) string {
+func safeClass(value apperror.ErrorKind) string {
 	switch value {
-	case "bad_request", "forbidden", "not_found", "conflict", "unavailable":
-		return value
+	case apperror.KindBadRequest,
+		apperror.KindForbidden,
+		apperror.KindNotFound,
+		apperror.KindConflict,
+		apperror.KindRateLimited,
+		apperror.KindUnavailable,
+		apperror.KindInternal:
+		return string(value)
 	default:
-		return "unavailable"
+		return string(apperror.KindInternal)
 	}
 }
 func safeCode(value string) string {
@@ -189,12 +196,10 @@ func writeSaaSError(w http.ResponseWriter, err error) {
 			status = http.StatusNotFound
 		case "conflict":
 			status = http.StatusConflict
+		case "rate_limited":
+			status = http.StatusTooManyRequests
 		case "unavailable":
-			var fileError *knowledgefiles.Error
-			var coded *agentsdk.Error
-			if errors.As(err, &fileError) && strings.TrimSpace(fileError.Class) == "unavailable" || errors.As(err, &coded) && strings.TrimSpace(coded.Class) == "unavailable" {
-				status = http.StatusServiceUnavailable
-			}
+			status = http.StatusServiceUnavailable
 		}
 		httpresponse.WriteError(w, nil, httpresponse.Failure{Status: status, Code: wire.Code, Message: wire.Message, Cause: err})
 	}

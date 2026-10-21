@@ -26,7 +26,7 @@ var knowledgeDocumentSHA256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 const knowledgeDocumentMultipartPartBytes int64 = agentsdk.KnowledgeDocumentUploadChunkBytes
 
-func knowledgeDocumentStorageError(class, code string) error {
+func knowledgeDocumentStorageError(class agentsdk.ErrorClass, code string) error {
 	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 

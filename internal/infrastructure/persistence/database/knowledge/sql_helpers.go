@@ -55,7 +55,7 @@ func conversationHash(v any) string {
 
 func conversationJSON(v any) []byte { b, _ := marshalDurableJSON(v); return b }
 
-func conversationError(class, code string) error {
+func conversationError(class agentsdk.ErrorClass, code string) error {
 	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 

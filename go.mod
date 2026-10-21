@@ -13,14 +13,14 @@ require (
 	github.com/domainry/domainry-metadata v0.1.30
 	github.com/domainry/domainry-orm v0.1.33
 	github.com/domainry/domainry-report-sdk v0.1.23
-	github.com/domainry/domainry-tools-sdk v0.1.21
+	github.com/domainry/domainry-tools-sdk v0.1.22
 )
 
 require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/domainry/domainry-foundation v0.2.10
 	github.com/domainry/domainry-identity-sdk v0.1.31
-	github.com/domainry/domainry-knowledge-sdk v0.1.22
+	github.com/domainry/domainry-knowledge-sdk v0.1.23
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )

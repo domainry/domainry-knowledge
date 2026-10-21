@@ -69,7 +69,7 @@ func (s *Service) authorize(a agentsdk.Authority) error {
 	return nil
 }
 
-func conversationFailure(class, code string) error {
+func conversationFailure(class agentsdk.ErrorClass, code string) error {
 	return &agentsdk.Error{Class: class, Code: "knowledge." + code}
 }
 

@@ -174,12 +174,12 @@ func (k *Knowledge) connection() connector.Connection {
 }
 
 func knowledgeFailure(code string) error {
-	class := "unavailable"
+	class := agentsdk.ErrorClassUnavailable
 	if code == "access_denied" {
-		class = "forbidden"
+		class = agentsdk.ErrorClassForbidden
 	}
 	if code == "not_found" {
-		class = "not_found"
+		class = agentsdk.ErrorClassNotFound
 	}
 	return &agentsdk.Error{Class: class, Code: "knowledge.knowledge_" + code}
 }

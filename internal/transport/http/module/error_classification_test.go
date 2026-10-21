@@ -17,7 +17,11 @@ func (capture *classificationCapture) RecordError(kind, code string) {
 }
 
 func TestKnowledgeErrorClassificationMatrix(t *testing.T) {
-	tests := []struct{ class, code, kind string }{
+	tests := []struct {
+		class toolsdk.ErrorClass
+		code  string
+		kind  string
+	}{
 		{"unavailable", "knowledge.database_unavailable", "unavailable"},
 		{"unavailable", "knowledge.embedding_unavailable", "unavailable"},
 		{"conflict", "knowledge.page_fence_rejected", "conflict"},

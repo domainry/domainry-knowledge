@@ -41,7 +41,7 @@ func NewFiles(directory string) (*Files, error) {
 
 func (f *Files) Close() error { return f.root.Close() }
 
-func failure(class, code string) error {
+func failure(class agentsdk.ErrorClass, code string) error {
 	return &agentsdk.Error{Class: class, Code: "knowledge.document_storage." + code}
 }
 

@@ -87,7 +87,7 @@ func execute(ctx context.Context, db sqlhost.Executor, builder statementBuilder)
 	}
 	return db.ExecContext(ctx, statement, args...)
 }
-func failure(class, code string) error {
+func failure(class sdk.ErrorClass, code string) error {
 	return &sdk.Error{Class: class, Code: "knowledge.records." + code}
 }
 func hash(v any) string {
