@@ -81,17 +81,27 @@ func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickRe
 
 func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence.KnowledgeDocumentRepository, lease persistence.KnowledgeDocumentLease) (resultErr error) {
 	progress := persistence.KnowledgeDocumentProgress{Event: "retry", ErrorCode: "document_work_unavailable", RetryAt: time.Now().UTC().Add(30 * time.Second)}
+	var webhookRecord *persistence.KnowledgeDocumentRecord
 	defer func() {
 		// A lost response does not release safety state. Persist only through the
 		// still-current fenced lease; never let late completion revive deletion.
 		finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
-		resultErr = errors.Join(resultErr, repo.ApplyKnowledgeDocumentProgress(finish, lease, progress))
+		applyErr := repo.ApplyKnowledgeDocumentProgress(finish, lease, progress)
+		resultErr = errors.Join(resultErr, applyErr)
+		if applyErr == nil && webhookRecord != nil && (progress.Event == "indexed" || progress.Event == "reindex_indexed") {
+			pageID, version := "", webhookRecord.Document.Revision
+			if webhookRecord.PageProjection != nil {
+				pageID, version = webhookRecord.PageProjection.PageID, webhookRecord.PageProjection.Version
+			}
+			resultErr = errors.Join(resultErr, s.appendKnowledgeWebhook(finish, knowledgesdk.KnowledgeWebhookIndexCompleted, knowledgesdk.ActionPageSearch, webhookRecord.Document.LibraryID, pageID, webhookRecord.Document.ID, version, webhookRecord.Actor))
+		}
 	}()
 	r, err := repo.KnowledgeDocumentWorkRecord(ctx, lease)
 	if err != nil {
 		return
 	}
+	webhookRecord = &r
 	deleting := r.Document.State == "deleting"
 	if deleting && !r.PutStarted {
 		if s.options.DocumentStorage.DeleteKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID) != nil {

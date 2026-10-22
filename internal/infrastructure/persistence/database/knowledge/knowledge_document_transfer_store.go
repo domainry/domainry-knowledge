@@ -15,12 +15,16 @@ func (s *Store) FindKnowledgeDocumentTransfer(ctx context.Context, library, clie
 	if conversationAuthority(a) != nil || !validLibraryID(library) || !personalMemoryKey(client) || !validKnowledgeDocumentOrigin(origin) || library == origin.LibraryID {
 		return out, false, conversationError("bad_request", "document_transfer_invalid")
 	}
+	documentID, err := knowledgeDocumentReservationID(library, client, "knowledge_document_transfer.v1", a)
+	if err != nil {
+		return out, false, err
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		if _, e := s.libraryRecord(ctx, tx, library, a); e != nil {
 			return e
 		}
 		var e error
-		found, e = s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, knowledgeDocumentReservationID(library, client, "knowledge_document_transfer.v1", a)), &out)
+		found, e = s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, documentID), &out)
 		if e != nil {
 			return e
 		}

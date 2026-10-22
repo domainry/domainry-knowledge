@@ -31,22 +31,86 @@ test("package publishes compiled JavaScript, declarations and semantic styles", 
   assert.equal(manifest.exports["./styles.css"], "./dist/knowledge-ui.css");
 });
 
+test("product build enforces initial bundle budgets while native editors stay lazy", async () => {
+  const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+  const budget = await readFile(path.join(root, "scripts", "check-app-bundle-budget.mjs"), "utf8");
+  assert.match(manifest.scripts["build:app"], /check-app-bundle-budget\.mjs/);
+  assert.match(budget, /maximumInitialJavaScriptBytes/);
+  assert.match(budget, /maximumInitialCSSBytes/);
+  for (const editor of ["BlockNoteEditor", "GridEditor", "SpreadsheetEditor", "PresentationEditor", "FormEditor", "MindNoteEditor", "MindMapEditor", "FlowchartEditor"]) assert.match(budget, new RegExp(editor));
+});
+
+test("product authentication uses the shared editorial design contract", async () => {
+  const app = await readFile(path.join(root, "app", "main.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "app", "product.css"), "utf8");
+  const design = await readFile(path.join(root, "DESIGN.md"), "utf8");
+  assert.match(app, /product-auth-shell/);
+  assert.match(app, /product-auth-story/);
+  assert.match(app, /product-password-toggle/);
+  assert.match(app, /className="product-logout" aria-label="退出登录" title="退出登录"/);
+  assert.doesNotMatch(app, /<LogOut[^>]*\/>退出/);
+  assert.match(styles, /\.product-auth-shell \{[^}]*grid-template-columns/);
+  assert.match(styles, /\.product-input-shell:focus-within/);
+  assert.match(styles, /@media \(max-width: 900px\)/);
+  assert.doesNotMatch(styles, /radial-gradient/);
+  assert.doesNotMatch(app, /product-auth-card/);
+  assert.match(design, /Authentication uses a two-region editorial entry shell/);
+});
+
 test("page collaboration and ACL UI expose bounded responsive states without browser-owned authority", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  const editorBlocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const blockNoteEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
   assert.match(panel, /正在冻结协作快照/);
   assert.match(panel, /useKnowledgeCollaboration/);
   assert.match(panel, /内容冲突自动收敛/);
-  assert.match(panel, /编辑块/);
+  assert.match(panel, /光标在内容块/);
+  assert.match(panel, /选区/);
+  assert.match(panel, /recentActivityLabel/);
+  assert.doesNotMatch(panel, /person\.editedBlocks/);
   assert.match(panel, /Yjs/);
   assert.match(panel, /has-side-panel/);
   assert.match(panel, /beforeunload/);
+  assert.match(panel, /content_type !== "presentation"/, "presentation saves must not remount the editor and reset the active slide");
   assert.match(panel, /role="tree"/);
+  assert.match(styles, /\.knowledge-tree-row\.is-drop-before/);
+  assert.match(styles, /\.knowledge-tree-row\.is-drop-inside/);
+  assert.match(panel, /onDragStart/);
+  assert.doesNotMatch(panel, /<ArrowUp|<ArrowDown/);
+  assert.match(panel, /hasExpandableChildren/);
+  assert.match(panel, /if \(loadedChildren\) return loadedChildren\.length > 0 \|\| childrenComplete\[page\.id\] === false/);
+  assert.match(panel, /return page\.has_children/);
+  assert.doesNotMatch(panel, /probeChildPresence/);
+  assert.match(panel, /if \(!hasChildren\) setExpanded/);
+  assert.match(panel, /knowledge-tree-toggle-spacer/);
+  assert.match(styles, /\.knowledge-tree-toggle-spacer/);
   assert.match(panel, /getPageAccess/);
   assert.match(panel, /setPageAccess/);
   assert.match(panel, /previewPageMove/);
   assert.match(panel, /确认页面权限影响/);
   assert.match(panel, /远端权限投影确认前，本页不会进入搜索结果/);
+  assert.match(editorBlocks, /personMention/);
+  assert.match(editorBlocks, /dateMention/);
+  assert.match(editorBlocks, /pageMention/);
+  assert.match(editorBlocks, /blockMention/);
+  assert.match(blockNoteEditor, /triggerCharacter="@"/);
+  assert.match(panel, /searchLibraryMembers/);
+  assert.match(panel, /resolvePrincipals/);
+  assert.match(panel, /anchor: \{ node_id: anchor\.nodeID, quote: anchor\.quote \}/);
+  assert.match(panel, /修订提议/);
+  assert.match(panel, /client\.createPageSuggestion/);
+  assert.match(panel, /client\.decidePageSuggestion/);
+  assert.match(panel, /expected_draft_revision: current\.draft\.draft_revision/);
+  assert.match(panel, /接受前不会改动草稿/);
+  assert.match(panel, /原内容块已改变，不能接受这条修订/);
+  assert.match(styles, /\.knowledge-page-suggestions/);
+  assert.match(panel, /原内容块已删除或内容已经变化，锚点失效/);
+  assert.match(panel, /focusComment\(comment\)/);
+  assert.match(blockNoteEditor, /getSelectedText\(\)/);
+  assert.match(blockNoteEditor, /onCommentAnchor/);
+  assert.match(panel, /resolvePage\(pageID, signal\)/);
+  assert.match(styles, /\.knowledge-inline-mention\.is-unavailable/);
   assert.match(styles, /\.knowledge-page-main\.has-side-panel/);
   assert.match(styles, /@media \(max-width: 700px\)/);
   assert.doesNotMatch(panel, /localStorage|sessionStorage|AccessBundle|provider[_ ]credential/i);
@@ -54,27 +118,56 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
 
 test("collaboration uses authenticated SSE downlink without retaining the two-second poller", async () => {
   const collaboration = await readFile(path.join(root, "src", "useKnowledgeCollaboration.ts"), "utf8");
+  const transport = await readFile(path.join(root, "src", "collaborationTransport.ts"), "utf8");
+  const offline = await readFile(path.join(root, "src", "collaborationOffline.ts"), "utf8");
   const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
   const blockEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
-  assert.match(collaboration, /streamKnowledgeCollaborationEvents/);
+  assert.match(collaboration, /createKnowledgeCollaborationTransport/);
+  assert.match(transport, /readonly kind: "post-sse"/);
+  assert.match(transport, /streamKnowledgeCollaborationEvents/);
+  assert.match(collaboration, /localUpdatesRef/);
+  assert.match(collaboration, /mergeKnowledgeYjsUpdates/);
+  assert.match(collaboration, /checkpointInterval/);
+  assert.match(collaboration, /Awareness/);
+  assert.match(collaboration, /provider: \{ awareness \}/);
+  assert.match(collaboration, /loadKnowledgeOfflineChange/);
+  assert.match(offline, /indexedDB\.open/);
+  assert.match(offline, /createdAt: number/);
+  assert.match(collaboration, /client_created_at: new Date\(sent\.createdAt\)\.toISOString\(\)/);
   assert.match(collaboration, /reconnecting/);
   assert.match(collaboration, /2 \*\* \(failures - 1\)/);
   assert.match(collaboration, /transient SSE reconnect must not drop/);
   assert.match(collaboration, /function edit[\s\S]*if \(!confirmed \|\| !ready\) return;/);
   assert.doesNotMatch(collaboration, /setInterval/);
   assert.doesNotMatch(collaboration, /2_000/);
+  assert.doesNotMatch(blockEditor, /yjsUpdate: state|yjsState: state/);
   assert.match(client, /Accept: "text\/event-stream"/);
   assert.match(client, /"Last-Event-ID": String\(afterClock\)/);
+  assert.match(client, /"X-Knowledge-Collaboration-Attempt": String\(connectionAttempt\)/);
   assert.match(client, /sessionFetch/);
   assert.doesNotMatch(client, /access_token=.*collaboration/);
   assert.match(blockEditor, /withCollaboration/);
   assert.match(blockEditor, /editor\.onChange\([\s\S]*false\)/);
+  assert.match(collaboration, /collaborationRevocationCodes/);
+  assert.match(collaboration, /clearRevokedState/);
+  assert.match(collaboration, /setReady\(false\)/);
+});
+
+test("application cards keep only stable references and resolve through the authorized host boundary", async () => {
+  const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  for (const kind of ["calendar_event", "meeting", "group", "task", "jira", "web"]) assert.match(blocks, new RegExp(kind));
+  assert.match(blocks, /propSchema: \{[\s\S]*provider:[\s\S]*kind:[\s\S]*resourceId:/);
+  assert.doesNotMatch(blocks, /applicationCardConfig[\s\S]{0,600}(accessToken|credential|secret)/i);
+  assert.match(panel, /client\.resolveApplicationCard/);
+  assert.match(client, /application-cards\/resolve/);
 });
 
 test("library workspace keeps backend resource types out of primary navigation", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const pages = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  const registry = await readFile(path.join(root, "src", "editors", "KnowledgeEditor.tsx"), "utf8");
+  const registry = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.doesNotMatch(workspace, /aria-label="知识库工作区"/);
   assert.doesNotMatch(workspace, /knowledge-library-tabs/);
@@ -83,6 +176,14 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(pages, /上传及导入/);
   assert.match(pages, /parent_page_id: parentPageID/);
   assert.match(pages, /content_type: contentType/);
+  assert.match(pages, /content_type: "file"/);
+  assert.match(pages, /setPageAttachment/);
+  assert.match(pages, /filePageContent/);
+  assert.match(pages, /uploadFile=\{view\.page\.content_type === "document" \|\| view\.page\.content_type === "multidimensional_table" \|\| view\.page\.content_type === "presentation" \|\| view\.page\.content_type === "form" \? uploadEditorFile : undefined\}/);
+  assert.match(pages, /readDocumentContent\(library\.id, match\[1\]/);
+  assert.match(pages, /knowledge-document:\$\{document\.id\}/);
+  assert.doesNotMatch(pages, /documentEntries|entryKind|listDocuments/);
+  assert.doesNotMatch(workspace, /KnowledgeDocumentsPanel|documents=\{/);
   for (const type of ["multidimensional_table", "spreadsheet", "presentation", "form", "mind_note", "whiteboard", "mind_map", "flowchart"]) assert.match(registry, new RegExp(type));
   for (const editor of ["GridEditor", "SpreadsheetEditor", "PresentationEditor", "FormEditor", "MindNoteEditor", "WhiteboardEditor", "MindMapEditor", "FlowchartEditor"]) assert.match(registry, new RegExp(editor));
   await assert.rejects(readFile(path.join(root, "src", "TypedPageContent.tsx"), "utf8"));
@@ -93,13 +194,68 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(workspace, /知识库管理/);
 });
 
+test("page search uses the authorized structured endpoint and opens canonical hit locations", async () => {
+  const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const grid = await readFile(path.join(root, "src", "editors", "GridEditor.tsx"), "utf8");
+  const spreadsheet = await readFile(path.join(root, "src", "editors", "SpreadsheetEditor.tsx"), "utf8");
+  const mindMap = await readFile(path.join(root, "src", "editors", "MindMapEditor.tsx"), "utf8");
+  const flowchart = await readFile(path.join(root, "src", "editors", "FlowchartEditor.tsx"), "utf8");
+  assert.match(workspace, /client\.searchPages\(library\.id/);
+  assert.match(client, /\$\{librariesPath\}\/\$\{encodeURIComponent\(libraryID\)\}\/page-search/);
+  assert.match(client, /page-search\/events/);
+  assert.match(client, /Accept: "text\/event-stream"/);
+  assert.match(client, /"Last-Event-ID": String\(afterRevision\)/);
+  for (const field of ["content_types", "author_user_ids", "updated_after", "updated_before", "tags", "path_query", "publication_statuses"]) assert.match(workspace, new RegExp(field));
+  assert.match(workspace, /hit\.kind === "file"/);
+  assert.match(workspace, /hit\.kind === "page"/);
+  assert.match(workspace, /pageSearchLocationLabel\(hit\)/);
+  assert.match(workspace, /hit\.author_user_id/);
+  assert.match(workspace, /hit\.published_version/);
+  assert.match(workspace, /pageSearchIndexLabel\(hit\.index_status\)/);
+  assert.match(workspace, /initialSearchLocation=\{searchTarget\?\.location\}/);
+  assert.match(workspace, /event\.type === "changed"/);
+  assert.match(workspace, /event\.type === "revoked"/);
+  assert.match(workspace, /setResult\(null\)/);
+  assert.match(workspace, /aclReady/);
+	assert.match(workspace, /ancestor_page_id: filters\.scope === "subtree"/);
+	assert.match(workspace, /knowledge\.page-search\.recent\.v1/);
+	assert.match(workspace, /event\.key\.toLocaleLowerCase\(\) !== "k"/);
+	assert.match(workspace, /searchPageIdentities\(library\.id/);
+	assert.match(workspace, /setItems\(\[\]\)/);
+	assert.match(panel, /currentPageTextRanges/);
+	assert.match(panel, /event\.key\.toLocaleLowerCase\(\) !== "f"/);
+	assert.match(panel, /knowledge-page-find-active/);
+  assert.match(panel, /linkedSearchLocation\?\.block_id/);
+  assert.match(panel, /linkedSearchLocation\?\.node_id/);
+  assert.match(grid, /initialSearchLocation\.record_id/);
+  assert.match(grid, /initialSearchLocation\.field_id/);
+  assert.match(spreadsheet, /getSheetBySheetId\(initialSearchLocation\.sheet_id\)/);
+  assert.match(spreadsheet, /getRange\(initialSearchLocation\.cell\)\.activate\(\)/);
+  assert.match(mindMap, /restoreMindMapSelection\(mind, initialBlockID\)/);
+  assert.match(flowchart, /lf\.focusOn\(initialBlockID\)/);
+});
+
 test("every native page type is backed by a real lazy-loaded editor engine", async () => {
   const editorDirectory = path.join(root, "src", "editors");
-  const registry = await readFile(path.join(editorDirectory, "KnowledgeEditor.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const registry = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
+  const dispatcher = await readFile(path.join(editorDirectory, "KnowledgeEditor.tsx"), "utf8");
+  const blocks = await readFile(path.join(editorDirectory, "documentBlocks.tsx"), "utf8");
+  const formEditor = await readFile(path.join(editorDirectory, "FormEditor.tsx"), "utf8");
+  const presentationEditor = await readFile(path.join(editorDirectory, "PresentationEditor.tsx"), "utf8");
+  const mindNoteEditor = await readFile(path.join(editorDirectory, "MindNoteEditor.tsx"), "utf8");
+  const mindNoteContent = await readFile(path.join(root, "src", "mindNoteContent.ts"), "utf8");
+  const mindMapEditor = await readFile(path.join(editorDirectory, "MindMapEditor.tsx"), "utf8");
+  const flowchartEditor = await readFile(path.join(editorDirectory, "FlowchartEditor.tsx"), "utf8");
+  const diagramContent = await readFile(path.join(root, "src", "diagramContent.ts"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   const engines = new Map([
     ["BlockNoteEditor.tsx", /@blocknote\//],
     ["GridEditor.tsx", /ag-grid-react/],
     ["SpreadsheetEditor.tsx", /@univerjs\//],
+    ["PresentationEditor.tsx", /pptxgenjs/],
     ["CanvasEditor.tsx", /@excalidraw\//],
     ["FormEditor.tsx", /@formio\/js/],
     ["MindMapEditor.tsx", /mind-elixir/],
@@ -109,9 +265,399 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
     const source = await readFile(path.join(editorDirectory, filename), "utf8");
     assert.match(source, dependency, `${filename} must use its native editor engine`);
   }
+  assert.match(formEditor, /new DefaultEvaluator\(\{ noeval: true \}\)/, "questionnaires must remain compatible with the strict no-eval CSP");
+  assert.doesNotMatch(formEditor, /Formio\.builder/, "the strict canonical questionnaire designer must not depend on Form.io's eval-based builder dialogs");
+  assert.match(formEditor, /normalizeFormContent/, "questionnaire design changes must pass through the Knowledge-owned canonical schema");
+  assert.match(formEditor, /form\?\.formatError/, "questionnaire API failures must use the host's localized domain error formatter");
+  assert.doesNotMatch(presentationEditor, /excalidraw/i, "presentations must not persist an Excalidraw scene as their product model");
+  for (const capability of ["presentationThemes", "presentationLayouts", "MasterInspector", "演讲者备注", "PresentationSlideshow", "exportPresentationPDF", "exportPresentationPPTX", "addMedia"]) assert.match(presentationEditor, new RegExp(capability));
+  assert.match(presentationEditor, /knowledge-document:kdoc_/);
+  assert.match(panel, /content_type !== "form"/, "draft acknowledgements must not remount the form designer and discard its active tab");
+  assert.match(panel, /content_type !== "mind_note"/, "draft acknowledgements must not remount the outline and discard its focus state");
+  for (const behavior of ["collapsed", "completed", "indentNode", "outdentNode", "focusedID", "convertPage"]) assert.match(mindNoteEditor, new RegExp(behavior));
+  assert.match(mindNoteContent, /schema_version: 1/);
+  assert.match(mindNoteContent, /mindNoteToDocumentContent/);
+  assert.match(mindNoteContent, /documentBlocksToMindNote/);
+  assert.doesNotMatch(mindNoteContent, /BlockNoteEditor|@blocknote\/core/);
+  assert.match(panel, /async function convertCurrentPage/);
+  assert.match(panel, /savePageDraft/);
+  assert.match(diagramContent, /schema_version: 1/);
+  assert.match(diagramContent, /decodeMindMapContent/);
+  assert.match(diagramContent, /decodeFlowchartContent/);
+  assert.doesNotMatch(diagramContent, /nodeData|sourceNodeId|targetNodeId/, "third-party diagram snapshots must not become the public canonical schema");
+  for (const capability of ["applyTheme", "applyLayout", "applyTemplate", "importJSON", "exportJSON", "exportPNG", "onCommentAnchor", "onPresence"]) {
+    assert.match(mindMapEditor, new RegExp(capability), `mind map must expose ${capability}`);
+    assert.match(flowchartEditor, new RegExp(capability), `flowchart must expose ${capability}`);
+  }
+  for (const type of ["textfield", "textarea", "number", "email", "radio", "select", "selectboxes", "checkbox", "datetime"]) assert.match(formEditor, new RegExp(`type: "${type}"`));
   assert.match(registry, /lazy\(\(\) => import\(/);
-  assert.doesNotMatch(registry, /textarea|contentEditable/);
+  assert.match(dispatcher, /getPageTypeDefinition/);
+  assert.doesNotMatch(dispatcher, /Record<KnowledgePageContentType|switch\s*\(/);
+  assert.match(blocks, /blockDefinitions/);
+  assert.match(blocks, /getMultiColumnSlashMenuItems/);
+  assert.match(blocks, /id: "columnList"/);
+  assert.match(blocks, /id: "tableOfContents"/);
+  assert.match(blocks, /knowledgeCodeLanguages/);
+  assert.match(blocks, /aria-label", "代码语言"/);
+  assert.match(blocks, /aria-label", "复制代码"/);
+  assert.match(blocks, /aria-label", "切换代码自动换行"/);
+  assert.match(blocks, /knowledgeImageCropAspects/);
+  assert.match(blocks, /cropAspect/);
+  assert.match(blocks, /knowledge-image-preview-dialog/);
+  assert.match(blocks, /\{ id: "image", blockNoteSpec: knowledgeImageBlock,/, "the image factory must be invoked exactly once when the BlockNote schema is built");
+  assert.doesNotMatch(blocks, /blockNoteSpec: \(\) => knowledgeImageBlock/, "a wrapped image factory leaves BlockNote without a block config at runtime");
+  assert.match(blocks, /Invalid BlockNote spec for block definition/, "custom block registration must fail fast before BlockNote receives an invalid spec");
+  for (const card of ["bookmark", "knowledgeReference", "personCard", "externalEmbed"]) assert.match(blocks, new RegExp(`id: "${card}"`));
+  assert.match(blocks, /safeBookmarkURL/);
+  assert.match(blocks, /canonicalExternalEmbedURL/);
+  assert.match(blocks, /www\.youtube-nocookie\.com\/embed/);
+  assert.match(blocks, /player\.bilibili\.com\/player\.html/);
+  assert.match(blocks, /sandbox="allow-scripts allow-same-origin allow-presentation"/);
+  assert.match(blocks, /referrerPolicy="no-referrer"/);
+  assert.match(styles, /\.knowledge-block-card-fields input\[aria-invalid="true"\]/);
+  assert.match(styles, /\.knowledge-block-embed iframe/);
+  const blockNoteEditor = await readFile(path.join(editorDirectory, "BlockNoteEditor.tsx"), "utf8");
+  const documentTransfer = await readFile(path.join(editorDirectory, "documentTransfer.ts"), "utf8");
+  const slashMenu = await readFile(path.join(editorDirectory, "slashMenu.ts"), "utf8");
+  const slashMenuView = await readFile(path.join(editorDirectory, "KnowledgeSlashMenu.tsx"), "utf8");
+  assert.match(blockNoteEditor, /multi_column: multiColumnLocales\.zh/);
+  assert.match(blockNoteEditor, /SyntaxHighlightingExtension/);
+  assert.match(blockNoteEditor, /uploadFile: !readOnly && uploadFile/);
+  assert.match(blockNoteEditor, /\^knowledge-document:kdoc_\[a-f0-9\]\{32\}\$/);
+  assert.match(blockNoteEditor, /URL\.revokeObjectURL/);
+  assert.match(blockNoteEditor, /FilePanelController filePanel=\{KnowledgeUploadFilePanel\}/);
+  assert.match(blockNoteEditor, /<UploadTab/);
+  assert.doesNotMatch(blockNoteEditor, /EmbedTab/);
+  assert.match(blockNoteEditor, /KnowledgeImagePropertiesButton/);
+  assert.match(blockNoteEditor, /KnowledgeAuthorizedFileReplaceButton/);
+  assert.match(blockNoteEditor, /item\.key !== "replaceFileButton"/);
+  assert.match(blockNoteEditor, /替代文本/);
+  assert.match(blockNoteEditor, /裁剪比例/);
+  assert.match(blockNoteEditor, /FormattingToolbarController formattingToolbar=\{formattingToolbar\}/);
+  assert.match(blockNoteEditor, /SideMenuController sideMenu=\{sideMenu\}/);
+  assert.match(blockNoteEditor, /selected\?\.some\(block => block\.id === hovered\.id\)/, "drag-handle actions must preserve a multi-block selection");
+  for (const action of ["复制 Block 链接", "转换类型", "折叠子块", "删除所选 Block"]) assert.match(blockNoteEditor, new RegExp(action));
+  assert.match(blockNoteEditor, /blocksToFullHTML/);
+  assert.match(blockNoteEditor, /defaultToggledState\.set/);
+  assert.match(blockNoteEditor, /knowledge-block-deep-link-target/);
+  assert.match(blockNoteEditor, /pasteHandler:/);
+  assert.match(blockNoteEditor, /KnowledgeDocumentTransfer/);
+  assert.match(documentTransfer, /DOMPurify\.sanitize/);
+  assert.match(documentTransfer, /ALLOWED_TAGS/);
+  assert.match(documentTransfer, /ALLOW_DATA_ATTR: false/);
+  assert.match(documentTransfer, /editor\.pasteMarkdown\(plain\)/);
+  assert.match(documentTransfer, /editor\.pasteText\(plain\)/);
+  assert.match(documentTransfer, /blocksToMarkdownLossy/);
+  assert.match(documentTransfer, /JSON\.stringify\(\{ blocks: editor\.document \}/);
+  assert.match(documentTransfer, /blocksToHTMLLossy/);
+  assert.match(documentTransfer, /popup\.print\(\)/);
+  assert.match(blockNoteEditor, /suggestionMenuComponent=\{KnowledgeSlashMenu\}/);
+  assert.match(blockNoteEditor, /recordKnowledgeSlashRecentID/);
+  assert.match(blocks, /const mediaKeys = new Set\(\["image", "video", "audio", "file"\]\)/);
+  assert.match(blocks, /\? "媒体与文件" : undefined/);
+  assert.match(blocks, /当前知识库未配置受权文件存储/);
+  assert.match(slashMenu, /recentStorageKey/);
+  assert.match(slashMenu, /group: "最近使用"/);
+  assert.match(slashMenu, /group: "搜索结果"/);
+  assert.match(slashMenuView, /is-submenu/);
+  assert.match(slashMenuView, /aria-disabled/);
+  assert.match(styles, /\.knowledge-slash-item:hover/);
+  for (const tableCapability of ["splitCells", "cellBackgroundColor", "cellTextColor", "headers"]) {
+    assert.match(blockNoteEditor, new RegExp(`${tableCapability}: true`));
+  }
+  assert.match(blockNoteEditor, /import\("shiki\/core"\)/);
+  assert.match(blockNoteEditor, /import\("@shikijs\/langs\/typescript"\)/);
+  assert.doesNotMatch(blockNoteEditor, /import\("shiki"\)/);
+  assert.match(blocks, /validateBlockDefinitions/);
+  assert.match(blocks, /pageTypeDefinitions\.filter/);
+  assert.doesNotMatch(blocks, /const referenceKinds/);
 
-  const pageTypes = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
-  assert.doesNotMatch(pageTypes, /@univerjs\//, "type metadata must not eagerly import a heavyweight editor runtime");
+  assert.match(blocks, /id: "knowledgeTask"/);
+  assert.match(blocks, /serverValidator: "knowledgeTask"/);
+  assert.match(blocks, /runtime\.ensureTask\(block\.id/);
+  assert.match(blocks, /runtime\.updateTask\(task, patch\)/);
+  assert.match(blocks, /runtime\.searchMembers/);
+  assert.match(blocks, /id: "dateReminder"/);
+  assert.match(blocks, /id: "knowledgePoll"/);
+  assert.match(blocks, /runtime\.ensurePoll\(block\.id/);
+  assert.match(blocks, /runtime\.votePoll\(poll/);
+  assert.match(blocks, /id: "subpageList"/);
+  assert.match(blocks, /runtime\.listChildPages/);
+  assert.match(blocks, /id: "informationCollection"/);
+  assert.match(blocks, /runtime\.resolvePage/);
+  assert.match(blocks, /value\?\.contentType === "form"/);
+  assert.match(blocks, /id: "knowledgeActivity"/);
+  assert.match(blocks, /runtime\.listPageActivity/);
+  assert.match(panel, /client\.listPageVersions/);
+  assert.match(panel, /client\.listPageComments/);
+  assert.match(styles, /\.knowledge-task-block/);
+  assert.match(styles, /\.knowledge-block-subpages/);
+  assert.match(styles, /\.knowledge-block-collection/);
+  assert.match(styles, /\.knowledge-block-activity/);
+
+  assert.doesNotMatch(registry, /@univerjs\//, "type metadata must not eagerly import a heavyweight editor runtime");
+});
+
+test("whiteboard persists a Knowledge-owned schema and exposes complete board controls", async () => {
+  const editor = await readFile(path.join(root, "src", "editors", "CanvasEditor.tsx"), "utf8");
+  const content = await readFile(path.join(root, "src", "editors", "whiteboardContent.ts"), "utf8");
+  const registry = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  const app = await readFile(path.join(root, "app", "main.tsx"), "utf8");
+  const appBuild = await readFile(path.join(root, "app", "vite.config.ts"), "utf8");
+  assert.match(content, /schema_version: 1/);
+  assert.match(content, /elements: KnowledgeWhiteboardElement\[\]/);
+  assert.match(content, /assets: Record<string, KnowledgeWhiteboardAsset>/);
+  assert.match(editor, /canonicalWhiteboardContent/);
+  assert.match(editor, /nextBody !== canonicalBody/, "mount-time Excalidraw normalization must not dirty an unchanged board");
+  assert.match(editor, /添加便签/);
+  assert.match(editor, /插入画板模板/);
+  assert.match(editor, /置于顶层/);
+  assert.match(editor, /exportToBlob/);
+  assert.match(editor, /exportToCanvas/);
+  assert.match(editor, /onCommentAnchor/);
+  assert.match(panel, /\["document", "whiteboard", "mind_map", "flowchart"\]\.includes\(view\.page\.content_type\)/, "comment anchors must be wired for every selectable canvas type");
+  assert.match(registry, /emptyWhiteboardContent/);
+  assert.match(styles, /has-side-panel > \.knowledge-page-readable \{[^}]*width: 100%;[^}]*max-width: none;/, "comment mode must leave the whiteboard a measurable grid column");
+  assert.match(app, /EXCALIDRAW_ASSET_PATH[^\n]*= "\/"/);
+  assert.match(appBuild, /name: "excalidraw-font-assets"/);
+  assert.match(appBuild, /fileName: `fonts\/\$\{relativePath\}`/);
+  assert.doesNotMatch(registry, /whiteboard[\s\S]{0,220}nodes: \[\], files/);
+});
+
+test("task blocks use backend-owned state instead of versioned block props", async () => {
+  const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  assert.match(blocks, /propSchema: \{ title: \{ default: "待办任务" \} \}/);
+  assert.doesNotMatch(blocks, /propSchema: \{[^}]*status:/);
+  assert.match(panel, /listPageTasks/);
+  assert.match(panel, /createPageTask/);
+  assert.match(panel, /updatePageTask/);
+  assert.match(panel, /source_block_id: blockID/);
+  assert.match(client, /\/tasks\/\$\{encodeURIComponent\(taskID\)\}/);
+});
+
+test("poll blocks keep configuration and per-user ballots in backend-owned state", async () => {
+  const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  assert.match(blocks, /type: "knowledgePoll"/);
+  assert.match(blocks, /propSchema: \{ question: \{ default: "请选择一个选项" \} \}/);
+  assert.doesNotMatch(blocks, /propSchema: \{[^}]*votes:/);
+  assert.match(panel, /listPagePolls/);
+  assert.match(panel, /createPagePoll/);
+  assert.match(panel, /updatePagePoll/);
+  assert.match(panel, /votePagePoll/);
+  assert.match(panel, /expected_ballot_revision: poll\.ballot_revision/);
+  assert.match(client, /\/polls\/\$\{encodeURIComponent\(pollID\)\}\/ballot/);
+});
+
+test("page templates are backend-owned immutable subtree snapshots", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+
+  assert.match(panel, /从模板创建/);
+  assert.match(panel, /保存当前页面为模板/);
+  assert.match(panel, /用当前页面生成新版本/);
+  assert.match(panel, /instantiatePageTemplate/);
+  assert.match(panel, /listPageTemplateVersions/);
+  assert.match(types, /KnowledgePageTemplateVersionSummary/);
+  assert.match(types, /createPageTemplate\?/);
+  assert.match(types, /instantiatePageTemplate\?/);
+  assert.match(client, /\$\{templatePath\(libraryID, templateID\)\}\/instantiate/);
+  assert.match(client, /\$\{templatePath\(libraryID, templateID\)\}\/versions/);
+  assert.doesNotMatch(panel, /localStorage|sessionStorage/);
+});
+
+test("native application references are governed child pages instead of raw page IDs", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const runtime = await readFile(path.join(root, "src", "editors", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  assert.match(blocks, /dynamicRuntime\.createChildReference/);
+  assert.match(blocks, /parentContent: serializeDocumentBlocks\(editor\.document/);
+  assert.match(blocks, /runtime\.searchPages\(query/);
+  assert.match(blocks, /targetType: \{ default: "document"/);
+  assert.doesNotMatch(blocks, /contentType: \{ default: "document", values:/, "reference props must not overwrite BlockNote's data-content-type marker");
+  assert.match(blocks, /referenceMode/);
+  assert.match(blocks, /targetVersion/);
+  assert.doesNotMatch(blocks, /aria-label="目标页面 ID"/);
+  assert.match(runtime, /createChildReference/);
+  assert.match(runtime, /renderReference/);
+  assert.match(panel, /client\.createPageReference/);
+  assert.match(panel, /collaboration\.flush\(\)/);
+  assert.match(panel, /KnowledgeEmbeddedReference/);
+  assert.match(panel, /固定版本 \$\{reference\.targetVersion\}/);
+  assert.match(panel, /引用不可用或权限已撤销/);
+  assert.match(panel, /streamKnowledgePageLiveEvents/);
+  assert.doesNotMatch(panel, /setInterval/);
+  assert.match(client, /\/references/);
+  assert.match(client, /\/live-events/);
+  assert.match(client, /\["changed", "heartbeat", "revoked"\]/);
+  assert.match(styles, /\.knowledge-reference-picker/);
+  assert.match(styles, /\.knowledge-reference-embed/);
+});
+
+test("personal page navigation is backend-owned and visible in the workspace", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  for (const kind of ["favorites", "recent_views", "recent_edits", "subscribed", "shortcuts", "trash"]) {
+    assert.match(types, new RegExp(`\\"${kind}\\"`));
+  }
+  assert.match(client, /\/personal-state/);
+  assert.match(client, /\/view`/);
+  assert.match(client, /\/page-collections/);
+  assert.match(panel, /client\.recordPageView/);
+  assert.match(panel, /client\.setPagePersonalState/);
+  assert.match(panel, /快捷入口/);
+  assert.match(panel, /最近访问/);
+  assert.match(panel, /最近编辑/);
+  assert.match(panel, /回收站/);
+  assert.doesNotMatch(panel, /showArchived/, "archive filtering must not remain a second recycle-bin interaction");
+  assert.match(styles, /\.knowledge-page-collections > button:hover/);
+  assert.match(styles, /\.knowledge-collection-list > button\[role="listitem"\]:hover/);
+});
+
+test("shared page metadata and governance are backend-owned, typed, and editable in the page workspace", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  assert.match(types, /KnowledgePageMetadata/);
+  for (const propertyType of ["text", "number", "date", "select", "checkbox", "person"]) {
+    assert.match(types, new RegExp(`\\"${propertyType}\\"`));
+  }
+  assert.match(client, /\/metadata/);
+  assert.match(client, /\/governance/);
+  assert.match(panel, /client\.getPageMetadata/);
+  assert.match(panel, /client\.setPageMetadata/);
+  assert.match(panel, /client\.setPageGovernance/);
+  assert.match(panel, /client\.reviewPageGovernance/);
+  assert.match(panel, /client\.listPageGovernanceAudit/);
+  assert.match(panel, /下次复核时间/);
+  assert.match(panel, /归档保留期/);
+  assert.match(panel, /内容管理员/);
+  assert.match(panel, /自定义属性/);
+  assert.match(styles, /\.knowledge-page-metadata-summary/);
+  assert.match(styles, /\.knowledge-metadata-property/);
+  assert.match(styles, /\.knowledge-page-governance/);
+  assert.doesNotMatch(panel, /localStorage|sessionStorage|indexedDB/i);
+});
+
+test("page references and backlinks use the authorized backend graph index", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  assert.match(types, /KnowledgePageReferenceDirection = "outgoing" \| "incoming"/);
+  assert.match(types, /source_content_type/);
+  assert.match(types, /target_content_type/);
+  assert.match(client, /listPageReferences/);
+  assert.match(client, /direction, after, limit/);
+  assert.match(panel, /client\.listPageReferences/);
+  assert.match(panel, /引用了谁/);
+  assert.match(panel, /被谁引用/);
+  assert.match(panel, /引用页面不可用/);
+  assert.match(styles, /\.knowledge-page-references/);
+  assert.match(styles, /\.knowledge-reference-index-list > button:hover/);
+  assert.doesNotMatch(panel, /localStorage|sessionStorage|indexedDB/i);
+});
+
+test("page identity search and relationship graph keep stable IDs behind live labels", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  assert.match(types, /type KnowledgePageIdentity/);
+  assert.match(types, /related_page_ids: string\[\]/);
+  assert.match(types, /KnowledgePageRelationshipKind = "hierarchy" \| "reference" \| "related"/);
+  assert.match(client, /\/page-identities\?/);
+  assert.match(client, /\/relationship-graph\?/);
+  assert.match(panel, /client\.searchPageIdentities/);
+  assert.match(panel, /client\.getPageRelationshipGraph/);
+  assert.match(panel, /同名页用完整路径消歧/);
+  assert.match(panel, /关系始终保存稳定 page ID/);
+  assert.match(panel, /metadata\.related_page_ids/);
+  assert.match(panel, /metadataAliases\(metadataAliasesInput\)/);
+  assert.match(panel, /目标已归档、已撤权或不存在/);
+  assert.match(panel, /metadataDirty \? relationshipResults\.find/);
+  assert.match(panel, /client\.searchPageIdentities\(library\.id, relationshipQuery\.trim\(\), 30, signal\)/);
+  assert.match(blocks, /page\.path\.map\(item => item\.title\)\.join\(" \/ "\)/);
+  assert.match(styles, /\.knowledge-relationship-node:hover/);
+  assert.match(styles, /\.knowledge-related-selected > div\.is-unavailable/);
+  assert.doesNotMatch(panel, /for \(const items of Object\.values\(children\)\)/, "mention search must not be limited to the expanded local tree");
+  assert.doesNotMatch(panel, /localStorage|sessionStorage|indexedDB/i);
+});
+
+test("content copy download print export and duplicate entries fail closed through server policy", async () => {
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const shared = await readFile(path.join(root, "src", "KnowledgeSharedPage.tsx"), "utf8");
+  const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
+  const filePreview = await readFile(path.join(root, "src", "file-preview.ts"), "utf8");
+	const manager = await readFile(path.join(root, "src", "KnowledgePageContentPolicyManager.tsx"), "utf8");
+	const governance = await readFile(path.join(root, "src", "KnowledgePageGovernance.tsx"), "utf8");
+	const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  const editorNames = ["BlockNoteEditor", "CanvasEditor", "SpreadsheetEditor", "GridEditor", "MindMapEditor", "FlowchartEditor", "PresentationEditor", "FormEditor", "MindNoteEditor"];
+  const editors = await Promise.all(editorNames.map(name => readFile(path.join(root, "src", "editors", `${name}.tsx`), "utf8")));
+
+  assert.match(client, /authorizePageContentOperation[\s\S]*content-copy/);
+  assert.match(client, /authorizePageShareContentOperation[\s\S]*content-copy/);
+  assert.match(panel, /await client\.authorizePageContentOperation/);
+  assert.match(panel, /authorizeContentAction\("copy"\)/);
+  assert.match(panel, /authorizeContentAction\("print"\)/);
+  assert.match(panel, /knowledge-print-blocked/);
+  assert.match(shared, /await client\.authorizePageShareContentOperation/);
+  assert.match(shared, /authorizeContentAction\("copy"\)/);
+  assert.match(shared, /authorizeContentAction\("print"\)/);
+  assert.match(shared, /authorizeContentAction=\{authorizeContentAction\}/);
+  assert.match(filePage, /knowledgePageDocumentDownloadSource\(client, pageID, document\)/);
+  assert.match(filePreview, /client\.readPageDocumentContent/);
+  assert.match(client, /\/documents\/\$\{encodeURIComponent\(documentID\)\}\/download/);
+
+  for (const [index, editor] of editors.entries()) {
+    assert.match(editor, /authorizeContentAction/, `${editorNames[index]} must receive the server policy gate`);
+  }
+  for (const name of ["BlockNoteEditor", "CanvasEditor", "SpreadsheetEditor", "GridEditor", "MindMapEditor", "FlowchartEditor", "PresentationEditor", "FormEditor"]) {
+    const editor = editors[editorNames.indexOf(name)];
+    assert.match(editor, /await authorizeContentAction\((?:"export"|format ===|kind ===)/, `${name} export must authorize before generating a file`);
+  }
+  assert.match(editors[editorNames.indexOf("BlockNoteEditor")], /await authorizeContentAction\("duplicate"\)/);
+  assert.match(editors[editorNames.indexOf("MindNoteEditor")], /await authorizeContentAction\("duplicate"\)/);
+	for (const field of ["classification", "watermark_mode", "sensitive_content_action", "require_outbound_approval"]) assert.match(manager, new RegExp(field));
+	assert.match(manager, /要求宿主审批系统实时放行/);
+	assert.match(panel, /KnowledgeDynamicWatermark governance=\{view\?\.governance\}/);
+	assert.match(shared, /KnowledgeDynamicWatermark governance=\{view\.view\.governance\}/);
+	assert.match(governance, /dynamic_watermark/);
+	assert.match(styles, /\.knowledge-dynamic-watermark/);
+	assert.match(styles, /pointer-events: none/);
+});
+
+test("AI candidates are source-pinned, visible, and require explicit editor confirmation", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const editor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
+
+  assert.match(types, /KnowledgeAISourceScope = "published" \| "draft"/);
+  assert.match(types, /KnowledgeAIExecutionState = "pending" \| "running" \| "completed" \| "failed" \| "confirmed"/);
+  assert.match(client, /\/ai-executions/);
+  assert.match(panel, /aiExecution\.source\.content_sha256/);
+  assert.match(panel, /确认并追加到草稿/);
+  assert.match(panel, /await collaboration\.flush\(\)/);
+  assert.match(panel, /client\.confirmAIExecution/);
+  assert.match(editor, /editor\.tryParseMarkdownToBlocks/);
+  assert.match(editor, /editor\.insertBlocks/);
+  assert.doesNotMatch(panel, /setBody\(aiExecution\.result/);
 });

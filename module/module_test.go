@@ -12,6 +12,7 @@ import (
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/modulehost"
 	"github.com/domainry/domainry-knowledge-sdk/persistence"
+	recordstore "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/record"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	_ "modernc.org/sqlite"
 )
@@ -120,26 +121,39 @@ func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
 	if err := schemaownership.ValidateAll(tables); err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) != 16 || len(OwnedTables()) != len(tables) {
+	if len(tables) != 43 || len(OwnedTables()) != len(tables) {
 		t.Fatalf("Knowledge ownership=%+v names=%v", tables, OwnedTables())
 	}
 	database, dialect := openDatabase(t, "knowledge-ownership")
 	if err := EnsureSchema(t.Context(), SQLBackend{DB: database, Dialect: dialect}, &registrar{database: database}); err != nil {
 		t.Fatal(err)
 	}
+	recordMigrations, err := recordstore.Migrations(dialect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range recordMigrations {
+		for _, statement := range migration.Statements {
+			if _, err = database.ExecContext(t.Context(), statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	for _, table := range tables {
-		rows, err := database.QueryContext(t.Context(), `SELECT name FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`, table.Name)
+		rows, err := database.QueryContext(t.Context(), `SELECT name, type FROM pragma_table_info(?) WHERE pk > 0 ORDER BY pk`, table.Name)
 		if err != nil {
 			t.Fatal(err)
 		}
 		primaryKey := []string{}
+		primaryType := ""
 		for rows.Next() {
-			var column string
-			if err := rows.Scan(&column); err != nil {
+			var column, columnType string
+			if err := rows.Scan(&column, &columnType); err != nil {
 				_ = rows.Close()
 				t.Fatal(err)
 			}
 			primaryKey = append(primaryKey, column)
+			primaryType = columnType
 		}
 		if err := rows.Close(); err != nil {
 			t.Fatal(err)
@@ -147,7 +161,65 @@ func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
 		if strings.Join(primaryKey, ",") != strings.Join(table.PrimaryKey, ",") {
 			t.Fatalf("Knowledge table %s physical primary key=%v ownership=%v", table.Name, primaryKey, table.PrimaryKey)
 		}
+		var ddl string
+		if err := database.QueryRowContext(t.Context(), `SELECT sql FROM sqlite_master WHERE type='table' AND name=?`, table.Name).Scan(&ddl); err != nil {
+			t.Fatal(err)
+		}
+		if primaryType != "INTEGER" || !strings.Contains(strings.ToUpper(ddl), "AUTOINCREMENT") {
+			t.Fatalf("Knowledge table %s physical id type=%q ddl=%s", table.Name, primaryType, ddl)
+		}
+		if table.Kind == schemaownership.KindEntity && !hasSingleColumnUniqueIndex(t, database, table.Name, table.EntityIDColumn) {
+			t.Fatalf("Knowledge entity table %s has no globally unique %s", table.Name, table.EntityIDColumn)
+		}
 	}
+}
+
+func hasSingleColumnUniqueIndex(t *testing.T, database *sql.DB, table, column string) bool {
+	t.Helper()
+	rows, err := database.QueryContext(t.Context(), `SELECT name, "unique" FROM pragma_index_list(?)`, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uniqueIndexes := []string{}
+	for rows.Next() {
+		var name string
+		var unique int
+		if err = rows.Scan(&name, &unique); err != nil {
+			t.Fatal(err)
+		}
+		if unique == 0 {
+			continue
+		}
+		uniqueIndexes = append(uniqueIndexes, name)
+	}
+	if err = rows.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range uniqueIndexes {
+		indexRows, indexErr := database.QueryContext(t.Context(), `SELECT name FROM pragma_index_info(?) ORDER BY seqno`, name)
+		if indexErr != nil {
+			t.Fatal(indexErr)
+		}
+		columns := []string{}
+		for indexRows.Next() {
+			var indexedColumn string
+			if indexErr = indexRows.Scan(&indexedColumn); indexErr != nil {
+				_ = indexRows.Close()
+				t.Fatal(indexErr)
+			}
+			columns = append(columns, indexedColumn)
+		}
+		if indexErr = indexRows.Close(); indexErr != nil {
+			t.Fatal(indexErr)
+		}
+		if len(columns) == 1 && columns[0] == column {
+			return true
+		}
+	}
+	return false
 }
 
 func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {

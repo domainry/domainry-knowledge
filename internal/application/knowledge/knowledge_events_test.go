@@ -46,7 +46,7 @@ func TestKnowledgeEventsAreStableMinimalAndBestEffort(t *testing.T) {
 	if len(sink.audits) != 2 || sink.audits[0].ID != sink.audits[1].ID {
 		t.Fatalf("audit IDs are not stable: %#v", sink.audits)
 	}
-	if sink.audits[0].Family != knowledgesdk.KnowledgeAuditEventFamily || sink.audits[0].Actor != authority || !reflect.DeepEqual(sink.audits[0].After, map[string]string{"content_sha256": "sha256"}) {
+	if sink.audits[0].Family != knowledgesdk.KnowledgeAuditEventFamily || !sink.audits[0].Actor.Equal(authority) || !reflect.DeepEqual(sink.audits[0].After, map[string]string{"content_sha256": "sha256"}) {
 		t.Fatalf("unexpected audit event: %#v", sink.audits[0])
 	}
 
@@ -59,7 +59,17 @@ func TestKnowledgeEventsAreStableMinimalAndBestEffort(t *testing.T) {
 	if !reflect.DeepEqual(sink.collaboration[0].RecipientUserIDs, comment.MentionedUserIDs) || sink.collaboration[0].CommentID != comment.ID {
 		t.Fatalf("unexpected collaboration event: %#v", sink.collaboration[0])
 	}
-	if !reflect.DeepEqual(failures.events, []string{"knowledge_audit_append_failed", "knowledge_audit_append_failed", "knowledge_collaboration_publish_failed", "knowledge_collaboration_publish_failed"}) {
+
+	task := knowledgesdk.KnowledgePageTask{ID: "task-a", LibraryID: "library-a", PageID: "page-a", Revision: 4, AssigneeUserIDs: []string{"user-b", "user-c"}, Title: "this must not be published"}
+	service.publishKnowledgeTask(t.Context(), task, "knowledge.page_task.updated", authority)
+	service.publishKnowledgeTask(t.Context(), task, "knowledge.page_task.updated", authority)
+	if len(sink.collaboration) != 4 || sink.collaboration[2].ID != sink.collaboration[3].ID {
+		t.Fatalf("task notification IDs are not stable: %#v", sink.collaboration)
+	}
+	if sink.collaboration[2].TaskID != task.ID || sink.collaboration[2].Version != task.Revision || !reflect.DeepEqual(sink.collaboration[2].RecipientUserIDs, task.AssigneeUserIDs) {
+		t.Fatalf("unexpected task event: %#v", sink.collaboration[2])
+	}
+	if !reflect.DeepEqual(failures.events, []string{"knowledge_audit_append_failed", "knowledge_audit_append_failed", "knowledge_collaboration_publish_failed", "knowledge_collaboration_publish_failed", "knowledge_task_publish_failed", "knowledge_task_publish_failed"}) {
 		t.Fatalf("failures=%v", failures.events)
 	}
 }

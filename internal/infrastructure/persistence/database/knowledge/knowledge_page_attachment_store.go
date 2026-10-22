@@ -15,6 +15,68 @@ func pageAttachmentScope(a agentsdk.Authority, pageID, documentID string) query.
 	return query.And(pageScope(a, pageID), query.Equal("document_id", documentID))
 }
 
+func (s *Store) validateKnowledgeFilePageReference(ctx context.Context, db conversationDB, libraryID, pageID, content string, a agentsdk.Authority) error {
+	reference, err := decodeFilePageContent(content)
+	if err != nil {
+		return err
+	}
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageAttachmentTable).Projections(query.Project(query.CountAll())).Where(query.And(pageScope(a, pageID), query.Equal("library_id", libraryID), query.Equal("document_id", reference.DocumentID))).Build()
+	if err != nil {
+		return err
+	}
+	var count int
+	if err = db.QueryRowContext(ctx, q, args...).Scan(&count); err != nil {
+		return err
+	}
+	if count != 1 {
+		return conversationError("not_found", "page_file_reference_not_found")
+	}
+	return nil
+}
+
+func (s *Store) copyKnowledgePageAttachments(ctx context.Context, tx *sql.Tx, sourcePageID, targetPageID string, now time.Time, a agentsdk.Authority) error {
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageAttachmentTable).Columns("payload_json").Where(pageScope(a, sourcePageID)).OrderBy(query.Ascending("rank"), query.Ascending("document_id")).Limit(1001).Build()
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	items := make([]knowledgesdk.KnowledgePageAttachment, 0)
+	for rows.Next() {
+		var raw []byte
+		var item knowledgesdk.KnowledgePageAttachment
+		if err = rows.Scan(&raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if err = unmarshalDurableJSON(raw, &item); err != nil {
+			rows.Close()
+			return err
+		}
+		items = append(items, item)
+	}
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	if len(items) > 1000 {
+		return conversationError("conflict", "page_attachment_limit")
+	}
+	for _, item := range items {
+		item.PageID, item.CreatedByUserID, item.CreatedAt = targetPageID, a.UserID, now
+		q, args, err = query.NewInsertBuilder(s.store.Renderer(), knowledgePageAttachmentTable).Columns("scope_key", "page_id", "document_id", "library_id", "rank", "payload_json").Values(libraryScope(a), targetPageID, item.DocumentID, item.LibraryID, item.Rank, conversationJSON(item)).Build()
+		if err = conversationExec(ctx, tx, q, args, err); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) KnowledgePageAttachments(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageAttachmentPage, err error) {
 	out.Items = []knowledgesdk.KnowledgePageAttachment{}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {

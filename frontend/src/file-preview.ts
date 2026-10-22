@@ -154,6 +154,19 @@ export function knowledgeDocumentPreviewSource(client: KnowledgeClient, document
   };
 }
 
+export function knowledgePageDocumentDownloadSource(client: KnowledgeClient, pageID: string, document: KnowledgeDocument): FilePreviewSource {
+  return {
+    identity: `knowledge-page-download:${document.library_id}:${pageID}:${document.id}:${document.revision}:${document.bytes}:${document.sha256}`,
+    file: { filename: document.filename, bytes: document.bytes, sha256: document.sha256 },
+    async read(request) {
+      if (!client.readPageDocumentContent) throw Error("当前宿主未启用页面受控下载。");
+      const response = await client.readPageDocumentContent(document.library_id, pageID, document.id, request);
+      const headers = new Headers(response.headers);
+      return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+    },
+  };
+}
+
 export function downloadDocument(client: KnowledgeClient, document: KnowledgeDocument, signal: AbortSignal) {
   return downloadFile(knowledgeDocumentPreviewSource(client, document), signal);
 }

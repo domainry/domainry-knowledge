@@ -47,6 +47,14 @@ func validKnowledgePageGrantScope(scope string) bool {
 	return scope == knowledgesdk.KnowledgePageGrantPage || scope == knowledgesdk.KnowledgePageGrantSubtree
 }
 
+func validKnowledgeAccessSubject(subject knowledgesdk.KnowledgeAccessSubject) bool {
+	return (subject.Type == knowledgesdk.KnowledgeSubjectUser || subject.Type == knowledgesdk.KnowledgeSubjectOrganization) && validLibraryUser(subject.ID)
+}
+
+func knowledgeAccessSubjectKey(subject knowledgesdk.KnowledgeAccessSubject) string {
+	return subject.Type + "\x00" + subject.ID
+}
+
 func (s *Store) knowledgePageAccessPolicy(ctx context.Context, db conversationDB, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageAccessPolicy, error) {
 	var out knowledgesdk.KnowledgePageAccessPolicy
 	found, err := s.executionRead(ctx, db, knowledgePageAccessTable, pageScope(a, pageID), &out)
@@ -59,7 +67,7 @@ func (s *Store) knowledgePageAccessPolicy(ctx context.Context, db conversationDB
 	out.Grants = []knowledgesdk.KnowledgePageAccessGrant{}
 	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("payload_json").
 		Where(query.And(pageScope(a, pageID), query.Equal("library_id", libraryID))).
-		OrderBy(query.Ascending("user_id"), query.Ascending("grant_scope")).Limit(knowledgePageMaximumGrants + 1).Build()
+		OrderBy(query.Ascending("subject_type"), query.Ascending("subject_id"), query.Ascending("grant_scope")).Limit(knowledgePageMaximumGrants + 1).Build()
 	if err != nil {
 		return out, err
 	}
@@ -106,16 +114,20 @@ func (s *Store) KnowledgePageAccess(ctx context.Context, libraryID, pageID strin
 	return
 }
 
-func (s *Store) libraryRoleForUser(ctx context.Context, db conversationDB, libraryID, userID string, a agentsdk.Authority) (string, error) {
-	var member agentsdk.KnowledgeLibraryMember
-	found, err := s.executionRead(ctx, db, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, libraryID), query.Equal("user_id", userID)), &member)
+func (s *Store) libraryRoleForSubject(ctx context.Context, db conversationDB, libraryID string, subject knowledgesdk.KnowledgeAccessSubject, a agentsdk.Authority) (string, error) {
+	statement, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).Columns("role").Where(libraryMemberPredicate(a, libraryID, subject.Type, subject.ID)).Build()
 	if err != nil {
 		return "", err
 	}
-	if !found || !validLibraryRole(member.Role) {
+	var role string
+	err = db.QueryRowContext(ctx, statement, args...).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
-	return member.Role, nil
+	if err != nil || !validLibraryRole(role) {
+		return "", err
+	}
+	return role, nil
 }
 
 func roleLevel(role string) int {
@@ -184,7 +196,7 @@ func (s *Store) evaluateKnowledgePageAccess(ctx context.Context, db conversation
 	}
 	bestRole, bestPage, bestScope := "", "", ""
 	for index, ancestorID := range ancestors {
-		predicate := query.And(pageScope(a, ancestorID), query.Equal("library_id", libraryID), query.Equal("user_id", a.UserID))
+		predicate := query.And(pageScope(a, ancestorID), query.Equal("library_id", libraryID), authorityMembershipSubjectsPredicate(a))
 		q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("payload_json").Where(predicate).OrderBy(query.Ascending("grant_scope")).Limit(2).Build()
 		if buildErr != nil {
 			return knowledgesdk.KnowledgePageEffectiveAccess{}, buildErr
@@ -237,8 +249,8 @@ func (s *Store) EvaluateKnowledgePageAccess(ctx context.Context, libraryID, page
 	return
 }
 
-func (s *Store) EvaluateKnowledgePageAccessForUser(ctx context.Context, libraryID, pageID, userID string, a agentsdk.Authority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
-	if !validLibraryUser(userID) {
+func (s *Store) EvaluateKnowledgePageAccessForAuthority(ctx context.Context, libraryID, pageID string, target, a agentsdk.Authority) (out knowledgesdk.KnowledgePageEffectiveAccess, err error) {
+	if err = conversationAuthority(target); err != nil || target.RuntimeID != a.RuntimeID || target.WorkspaceID != a.WorkspaceID {
 		return out, conversationError("bad_request", "library_member_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
@@ -249,8 +261,6 @@ func (s *Store) EvaluateKnowledgePageAccessForUser(ctx context.Context, libraryI
 		if library.Role != "manager" {
 			return conversationError("forbidden", "library_manage_required")
 		}
-		target := a
-		target.UserID = userID
 		out, readErr = s.evaluateKnowledgePageAccess(ctx, tx, libraryID, pageID, target)
 		if readErr != nil {
 			var coded *agentsdk.Error
@@ -273,8 +283,8 @@ func validatePageAccessWrite(in knowledgesdk.KnowledgePageAccessWrite) error {
 	}
 	seen := map[string]bool{}
 	for _, grant := range in.Grants {
-		key := grant.UserID + "\x00" + grant.Scope
-		if !validLibraryUser(grant.UserID) || !validLibraryRole(grant.Role) || !validKnowledgePageGrantScope(grant.Scope) || seen[key] {
+		key := knowledgeAccessSubjectKey(grant.Subject) + "\x00" + grant.Scope
+		if !validKnowledgeAccessSubject(grant.Subject) || !validLibraryRole(grant.Role) || !validKnowledgePageGrantScope(grant.Scope) || seen[key] {
 			return conversationError("bad_request", "page_grant_invalid")
 		}
 		seen[key] = true
@@ -346,7 +356,7 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		grants := append([]knowledgesdk.KnowledgePageAccessGrant(nil), in.Grants...)
 		for index := range grants {
-			role, roleErr := s.libraryRoleForUser(ctx, tx, libraryID, grants[index].UserID, a)
+			role, roleErr := s.libraryRoleForSubject(ctx, tx, libraryID, grants[index].Subject, a)
 			if roleErr != nil {
 				return out, roleErr
 			}
@@ -356,10 +366,13 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 			grants[index].CreatedByUserID, grants[index].CreatedAt = a.UserID, now
 		}
 		sort.Slice(grants, func(i, j int) bool {
-			if grants[i].UserID == grants[j].UserID {
+			if grants[i].Subject.Type == grants[j].Subject.Type && grants[i].Subject.ID == grants[j].Subject.ID {
 				return grants[i].Scope < grants[j].Scope
 			}
-			return grants[i].UserID < grants[j].UserID
+			if grants[i].Subject.Type == grants[j].Subject.Type {
+				return grants[i].Subject.ID < grants[j].Subject.ID
+			}
+			return grants[i].Subject.Type < grants[j].Subject.Type
 		})
 		out = knowledgesdk.KnowledgePageAccessPolicy{PageID: pageID, LibraryID: libraryID, Mode: in.Mode, Revision: current.Revision + 1, ProjectionStatus: "ready", Grants: grants, UpdatedByUserID: a.UserID, UpdatedAt: now}
 		if page.PublishedVersion > 0 {
@@ -376,7 +389,7 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 			return out, readErr
 		}
 		for _, grant := range grants {
-			q, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("scope_key", "page_id", "library_id", "user_id", "grant_scope", "role", "payload_json").Values(libraryScope(a), pageID, libraryID, grant.UserID, grant.Scope, grant.Role, conversationJSON(grant)).Build()
+			q, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("scope_key", "page_id", "library_id", "subject_type", "subject_id", "grant_scope", "role", "payload_json").Values(libraryScope(a), pageID, libraryID, grant.Subject.Type, grant.Subject.ID, grant.Scope, grant.Role, conversationJSON(grant)).Build()
 			if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
 				return out, readErr
 			}
@@ -397,7 +410,7 @@ func (s *Store) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID st
 		return out, nil
 	}, &out)
 	if err == nil {
-		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
 	}
 	return
 }
@@ -516,15 +529,20 @@ func (s *Store) restrictedSubtreeExists(ctx context.Context, db conversationDB, 
 	return count, restricted, conversationHash(accessState), nil
 }
 
-func (s *Store) ancestorSubtreeGrantUsers(ctx context.Context, db conversationDB, libraryID, parentID string, a agentsdk.Authority) (map[string]string, error) {
-	out := map[string]string{}
+type knowledgePageSubjectRole struct {
+	Subject knowledgesdk.KnowledgeAccessSubject `json:"subject"`
+	Role    string                              `json:"role"`
+}
+
+func (s *Store) ancestorSubtreeGrantSubjects(ctx context.Context, db conversationDB, libraryID, parentID string, a agentsdk.Authority) (map[string]knowledgePageSubjectRole, error) {
+	out := map[string]knowledgePageSubjectRole{}
 	current := parentID
 	for depth := 0; current != "" && depth < knowledgePageMaximumDepth; depth++ {
 		page, err := s.pageRecord(ctx, db, libraryID, current, a)
 		if err != nil {
 			return nil, err
 		}
-		q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("user_id", "role").Where(query.And(pageScope(a, current), query.Equal("grant_scope", knowledgesdk.KnowledgePageGrantSubtree))).Build()
+		q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageGrantTable).Columns("subject_type", "subject_id", "role").Where(query.And(pageScope(a, current), query.Equal("grant_scope", knowledgesdk.KnowledgePageGrantSubtree))).Build()
 		if err != nil {
 			return nil, err
 		}
@@ -533,13 +551,15 @@ func (s *Store) ancestorSubtreeGrantUsers(ctx context.Context, db conversationDB
 			return nil, err
 		}
 		for rows.Next() {
-			var user, role string
-			if err = rows.Scan(&user, &role); err != nil {
+			var subjectType, subjectID, role string
+			if err = rows.Scan(&subjectType, &subjectID, &role); err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
-			if roleLevel(role) > roleLevel(out[user]) {
-				out[user] = role
+			subject := knowledgesdk.KnowledgeAccessSubject{Type: subjectType, ID: subjectID}
+			key := knowledgeAccessSubjectKey(subject)
+			if roleLevel(role) > roleLevel(out[key].Role) {
+				out[key] = knowledgePageSubjectRole{Subject: subject, Role: role}
 			}
 		}
 		if err = rows.Err(); err != nil {
@@ -567,44 +587,39 @@ func (s *Store) pageMoveImpact(ctx context.Context, tx *sql.Tx, libraryID, pageI
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
 	}
-	oldUsers, err := s.ancestorSubtreeGrantUsers(ctx, tx, libraryID, page.ParentPageID, a)
+	oldSubjects, err := s.ancestorSubtreeGrantSubjects(ctx, tx, libraryID, page.ParentPageID, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
 	}
-	newUsers, err := s.ancestorSubtreeGrantUsers(ctx, tx, libraryID, in.ParentPageID, a)
+	newSubjects, err := s.ancestorSubtreeGrantSubjects(ctx, tx, libraryID, in.ParentPageID, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
 	}
-	changed := []string{}
+	changedByKey := map[string]knowledgesdk.KnowledgeAccessSubject{}
 	if restricted {
-		for user, oldRole := range oldUsers {
-			if newUsers[user] != oldRole {
-				changed = append(changed, user)
+		for key, oldGrant := range oldSubjects {
+			if newSubjects[key].Role != oldGrant.Role {
+				changedByKey[key] = oldGrant.Subject
 			}
 		}
-		for user, newRole := range newUsers {
-			if oldUsers[user] != newRole {
-				changed = append(changed, user)
+		for key, newGrant := range newSubjects {
+			if oldSubjects[key].Role != newGrant.Role {
+				changedByKey[key] = newGrant.Subject
 			}
 		}
 	}
-	sort.Strings(changed)
-	changed = compactStrings(changed)
-	token := conversationHash([]any{"page-move-impact.v1", pageID, page.ParentPageID, in.ParentPageID, in.Rank, page.Revision, count, subtreeAccessHash, oldUsers, newUsers})
-	return knowledgesdk.KnowledgePageMoveImpact{PageID: pageID, ParentPageID: in.ParentPageID, AffectedPages: count, ChangedUserIDs: changed, RequiresConfirm: len(changed) > 0, Token: token}, nil
-}
-
-func compactStrings(values []string) []string {
-	if len(values) < 2 {
-		return values
+	changed := make([]knowledgesdk.KnowledgeAccessSubject, 0, len(changedByKey))
+	for _, subject := range changedByKey {
+		changed = append(changed, subject)
 	}
-	out := values[:1]
-	for _, value := range values[1:] {
-		if value != out[len(out)-1] {
-			out = append(out, value)
+	sort.Slice(changed, func(i, j int) bool {
+		if changed[i].Type == changed[j].Type {
+			return changed[i].ID < changed[j].ID
 		}
-	}
-	return out
+		return changed[i].Type < changed[j].Type
+	})
+	token := conversationHash([]any{"page-move-impact.v2", pageID, page.ParentPageID, in.ParentPageID, in.Rank, page.Revision, count, subtreeAccessHash, oldSubjects, newSubjects})
+	return knowledgesdk.KnowledgePageMoveImpact{PageID: pageID, ParentPageID: in.ParentPageID, AffectedPages: count, ChangedSubjects: changed, RequiresConfirm: len(changed) > 0, Token: token}, nil
 }
 
 func (s *Store) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.Authority) (out knowledgesdk.KnowledgePageMoveImpact, err error) {

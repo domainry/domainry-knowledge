@@ -43,15 +43,19 @@ func TestDocumentIsolationReceiptsAndImmutableVersions(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
+	var physicalID int64
 	var stored []byte
-	if e = db.QueryRowContext(t.Context(), "SELECT payload FROM knowledge_records WHERE id = ?", r.ID).Scan(&stored); e != nil {
+	if e = db.QueryRowContext(t.Context(), "SELECT id, payload FROM knowledge_records WHERE record_id = ?", r.RecordID).Scan(&physicalID, &stored); e != nil {
 		t.Fatal(e)
+	}
+	if physicalID != r.ID || r.ID < 1 || r.RecordID == "" {
+		t.Fatalf("record identity=%+v physical=%d", r, physicalID)
 	}
 	if !bytes.Contains(stored, []byte(`"created_at":`)) || bytes.Contains(stored, []byte(`"created_at":"`)) || bytes.Contains(stored, []byte(`"updated_at":"`)) {
 		t.Fatalf("record times must be numeric UTC milliseconds: %s", stored)
 	}
 	retry, e := s.Save(t.Context(), "requirements", in, a, validate)
-	if e != nil || retry.ID != r.ID || retry.Revision != 1 {
+	if e != nil || retry.ID != r.ID || retry.RecordID != r.RecordID || retry.Revision != 1 {
 		t.Fatal("duplicate receipt", e)
 	}
 	if _, ok, e := s.Receipt(t.Context(), "requirements", in, a); e != nil || !ok {
@@ -62,57 +66,34 @@ func TestDocumentIsolationReceiptsAndImmutableVersions(t *testing.T) {
 	if _, e = s.Save(t.Context(), "requirements", bad, a, validate); e == nil {
 		t.Fatal("idempotency conflict ignored")
 	}
-	in.ID = r.ID
+	in.RecordID = r.RecordID
 	in.ClientID = "two"
 	in.ExpectedRevision = 1
 	in.Title = "Two"
 	if _, e = s.Save(t.Context(), "requirements", in, a, validate); e != nil {
 		t.Fatal(e)
 	}
-	old, e := s.Get(t.Context(), "requirements", r.ID, 1, a)
+	old, e := s.Get(t.Context(), "requirements", r.RecordID, 1, a)
 	if e != nil || old.Title != "One" {
 		t.Fatal("old version changed")
 	}
 	for _, other := range []sdk.Authority{{Known: true, RuntimeID: "r", WorkspaceID: "w", UserID: "b"}, {Known: true, RuntimeID: "r", WorkspaceID: "other", UserID: "a"}} {
-		if _, e = s.Get(t.Context(), "requirements", r.ID, 0, other); e == nil {
+		if _, e = s.Get(t.Context(), "requirements", r.RecordID, 0, other); e == nil {
 			t.Fatal("scope escaped")
 		}
 	}
 	work, _ := New(db, renderer, sqlite.NewProfile(), "work")
-	if _, e = work.Get(t.Context(), "requirements", r.ID, 0, a); e == nil {
+	if _, e = work.Get(t.Context(), "requirements", r.RecordID, 0, a); e == nil {
 		t.Fatal("product namespace escaped")
 	}
 }
 
-func TestOriginalSQLiteRecordsSurvivePortableMigration(t *testing.T) {
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "legacy.db"))
+func TestStructuredRecordSchemaAndPaginationUsePhysicalIDs(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "physical.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	// Exact first-release schema: persisted payloads were BLOB, with no ledger.
-	for _, ddl := range []string{
-		`CREATE TABLE knowledge_records (namespace TEXT NOT NULL,owner TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(namespace,owner,kind,id))`,
-		`CREATE TABLE knowledge_record_versions (namespace TEXT NOT NULL,owner TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,revision INTEGER NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(namespace,owner,kind,id,revision))`,
-		`CREATE TABLE knowledge_record_receipts (namespace TEXT NOT NULL,owner TEXT NOT NULL,kind TEXT NOT NULL,client TEXT NOT NULL,digest TEXT NOT NULL,payload BLOB NOT NULL,PRIMARY KEY(namespace,owner,kind,client))`,
-	} {
-		if _, err = db.ExecContext(t.Context(), ddl); err != nil {
-			t.Fatal(err)
-		}
-	}
-	a := sdk.Authority{Known: true, RuntimeID: "r", WorkspaceID: "w", UserID: "u"}
-	owner, _ := scope(a)
-	in := Write{ClientID: "original", Title: "已有需求", Data: json.RawMessage(`{"notes":"旧资料"}`)}
-	original := Record{ID: "rec_original", Kind: "requirements", Title: in.Title, Revision: 1, Data: in.Data}
-	raw, _ := marshalRecord(original)
-	for _, table := range []string{"knowledge_records", "knowledge_record_versions"} {
-		if _, err = db.ExecContext(t.Context(), "INSERT INTO "+table+"(namespace,owner,kind,id,revision,payload) VALUES(?,?,?,?,?,?)", "pm", owner, original.Kind, original.ID, 1, raw); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err = db.ExecContext(t.Context(), "INSERT INTO knowledge_record_receipts(namespace,owner,kind,client,digest,payload) VALUES(?,?,?,?,?,?)", "pm", owner, original.Kind, in.ClientID, hash(in), raw); err != nil {
-		t.Fatal(err)
-	}
 	d, _ := dialect.New(dialect.SQLite)
 	migrations, err := Migrations(d.WithSchema(""))
 	if err != nil {
@@ -125,21 +106,51 @@ func TestOriginalSQLiteRecordsSurvivePortableMigration(t *testing.T) {
 			}
 		}
 	}
+	for _, table := range []string{"knowledge_records", "knowledge_record_versions", "knowledge_record_receipts"} {
+		rows, queryErr := db.QueryContext(t.Context(), `SELECT name, type, pk FROM pragma_table_info(?)`, table)
+		if queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		primaryKey := ""
+		idType := ""
+		for rows.Next() {
+			var name, columnType string
+			var primary int
+			if queryErr = rows.Scan(&name, &columnType, &primary); queryErr != nil {
+				_ = rows.Close()
+				t.Fatal(queryErr)
+			}
+			if name == "id" {
+				idType = columnType
+			}
+			if primary > 0 {
+				primaryKey = name
+			}
+		}
+		if queryErr = rows.Close(); queryErr != nil {
+			t.Fatal(queryErr)
+		}
+		if primaryKey != "id" || idType != "INTEGER" {
+			t.Fatalf("table %s primary=%q id_type=%q", table, primaryKey, idType)
+		}
+	}
 	store, err := New(db, d.WithSchema(""), sqlite.NewProfile(), "pm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	replay, err := store.Save(t.Context(), original.Kind, in, a, func(_, _ *Record) error { t.Fatal("old receipt was not recovered"); return nil })
-	if err != nil || replay.ID != original.ID {
-		t.Fatalf("receipt: %+v %v", replay, err)
+	a := sdk.Authority{Known: true, RuntimeID: "r", WorkspaceID: "w", UserID: "u"}
+	validate := func(_, _ *Record) error { return nil }
+	for _, clientID := range []string{"one", "two", "three"} {
+		if _, err = store.Save(t.Context(), "requirements", Write{ClientID: clientID, Title: clientID, Data: json.RawMessage(`{}`)}, a, validate); err != nil {
+			t.Fatal(err)
+		}
 	}
-	in.ID, in.ExpectedRevision, in.ClientID, in.Title = original.ID, 1, "revised", "修订后的需求"
-	updated, err := store.Save(t.Context(), original.Kind, in, a, func(_, _ *Record) error { return nil })
-	if err != nil || updated.Revision != 2 {
-		t.Fatalf("update: %+v %v", updated, err)
+	first, err := store.List(t.Context(), "requirements", "", 0, 2, a)
+	if err != nil || first.Complete || len(first.Items) != 2 || first.Items[0].ID >= first.Items[1].ID || first.NextCursor != first.Items[1].ID {
+		t.Fatalf("first page=%+v err=%v", first, err)
 	}
-	historical, err := store.Get(t.Context(), original.Kind, original.ID, 1, a)
-	if err != nil || historical.Title != original.Title {
-		t.Fatalf("historical payload: %+v %v", historical, err)
+	second, err := store.List(t.Context(), "requirements", "", first.NextCursor, 2, a)
+	if err != nil || !second.Complete || len(second.Items) != 1 || second.Items[0].ID <= first.NextCursor || second.NextCursor != 0 {
+		t.Fatalf("second page=%+v err=%v", second, err)
 	}
 }

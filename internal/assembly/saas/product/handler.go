@@ -14,6 +14,7 @@ import (
 
 	"github.com/domainry/domainry-foundation/httpresponse"
 	"github.com/domainry/domainry-foundation/modulehttp"
+	"github.com/domainry/domainry-foundation/requestcontext"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	identityprincipal "github.com/domainry/domainry-identity-sdk/authorization/principal"
 	identityhttpapi "github.com/domainry/domainry-identity-sdk/httpapi"
@@ -74,8 +75,9 @@ func (host *Host) newHandler(options Options, knowledgeAdapters []modulehttp.Ada
 		if err = modulehttp.ValidateAdapter(adapter); err != nil {
 			return nil, err
 		}
-		handler := authentication.Authenticate(authentication.RequirePasswordChanged(adapter.Handler()))
 		for _, route := range adapter.Routes() {
+			browserHandler := authentication.Authenticate(authentication.RequirePasswordChanged(adapter.Handler()))
+			handler := host.authenticateKnowledgeRoute(route.Action.Key, adapter.Handler(), browserHandler)
 			if err = mountRoute(mux, route.Pattern(), handler); err != nil {
 				return nil, err
 			}
@@ -100,14 +102,56 @@ func (host *Host) newHandler(options Options, knowledgeAdapters []modulehttp.Ada
 		response.Header().Set("Cache-Control", "no-store")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		response.Header().Set("Referrer-Policy", "no-referrer")
-		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		frameSources := "'none'"
+		if len(host.embedFrameOrigins) > 0 {
+			frameSources = strings.Join(host.embedFrameOrigins, " ")
+		}
+		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src "+frameSources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		unsafe := request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions
-		if request.Host != origin.Host || request.Header.Get("Sec-Fetch-Site") == "cross-site" || request.Header.Get("Origin") != "" && request.Header.Get("Origin") != options.Origin || unsafe && request.Header.Get("Origin") != options.Origin {
+		if request.Host != origin.Host || request.Header.Get("Origin") != "" && request.Header.Get("Origin") != options.Origin || unsafe && request.Header.Get("Origin") != options.Origin {
 			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusForbidden, Code: "knowledge.origin_required"})
 			return
 		}
 		mux.ServeHTTP(response, request)
 	}), nil
+}
+
+func (host *Host) authenticateKnowledgeRoute(action string, applicationHandler, browserHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		header := strings.TrimSpace(request.Header.Get("Authorization"))
+		parts := strings.SplitN(header, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || strings.TrimSpace(parts[1]) == "" || len(host.trustedApplications.Registrations()) == 0 {
+			browserHandler.ServeHTTP(response, request)
+			return
+		}
+		verification, ok := host.identity.(identitysdk.ApplicationServiceVerificationBinding)
+		if !ok || verification.ApplicationServiceVerifier() == nil {
+			browserHandler.ServeHTTP(response, request)
+			return
+		}
+		principal, verifyErr := verification.ApplicationServiceVerifier().Verify(request.Context(), identitysdk.VerifyApplicationServiceTokenRequest{
+			AccessToken: strings.TrimSpace(parts[1]), Audience: host.application.ApplicationKey,
+			Grant: identitysdk.ApplicationServiceGrant{Resource: identitysdk.ResourceType("knowledge_action"), Action: identitysdk.Action(action)},
+		})
+		if verifyErr != nil {
+			browserHandler.ServeHTTP(response, request)
+			return
+		}
+		registration, allowed := host.trustedApplications.Authorize(string(principal.Application.ApplicationKey), action)
+		if !allowed || string(principal.Application.WorkspaceID) != host.workspaceID || principal.Audience != host.application.ApplicationKey {
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusForbidden, Code: "knowledge.trusted_application_denied"})
+			return
+		}
+		resolution, resolveErr := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(request.Context(), host.workspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(registration.ServiceUserID)})
+		if resolveErr != nil || !resolution.Principal.Known || resolution.Principal.WorkspaceID != host.workspaceID || resolution.Principal.UserID != registration.ServiceUserID {
+			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusForbidden, Code: "knowledge.trusted_application_principal_unavailable", Cause: resolveErr})
+			return
+		}
+		resolved := resolution.Principal
+		resolved.AccessBundle = &resolution.AccessBundle
+		identity := identitysdk.RequestIdentity{Principal: resolved, AccessToken: strings.TrimSpace(parts[1])}
+		applicationHandler.ServeHTTP(response, request.WithContext(identitysdk.WithRequestIdentity(request.Context(), identity)))
+	})
 }
 
 func mountRoute(mux *http.ServeMux, pattern string, handler http.Handler) (err error) {
@@ -132,7 +176,7 @@ func authorityFromRequest(request *http.Request, runtimeID string) (knowledgesdk
 		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: "forbidden", Code: "knowledge.principal_required"}
 	}
 	principal := identity.Principal
-	return knowledgesdk.Authority{Known: true, RuntimeID: runtimeID, WorkspaceID: principal.WorkspaceID, UserID: principal.UserID, RoleKey: principal.RoleKey}, nil
+	return knowledgesdk.Authority{Known: true, RuntimeID: runtimeID, WorkspaceID: principal.WorkspaceID, UserID: principal.UserID, RoleKey: principal.RoleKey, OrgID: principal.OrgID, OrgScopeIDs: append([]string(nil), principal.OrgScopeIDs...), AccountType: principal.User.AccountType}, nil
 }
 
 type libraryRetrieval interface {

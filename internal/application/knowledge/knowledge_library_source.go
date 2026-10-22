@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -61,7 +60,7 @@ func NewLibraryKnowledgeSource(repo any, runtimeID string, policy agentsdk.Knowl
 		return nil, fmt.Errorf("datasource catalog requires Binding and document persistence")
 	}
 	for _, Binding := range bindings {
-		if !conversationText(Binding.WorkspaceID, 255, true) || !strings.HasPrefix(Binding.LibraryID, "lib_") || len(Binding.LibraryID) != 36 || !conversationKey(Binding.LibraryID) || Binding.Source == nil {
+		if !conversationText(Binding.WorkspaceID, 255, true) || knowledgesdk.ValidateKnowledgeEntityID("klib", Binding.LibraryID) != nil || !conversationKey(Binding.LibraryID) || Binding.Source == nil {
 			return nil, fmt.Errorf("invalid library knowledge Binding")
 		}
 		key := conversationDigest([]string{Binding.WorkspaceID, Binding.LibraryID})
@@ -218,40 +217,41 @@ func (k *LibraryKnowledgeSource) ListKnowledgeLibraries(ctx context.Context, aft
 	if !a.Known || a.RuntimeID != k.runtimeID {
 		return agentsdk.Result{}, conversationFailure("forbidden", "knowledge_access_denied")
 	}
-	page, err := k.repo.KnowledgeLibraries(ctx, after, limit, a)
-	if err != nil {
-		return agentsdk.Result{}, err
-	}
-	items := []agentsdk.KnowledgeLibrary{}
-	for _, item := range page.Items {
-		Configured, err := k.Configured(ctx, item.ID, a)
+	load := func(pageLimit int) (agentsdk.KnowledgeLibraryPage, []byte, error) {
+		page, err := k.repo.KnowledgeLibraries(ctx, after, pageLimit, a)
 		if err != nil {
-			return agentsdk.Result{}, err
+			return agentsdk.KnowledgeLibraryPage{}, nil, err
 		}
-		if !Configured || item.Archived {
-			continue
-		}
-		_, err = k.Access(ctx, item.ID, a)
-		if err != nil {
-			var coded *agentsdk.Error
-			if errors.As(err, &coded) && coded.Class == "forbidden" {
+		items := []agentsdk.KnowledgeLibrary{}
+		for _, item := range page.Items {
+			configured, configuredErr := k.Configured(ctx, item.ID, a)
+			if configuredErr != nil {
+				return agentsdk.KnowledgeLibraryPage{}, nil, configuredErr
+			}
+			if !configured || item.Archived {
 				continue
 			}
-			return agentsdk.Result{}, err
+			_, accessErr := k.Access(ctx, item.ID, a)
+			if accessErr != nil {
+				var coded *agentsdk.Error
+				if errors.As(accessErr, &coded) && coded.Class == "forbidden" {
+					continue
+				}
+				return agentsdk.KnowledgeLibraryPage{}, nil, accessErr
+			}
+			item.KnowledgeConfigured = true
+			items = append(items, item)
 		}
-		item.KnowledgeConfigured = true
-		items = append(items, item)
+		page.Items = items
+		data, marshalErr := json.Marshal(page)
+		return page, data, marshalErr
 	}
-	page.Items = items
-	data, err := json.Marshal(page)
+	page, data, err := load(limit)
 	if err != nil {
 		return agentsdk.Result{}, err
 	}
 	for len(data) > 48*1024 && len(page.Items) > 1 {
-		page.Items = page.Items[:len(page.Items)-1]
-		page.Complete = false
-		page.NextAfter = page.Items[len(page.Items)-1].ID
-		data, err = json.Marshal(page)
+		page, data, err = load(len(page.Items) - 1)
 		if err != nil {
 			return agentsdk.Result{}, err
 		}

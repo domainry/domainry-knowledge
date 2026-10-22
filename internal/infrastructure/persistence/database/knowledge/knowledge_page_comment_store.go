@@ -2,7 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,6 +19,68 @@ const (
 	knowledgePageCommentMaximumBytes    = 32 << 10
 	knowledgePageCommentMaximumMentions = 20
 )
+
+var knowledgeCommentReactionOrder = []string{"👍", "❤️", "🎉", "👀", "😄", "🚀"}
+
+func validKnowledgeCommentReaction(value string) bool {
+	for _, emoji := range knowledgeCommentReactionOrder {
+		if value == emoji {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) hydrateKnowledgeCommentReactions(ctx context.Context, db conversationDB, comments []knowledgesdk.KnowledgePageComment, a agentsdk.Authority) error {
+	if len(comments) == 0 {
+		return nil
+	}
+	values := make([]any, 0, len(comments))
+	positions := make(map[string]int, len(comments))
+	for index := range comments {
+		comments[index].Reactions = []knowledgesdk.KnowledgeCommentReaction{}
+		values = append(values, comments[index].ID)
+		positions[comments[index].ID] = index
+	}
+	predicate := query.And(query.Equal("scope_key", libraryScope(a)), query.In("comment_id", values...))
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageCommentReactionTable).Projections(
+		query.Project(query.Column("comment_id")),
+		query.Project(query.Column("emoji")),
+		query.ProjectAs(query.CountAll(), "reaction_count"),
+		query.ProjectAs(query.Sum(query.CaseWhen(query.Equal("user_id", a.UserID), 1).Else(0)), "caller_reacted"),
+	).Where(predicate).GroupBy(query.Column("comment_id"), query.Column("emoji")).Build()
+	if err != nil {
+		return err
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var commentID, emoji string
+		var count, reacted int64
+		if err = rows.Scan(&commentID, &emoji, &count, &reacted); err != nil {
+			return err
+		}
+		if index, ok := positions[commentID]; ok && validKnowledgeCommentReaction(emoji) && count > 0 {
+			comments[index].Reactions = append(comments[index].Reactions, knowledgesdk.KnowledgeCommentReaction{Emoji: emoji, Count: count, Reacted: reacted > 0})
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	order := make(map[string]int, len(knowledgeCommentReactionOrder))
+	for index, emoji := range knowledgeCommentReactionOrder {
+		order[emoji] = index
+	}
+	for index := range comments {
+		sort.Slice(comments[index].Reactions, func(left, right int) bool {
+			return order[comments[index].Reactions[left].Emoji] < order[comments[index].Reactions[right].Emoji]
+		})
+	}
+	return nil
+}
 
 func commentScope(a agentsdk.Authority, id string) query.Predicate {
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("comment_id", id))
@@ -36,7 +102,7 @@ func (s *Store) commentRecord(ctx context.Context, db conversationDB, libraryID,
 }
 
 func validCommentAnchor(anchor knowledgesdk.KnowledgePageCommentAnchor) bool {
-	return executionText(anchor.NodeID, 128, false) && executionText(anchor.Quote, 1024, false) && strings.TrimSpace(anchor.NodeID) == anchor.NodeID
+	return executionText(anchor.NodeID, 128, false) && executionText(anchor.Quote, 1024, false) && strings.TrimSpace(anchor.NodeID) == anchor.NodeID && anchor.BlockSHA256 == ""
 }
 
 func normalizedMentions(values []string) ([]string, error) {
@@ -58,7 +124,7 @@ func normalizedMentions(values []string) ([]string, error) {
 func (s *Store) validateMentionedMembers(ctx context.Context, tx *sql.Tx, libraryID string, users []string, a agentsdk.Authority) error {
 	for _, user := range users {
 		var member agentsdk.KnowledgeLibraryMember
-		found, err := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, query.And(libraryPredicate(a, libraryID), query.Equal("user_id", user)), &member)
+		found, err := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, libraryMemberPredicate(a, libraryID, agentsdk.KnowledgeSubjectUser, user), &member)
 		if err != nil {
 			return err
 		}
@@ -69,19 +135,21 @@ func (s *Store) validateMentionedMembers(ctx context.Context, tx *sql.Tx, librar
 	return nil
 }
 
-func commentPageLimit(after string, limit int) (int, error) {
+func commentPageLimit(after string, limit int) (int64, int, error) {
 	if limit == 0 {
 		limit = 50
 	}
-	if limit < 1 || limit > 200 || after != "" && !validKnowledgeCommentID(after) {
-		return 0, conversationError("bad_request", "page_comment_query_invalid")
+	afterID, valid := parsePhysicalAfter(after)
+	if limit < 1 || limit > 200 || !valid {
+		return 0, 0, conversationError("bad_request", "page_comment_query_invalid")
 	}
-	return limit, nil
+	return afterID, limit, nil
 }
 
 func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, after string, limit int, unresolvedOnly bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePageCommentPage, err error) {
 	out = knowledgesdk.KnowledgePageCommentPage{Items: []knowledgesdk.KnowledgePageComment{}, Complete: true}
-	if limit, err = commentPageLimit(after, limit); err != nil {
+	var afterID int64
+	if afterID, limit, err = commentPageLimit(after, limit); err != nil {
 		return
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
@@ -92,11 +160,57 @@ func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, af
 		if e != nil {
 			return e
 		}
-		predicate := query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID), query.Equal("page_id", pageID), query.GreaterThan("comment_id", after))
+		currentAnchors := map[string]string{}
+		if page.PublishedVersion > 0 {
+			currentVersion, versionErr := s.pageVersion(ctx, tx, pageID, page.PublishedVersion, a)
+			if versionErr != nil {
+				return versionErr
+			}
+			var payload knowledgeDocumentPayload
+			if currentVersion.ContentType == knowledgesdk.KnowledgePageTypeDocument && json.Unmarshal([]byte(currentVersion.Body.Content), &payload) == nil {
+				var collect func([]knowledgeDocumentBlock)
+				collect = func(blocks []knowledgeDocumentBlock) {
+					for index := range blocks {
+						raw, marshalErr := json.Marshal(&blocks[index])
+						if marshalErr == nil {
+							digest := sha256.Sum256(raw)
+							currentAnchors[blocks[index].ID] = hex.EncodeToString(digest[:])
+						}
+						collect(blocks[index].Children)
+					}
+				}
+				blocks := make([]knowledgeDocumentBlock, 0, len(payload.Blocks))
+				for _, raw := range payload.Blocks {
+					var block knowledgeDocumentBlock
+					decoder := json.NewDecoder(strings.NewReader(string(raw)))
+					decoder.UseNumber()
+					if decoder.Decode(&block) == nil {
+						blocks = append(blocks, block)
+					}
+				}
+				collect(blocks)
+			} else if currentVersion.ContentType == knowledgesdk.KnowledgePageTypeWhiteboard {
+				anchors, anchorErr := whiteboardAnchorHashes(currentVersion.Body.Content)
+				if anchorErr != nil {
+					return anchorErr
+				}
+				currentAnchors = anchors
+			} else if currentVersion.ContentType == knowledgesdk.KnowledgePageTypeMindMap || currentVersion.ContentType == knowledgesdk.KnowledgePageTypeFlowchart {
+				anchors, anchorErr := diagramAnchorHashes(currentVersion.Body.Content, currentVersion.ContentType)
+				if anchorErr != nil {
+					return anchorErr
+				}
+				currentAnchors = anchors
+			}
+		}
+		predicate := query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID), query.Equal("page_id", pageID))
+		if afterID > 0 {
+			predicate = query.And(predicate, query.GreaterThan("id", afterID))
+		}
 		if unresolvedOnly {
 			predicate = query.And(predicate, query.Equal("resolved", false))
 		}
-		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgePageCommentTable).Columns("payload_json").Where(predicate).OrderBy(query.Ascending("comment_id")).Limit(limit + 1).Build()
+		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgePageCommentTable).Columns("id", "payload_json").Where(predicate).OrderBy(query.Ascending("id")).Limit(limit + 1).Build()
 		if e != nil {
 			return e
 		}
@@ -105,30 +219,85 @@ func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, af
 			return e
 		}
 		defer rows.Close()
+		physicalIDs := make([]int64, 0, limit+1)
 		for rows.Next() {
+			var physicalID int64
 			var raw []byte
 			var item knowledgesdk.KnowledgePageComment
-			if e = rows.Scan(&raw); e != nil {
+			if e = rows.Scan(&physicalID, &raw); e != nil {
 				return e
 			}
 			if e = unmarshalDurableJSON(raw, &item); e != nil {
 				return e
 			}
-			if item.PublishedVersion != page.PublishedVersion && (item.Anchor.NodeID != "" || item.Anchor.Quote != "") {
-				item.Anchor.Changed = true
-			}
+			item.Anchor.Changed = currentAnchors[item.Anchor.NodeID] == "" || currentAnchors[item.Anchor.NodeID] != item.Anchor.BlockSHA256
+			physicalIDs = append(physicalIDs, physicalID)
 			out.Items = append(out.Items, item)
 		}
 		if e = rows.Err(); e != nil {
 			return e
 		}
+		if e = rows.Close(); e != nil {
+			return e
+		}
 		if len(out.Items) > limit {
 			out.Items = out.Items[:limit]
 			out.Complete = false
-			out.NextAfter = out.Items[len(out.Items)-1].ID
+			out.NextAfter = physicalAfterValue(physicalIDs[limit-1])
 		}
-		return nil
+		return s.hydrateKnowledgeCommentReactions(ctx, tx, out.Items, a)
 	})
+	return
+}
+
+func (s *Store) SetKnowledgePageCommentReaction(ctx context.Context, libraryID, pageID, commentID string, in knowledgesdk.KnowledgePageCommentReactionWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePageComment, err error) {
+	if !validKnowledgeCommentReaction(in.Emoji) {
+		return out, conversationError("bad_request", "page_comment_reaction_invalid")
+	}
+	if _, err = pageRequestKey("comment_reaction", libraryID, commentID, in.ClientID, a); err != nil {
+		return out, err
+	}
+	err = s.mutateKnowledgeOperation(ctx, "knowledge.page_comment.react", knowledgesdk.ActionPageCommentsReact, libraryID+":"+pageID+":"+commentID+":"+in.Emoji, in.ClientID, in, a, func(tx *sql.Tx) (any, error) {
+		library, e := s.libraryRecord(ctx, tx, libraryID, a)
+		if e != nil {
+			return out, e
+		}
+		if library.Archived {
+			return out, conversationError("conflict", "library_archived")
+		}
+		page, e := s.pageRecord(ctx, tx, libraryID, pageID, a)
+		if e != nil {
+			return out, e
+		}
+		if page.State != "active" {
+			return out, conversationError("conflict", "page_archived")
+		}
+		out, e = s.commentRecord(ctx, tx, libraryID, pageID, commentID, a)
+		if e != nil {
+			return out, e
+		}
+		if out.Deleted {
+			return out, conversationError("conflict", "page_comment_deleted")
+		}
+		predicate := query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("comment_id", commentID), query.Equal("user_id", a.UserID), query.Equal("emoji", in.Emoji))
+		if in.Active {
+			q, args, buildErr := query.NewInsertBuilder(s.store.Renderer(), knowledgePageCommentReactionTable).Columns("scope_key", "comment_id", "user_id", "emoji", "library_id", "page_id", "created_at").Values(libraryScope(a), commentID, a.UserID, in.Emoji, libraryID, pageID, time.Now().UTC().UnixMilli()).OnConflictDoNothing("scope_key", "comment_id", "user_id", "emoji").Build()
+			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
+				return out, e
+			}
+		} else {
+			q, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageCommentReactionTable).Where(predicate).Build()
+			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
+				return out, e
+			}
+		}
+		items := []knowledgesdk.KnowledgePageComment{out}
+		if e = s.hydrateKnowledgeCommentReactions(ctx, tx, items, a); e != nil {
+			return out, e
+		}
+		out = items[0]
+		return out, nil
+	}, &out)
 	return
 }
 
@@ -163,8 +332,24 @@ func (s *Store) CreateKnowledgePageComment(ctx context.Context, libraryID, pageI
 		if page.PublishedVersion < in.PublishedVersion {
 			return out, conversationError("conflict", "page_comment_version_invalid")
 		}
-		if _, e = s.pageVersion(ctx, tx, pageID, in.PublishedVersion, a); e != nil {
+		version, e := s.pageVersion(ctx, tx, pageID, in.PublishedVersion, a)
+		if e != nil {
 			return out, e
+		}
+		var anchor knowledgesdk.KnowledgePageCommentAnchor
+		var anchorErr error
+		switch version.ContentType {
+		case knowledgesdk.KnowledgePageTypeDocument:
+			anchor, anchorErr = knowledgeDocumentCommentAnchor(version.Body.Content, in.Anchor.NodeID, in.Anchor.Quote)
+		case knowledgesdk.KnowledgePageTypeWhiteboard:
+			anchor, anchorErr = knowledgeWhiteboardCommentAnchor(version.Body.Content, in.Anchor.NodeID, in.Anchor.Quote)
+		case knowledgesdk.KnowledgePageTypeMindMap, knowledgesdk.KnowledgePageTypeFlowchart:
+			anchor, anchorErr = knowledgeDiagramCommentAnchor(version.Body.Content, version.ContentType, in.Anchor.NodeID, in.Anchor.Quote)
+		default:
+			return out, conversationError("bad_request", "page_comment_anchor_unsupported")
+		}
+		if anchorErr != nil {
+			return out, anchorErr
 		}
 		if in.ParentCommentID != "" {
 			parent, parentErr := s.commentRecord(ctx, tx, libraryID, pageID, in.ParentCommentID, a)
@@ -203,7 +388,7 @@ func (s *Store) CreateKnowledgePageComment(ctx context.Context, libraryID, pageI
 			return out, e
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
-		out = knowledgesdk.KnowledgePageComment{ID: id, PageID: pageID, LibraryID: libraryID, ParentCommentID: in.ParentCommentID, PublishedVersion: in.PublishedVersion, Anchor: in.Anchor, Body: strings.TrimSpace(in.Body), MentionedUserIDs: mentions, AuthorUserID: a.UserID, Revision: 1, CreatedAt: now, UpdatedAt: now}
+		out = knowledgesdk.KnowledgePageComment{ID: id, PageID: pageID, LibraryID: libraryID, ParentCommentID: in.ParentCommentID, PublishedVersion: in.PublishedVersion, Anchor: anchor, Body: strings.TrimSpace(in.Body), MentionedUserIDs: mentions, Reactions: []knowledgesdk.KnowledgeCommentReaction{}, AuthorUserID: a.UserID, Revision: 1, CreatedAt: now, UpdatedAt: now}
 		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgePageCommentTable).Columns("scope_key", "comment_id", "library_id", "page_id", "parent_comment_id", "author_user_id", "resolved", "revision", "updated_at", "request_key", "request_hash", "payload_json").Values(libraryScope(a), id, libraryID, pageID, in.ParentCommentID, a.UserID, false, 1, now.UnixMilli(), requestKey, requestHash, conversationJSON(out)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e

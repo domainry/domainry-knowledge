@@ -196,7 +196,12 @@ func (server *Server) downloadDocument(writer http.ResponseWriter, request *http
 		return
 	}
 	ctx := withGrants(request.Context(), knowledgecontract.SaaSDocumentDownloadPrepareOperation, server.secret, metadata.Grants)
-	download, err := server.dependencies.Knowledge.DownloadKnowledgeDocument(ctx, metadata.Library, metadata.ID, metadata.Authority)
+	var download agentsdk.KnowledgeDocumentDownload
+	if metadata.PageID != "" {
+		download, err = server.dependencies.Knowledge.DownloadKnowledgePageDocument(ctx, metadata.Library, metadata.PageID, metadata.ID, metadata.Authority)
+	} else {
+		download, err = server.dependencies.Knowledge.DownloadKnowledgeDocument(ctx, metadata.Library, metadata.ID, metadata.Authority)
+	}
 	if err != nil {
 		writeTransferError(writer, err)
 		return

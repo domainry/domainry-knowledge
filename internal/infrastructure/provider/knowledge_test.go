@@ -89,7 +89,7 @@ func TestKnowledgeScopeAndServerPermissions(t *testing.T) {
 	defer server.Close()
 	k := mustTestKnowledge(t, server)
 	k.config.PermissionIDs = func(_ context.Context, a agentsdk.Authority) ([]string, error) {
-		if a != knowledgeAuthority() {
+		if !a.Equal(knowledgeAuthority()) {
 			t.Error("wrong authority")
 		}
 		return []string{"dept:finance"}, nil

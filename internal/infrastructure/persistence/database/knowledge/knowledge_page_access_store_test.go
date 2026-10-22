@@ -29,6 +29,10 @@ func setPageAccessFixture(t *testing.T, store *Store, libraryID, pageID, client 
 	return policy
 }
 
+func userPageGrant(userID, role, scope string) knowledgesdk.KnowledgePageAccessGrant {
+	return knowledgesdk.KnowledgePageAccessGrant{Subject: knowledgesdk.KnowledgeAccessSubject{Type: knowledgesdk.KnowledgeSubjectUser, ID: userID}, Role: role, Scope: scope}
+}
+
 func markPageProjectionReady(t *testing.T, store *Store, libraryID, pageID string, authority agentsdk.Authority) {
 	t.Helper()
 	if err := store.transaction(t.Context(), func(tx *sql.Tx) error {
@@ -65,7 +69,7 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 		}
 	}
 
-	rootPolicy := setPageAccessFixture(t, store, library.ID, root.Page.ID, "restrict-root", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: bob.UserID, Role: "editor", Scope: knowledgesdk.KnowledgePageGrantSubtree}}, manager)
+	rootPolicy := setPageAccessFixture(t, store, library.ID, root.Page.ID, "restrict-root", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(bob.UserID, "editor", knowledgesdk.KnowledgePageGrantSubtree)}, manager)
 	childPolicy := setPageAccessFixture(t, store, library.ID, child.Page.ID, "restrict-child", 1, knowledgesdk.KnowledgePageAccessRestricted, nil, manager)
 	if rootPolicy.Mode != knowledgesdk.KnowledgePageAccessRestricted || childPolicy.Mode != knowledgesdk.KnowledgePageAccessRestricted {
 		t.Fatal("restricted mode was not persisted")
@@ -83,7 +87,7 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 		t.Fatalf("manager governance access was lost: %+v err=%v", effective, err)
 	}
 
-	childPolicy = setPageAccessFixture(t, store, library.ID, child.Page.ID, "direct-child", childPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: carol.UserID, Role: "manager", Scope: knowledgesdk.KnowledgePageGrantPage}}, manager)
+	childPolicy = setPageAccessFixture(t, store, library.ID, child.Page.ID, "direct-child", childPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(carol.UserID, "manager", knowledgesdk.KnowledgePageGrantPage)}, manager)
 	effective, err = store.EvaluateKnowledgePageAccess(t.Context(), library.ID, child.Page.ID, carol)
 	if err != nil || !effective.Allowed || effective.Role != "reader" || effective.Source != "direct_grant" {
 		t.Fatalf("direct grant did not remain capped by library membership: %+v err=%v", effective, err)
@@ -91,8 +95,8 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 
 	for _, invalid := range []knowledgesdk.KnowledgePageAccessWrite{
 		{ClientID: "bad-mode", ExpectedRevision: childPolicy.Revision, Mode: "allow"},
-		{ClientID: "bad-scope", ExpectedRevision: childPolicy.Revision, Mode: knowledgesdk.KnowledgePageAccessRestricted, Grants: []knowledgesdk.KnowledgePageAccessGrant{{UserID: bob.UserID, Role: "reader", Scope: "tree"}}},
-		{ClientID: "bad-member", ExpectedRevision: childPolicy.Revision, Mode: knowledgesdk.KnowledgePageAccessRestricted, Grants: []knowledgesdk.KnowledgePageAccessGrant{{UserID: "mallory", Role: "reader", Scope: knowledgesdk.KnowledgePageGrantPage}}},
+		{ClientID: "bad-scope", ExpectedRevision: childPolicy.Revision, Mode: knowledgesdk.KnowledgePageAccessRestricted, Grants: []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(bob.UserID, "reader", "tree")}},
+		{ClientID: "bad-member", ExpectedRevision: childPolicy.Revision, Mode: knowledgesdk.KnowledgePageAccessRestricted, Grants: []knowledgesdk.KnowledgePageAccessGrant{userPageGrant("mallory", "reader", knowledgesdk.KnowledgePageGrantPage)}},
 	} {
 		if _, err = store.SetKnowledgePageAccess(t.Context(), library.ID, child.Page.ID, invalid, manager); err == nil {
 			t.Fatalf("invalid page ACL accepted: %+v", invalid)
@@ -103,7 +107,7 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 	if err != nil || tokenBefore == "" {
 		t.Fatalf("restricted page token missing: %q err=%v", tokenBefore, err)
 	}
-	childPolicy = setPageAccessFixture(t, store, library.ID, child.Page.ID, "rotate-grants", childPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: bob.UserID, Role: "reader", Scope: knowledgesdk.KnowledgePageGrantPage}}, manager)
+	childPolicy = setPageAccessFixture(t, store, library.ID, child.Page.ID, "rotate-grants", childPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(bob.UserID, "reader", knowledgesdk.KnowledgePageGrantPage)}, manager)
 	tokenAfter, revisionAfter, err := store.KnowledgePageProjectionPermission(t.Context(), library.ID, child.Page.ID, manager)
 	if err != nil || tokenAfter != tokenBefore || revisionAfter != childPolicy.Revision {
 		t.Fatalf("ACL revision changed stable page identity: before=%q after=%q revision=%d err=%v", tokenBefore, tokenAfter, revisionAfter, err)
@@ -113,7 +117,9 @@ func TestKnowledgePageAccessModesGrantsManagerGovernanceAndStableToken(t *testin
 		t.Fatal(err)
 	}
 	policy, err := store.KnowledgePageAccess(t.Context(), library.ID, child.Page.ID, manager)
-	if err != nil || slices.ContainsFunc(policy.Grants, func(grant knowledgesdk.KnowledgePageAccessGrant) bool { return grant.UserID == bob.UserID }) {
+	if err != nil || slices.ContainsFunc(policy.Grants, func(grant knowledgesdk.KnowledgePageAccessGrant) bool {
+		return grant.Subject == (knowledgesdk.KnowledgeAccessSubject{Type: knowledgesdk.KnowledgeSubjectUser, ID: bob.UserID})
+	}) {
 		t.Fatalf("removed member retained a grant: %+v err=%v", policy.Grants, err)
 	}
 }
@@ -125,7 +131,7 @@ func TestKnowledgePageAccessProjectionFailsClosedUntilExactACLReady(t *testing.T
 	bob.UserID = "bob"
 	page = savePageFixture(t, store, manager, library, page, "access-body", "受限页面", "只有授权成员可见")
 	page = publishPageFixture(t, store, manager, library, page, "access-publish")
-	policy := setPageAccessFixture(t, store, library.ID, page.Page.ID, "access-restrict-published", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: bob.UserID, Role: "reader", Scope: knowledgesdk.KnowledgePageGrantPage}}, manager)
+	policy := setPageAccessFixture(t, store, library.ID, page.Page.ID, "access-restrict-published", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(bob.UserID, "reader", knowledgesdk.KnowledgePageGrantPage)}, manager)
 	token := knowledgePagePermissionToken(manager, page.Page.ID)
 
 	if ids, err := store.KnowledgePagePermissionTokens(t.Context(), library.ID, bob); err != nil || len(ids) != 0 {
@@ -188,6 +194,68 @@ func TestKnowledgePageInheritProjectionAlsoUsesStableNonemptyPageToken(t *testin
 	}
 }
 
+func TestKnowledgeOrganizationMembershipAndPageGrantUseLiveIdentityScope(t *testing.T) {
+	store, manager, library, page := pageFixture(t)
+	library = addPageMember(t, store, library, "bob", "reader", manager)
+	var err error
+	library, err = store.SetKnowledgeLibraryOrganizationMember(t.Context(), library.ID, "org-sales", knowledgesdk.KnowledgeLibraryMemberWrite{Role: "editor", ExpectedRevision: library.Revision}, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	organizations, err := store.KnowledgeLibraryOrganizationMembers(t.Context(), library.ID, "", 20, manager)
+	if err != nil || len(organizations.Items) != 1 || organizations.Items[0].OrganizationID != "org-sales" || organizations.Items[0].Role != "editor" {
+		t.Fatalf("organization membership was not stored as a stable subject: page=%+v err=%v", organizations, err)
+	}
+	bob := manager
+	bob.UserID = "bob"
+	bob.OrgID = "org-sales"
+	bob.OrgScopeIDs = []string{"org-company", "org-sales"}
+	visible, err := store.KnowledgeLibrary(t.Context(), library.ID, bob)
+	if err != nil || visible.Role != "editor" {
+		t.Fatalf("live organization scope did not elevate the direct reader role: library=%+v err=%v", visible, err)
+	}
+	policy := setPageAccessFixture(t, store, library.ID, page.Page.ID, "org-page-access", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{
+		Subject: knowledgesdk.KnowledgeAccessSubject{Type: knowledgesdk.KnowledgeSubjectOrganization, ID: "org-sales"}, Role: "editor", Scope: knowledgesdk.KnowledgePageGrantPage,
+	}}, manager)
+	effective, err := store.EvaluateKnowledgePageAccess(t.Context(), library.ID, page.Page.ID, bob)
+	if err != nil || !effective.Allowed || effective.Role != "editor" || effective.Source != "direct_grant" {
+		t.Fatalf("organization page grant was not evaluated from the live scope: access=%+v err=%v", effective, err)
+	}
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "org-session", bob)
+	library, err = store.RemoveKnowledgeLibraryOrganizationMember(t.Context(), library.ID, "org-sales", library.Revision, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible, err = store.KnowledgeLibrary(t.Context(), library.ID, bob)
+	if err != nil || visible.Role != "reader" {
+		t.Fatalf("organization removal did not immediately fall back to the direct role: library=%+v err=%v", visible, err)
+	}
+	effective, err = store.EvaluateKnowledgePageAccess(t.Context(), library.ID, page.Page.ID, bob)
+	if err != nil || effective.Allowed || effective.Source != "restricted" {
+		t.Fatalf("removed organization retained page access: access=%+v err=%v", effective, err)
+	}
+	if err = store.transaction(t.Context(), func(tx *sql.Tx) error {
+		var record knowledgeCollaborationSessionRecord
+		found, readErr := store.executionRead(t.Context(), tx, knowledgePageCollaborationSessionTable, knowledgeCollaborationSessionScope(bob, session.ID), &record)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || record.State != "revoked" {
+			t.Fatalf("organization revocation did not fence the collaboration session: %+v", record)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID}, bob); err == nil {
+		t.Fatal("organization revocation left a collaboration session usable")
+	}
+	policy, err = store.KnowledgePageAccess(t.Context(), library.ID, page.Page.ID, manager)
+	if err != nil || len(policy.Grants) != 0 {
+		t.Fatalf("organization removal retained durable page grants: grants=%+v err=%v", policy.Grants, err)
+	}
+}
+
 func TestKnowledgePageMoveAccessImpactRequiresFreshManagerConfirmation(t *testing.T) {
 	store, manager, library, moving := pageFixture(t)
 	library = addPageMember(t, store, library, "bob", "editor", manager)
@@ -202,8 +270,8 @@ func TestKnowledgePageMoveAccessImpactRequiresFreshManagerConfirmation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldPolicy := setPageAccessFixture(t, store, library.ID, oldParent.Page.ID, "old-parent-access", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: bob.UserID, Role: "editor", Scope: knowledgesdk.KnowledgePageGrantSubtree}}, manager)
-	newPolicy := setPageAccessFixture(t, store, library.ID, newParent.Page.ID, "new-parent-access", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: carol.UserID, Role: "reader", Scope: knowledgesdk.KnowledgePageGrantSubtree}}, manager)
+	oldPolicy := setPageAccessFixture(t, store, library.ID, oldParent.Page.ID, "old-parent-access", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(bob.UserID, "editor", knowledgesdk.KnowledgePageGrantSubtree)}, manager)
+	newPolicy := setPageAccessFixture(t, store, library.ID, newParent.Page.ID, "new-parent-access", 1, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(carol.UserID, "reader", knowledgesdk.KnowledgePageGrantSubtree)}, manager)
 	moved, err := store.MoveKnowledgePage(t.Context(), library.ID, moving.Page.ID, knowledgesdk.KnowledgePageMove{ClientID: "move-under-old", ExpectedRevision: moving.Page.Revision, ParentPageID: oldParent.Page.ID, Rank: moving.Page.Rank}, manager)
 	if err != nil {
 		t.Fatal(err)
@@ -213,14 +281,15 @@ func TestKnowledgePageMoveAccessImpactRequiresFreshManagerConfirmation(t *testin
 	_ = setPageAccessFixture(t, store, library.ID, moving.Page.ID, "moving-restricted", 1, knowledgesdk.KnowledgePageAccessRestricted, nil, manager)
 
 	preview, err := store.PreviewKnowledgePageMove(t.Context(), library.ID, moving.Page.ID, knowledgesdk.KnowledgePageMovePreview{ParentPageID: newParent.Page.ID, Rank: moving.Page.Rank}, manager)
-	if err != nil || !preview.RequiresConfirm || preview.AffectedPages != 1 || !slices.Equal(preview.ChangedUserIDs, []string{"bob", "carol"}) || preview.Token == "" {
+	expectedSubjects := []knowledgesdk.KnowledgeAccessSubject{{Type: knowledgesdk.KnowledgeSubjectUser, ID: "bob"}, {Type: knowledgesdk.KnowledgeSubjectUser, ID: "carol"}}
+	if err != nil || !preview.RequiresConfirm || preview.AffectedPages != 1 || !slices.Equal(preview.ChangedSubjects, expectedSubjects) || preview.Token == "" {
 		t.Fatalf("move access impact was incomplete: %+v err=%v", preview, err)
 	}
 	if _, err = store.MoveKnowledgePage(t.Context(), library.ID, moving.Page.ID, knowledgesdk.KnowledgePageMove{ClientID: "move-without-confirm", ExpectedRevision: moving.Page.Revision, ParentPageID: newParent.Page.ID, Rank: moving.Page.Rank}, manager); err == nil || !strings.Contains(err.Error(), "page_move_access_confirmation_required") {
 		t.Fatalf("access-changing move skipped second confirmation: %v", err)
 	}
 
-	newPolicy = setPageAccessFixture(t, store, library.ID, newParent.Page.ID, "new-parent-role-change", newPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{{UserID: carol.UserID, Role: "editor", Scope: knowledgesdk.KnowledgePageGrantSubtree}}, manager)
+	newPolicy = setPageAccessFixture(t, store, library.ID, newParent.Page.ID, "new-parent-role-change", newPolicy.Revision, knowledgesdk.KnowledgePageAccessRestricted, []knowledgesdk.KnowledgePageAccessGrant{userPageGrant(carol.UserID, "editor", knowledgesdk.KnowledgePageGrantSubtree)}, manager)
 	if _, err = store.MoveKnowledgePage(t.Context(), library.ID, moving.Page.ID, knowledgesdk.KnowledgePageMove{ClientID: "move-stale-confirm", ExpectedRevision: moving.Page.Revision, ParentPageID: newParent.Page.ID, Rank: moving.Page.Rank, AccessImpactToken: preview.Token}, manager); err == nil || !strings.Contains(err.Error(), "page_move_access_confirmation_required") {
 		t.Fatalf("stale access impact token survived concurrent ACL change: %v", err)
 	}

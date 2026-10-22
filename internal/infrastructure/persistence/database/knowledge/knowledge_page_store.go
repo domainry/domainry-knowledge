@@ -2,9 +2,7 @@ package store
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strconv"
@@ -12,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/persistence"
@@ -33,19 +32,15 @@ func pageVersionScope(a agentsdk.Authority, id string, version int64) query.Pred
 }
 
 func validKnowledgePageID(id string) bool {
-	return strings.HasPrefix(id, "kpage_") && len(id) == 38 && personalMemoryKey(id)
+	return entityid.Validate("kpage", id) == nil
 }
 
 func validKnowledgeCommentID(id string) bool {
-	return strings.HasPrefix(id, "kcomment_") && len(id) == 41 && personalMemoryKey(id)
+	return entityid.Validate("kcomment", id) == nil
 }
 
 func randomKnowledgeID(prefix string) (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	return prefix + hex.EncodeToString(value[:]), nil
+	return entityid.New(strings.TrimSuffix(prefix, "_"))
 }
 
 func validPageRank(value string, required bool) bool {
@@ -190,6 +185,14 @@ func (s *Store) pageView(ctx context.Context, db conversationDB, library agentsd
 		return view, err
 	}
 	view.Breadcrumbs = breadcrumbs
+	if err = applyGridAccessToView(&view, library, a); err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	policy, _, err := s.effectiveKnowledgePageContentPolicy(ctx, db, page.LibraryID, page.ID, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	view.Governance = knowledgePageContentGovernance(policy, a)
 	return view, nil
 }
 
@@ -220,6 +223,65 @@ func pageListLimit(after string, limit int) (int, error) {
 		return 0, conversationError("bad_request", "page_query_invalid")
 	}
 	return limit, nil
+}
+
+// markKnowledgePageChildren annotates one list response with the exact visible
+// child state for the current caller. Keeping this server-owned avoids an N+1
+// browser probe and prevents inaccessible or unpublished children from leaking
+// through an expand control.
+func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, library agentsdk.KnowledgeLibrary, pages []knowledgesdk.KnowledgePage, includeArchived bool, a agentsdk.Authority) error {
+	if len(pages) == 0 {
+		return nil
+	}
+	parentColumn := "parent_page_id"
+	if library.Role == "reader" {
+		parentColumn = "published_parent_page_id"
+	}
+	parentPredicates := make([]query.Predicate, 0, len(pages))
+	pageIndexes := make(map[string]int, len(pages))
+	for index := range pages {
+		pages[index].HasChildren = false
+		pageIndexes[pages[index].ID] = index
+		parentPredicates = append(parentPredicates, query.Equal(parentColumn, pages[index].ID))
+	}
+	predicate := query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", library.ID), query.Or(parentPredicates...))
+	if library.Role == "reader" {
+		predicate = query.And(predicate, query.GreaterThan("published_version", 0))
+	}
+	if !includeArchived {
+		predicate = query.And(predicate, query.Equal("state", "active"))
+	}
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Columns("payload_json", parentColumn).Where(predicate).Limit(knowledgeLibraryMaximumPages + 1).Build()
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		var parentID string
+		var child knowledgesdk.KnowledgePage
+		if err = rows.Scan(&raw, &parentID); err != nil {
+			return err
+		}
+		if _, wanted := pageIndexes[parentID]; !wanted {
+			continue
+		}
+		if err = unmarshalDurableJSON(raw, &child); err != nil {
+			return err
+		}
+		effective, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, library.ID, child.ID, a)
+		if accessErr != nil {
+			return accessErr
+		}
+		if effective.Allowed {
+			pages[pageIndexes[parentID]].HasChildren = true
+		}
+	}
+	return rows.Err()
 }
 
 func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePagePage, err error) {
@@ -332,7 +394,7 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 			out.Complete = false
 			out.NextAfter = out.Items[len(out.Items)-1].ID
 		}
-		return nil
+		return s.markKnowledgePageChildren(ctx, tx, library, out.Items, includeArchived, a)
 	})
 	return
 }
@@ -459,11 +521,20 @@ func (s *Store) CreateKnowledgePage(ctx context.Context, libraryID string, in kn
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e
 		}
+		if e = s.insertDefaultKnowledgePageMetadata(ctx, tx, page, a); e != nil {
+			return out, e
+		}
+		if e = s.replaceKnowledgePageName(ctx, tx, libraryID, id, knowledgePageNameDraftTitle, page.Title, a); e != nil {
+			return out, e
+		}
 		if e = s.insertKnowledgePageAccess(ctx, tx, &page, requestKey, requestHash, a); e != nil {
 			return out, e
 		}
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgePageDraftTable).Columns("scope_key", "page_id", "library_id", "base_published_version", "draft_revision", "updated_at", "last_request_key", "last_request_hash", "payload_json").Values(libraryScope(a), id, libraryID, 0, 1, now.UnixMilli(), requestKey, requestHash, conversationJSON(draft)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
+			return out, e
+		}
+		if _, e = s.touchKnowledgePagePersonalState(ctx, tx, libraryID, id, "edited", now, a); e != nil {
 			return out, e
 		}
 		out, e = s.pageView(ctx, tx, library, page, true, a)
@@ -486,7 +557,11 @@ func (s *Store) updatePage(ctx context.Context, tx *sql.Tx, page *knowledgesdk.K
 	if err := conversationCAS(ctx, tx, q, args, err); err != nil {
 		return conversationError("conflict", "page_revision_conflict")
 	}
-	return nil
+	if err = s.replaceKnowledgePageName(ctx, tx, page.LibraryID, page.ID, knowledgePageNameDraftTitle, page.Title, a); err != nil {
+		return err
+	}
+	_, err = s.touchKnowledgePagePersonalState(ctx, tx, page.LibraryID, page.ID, "edited", page.UpdatedAt, a)
+	return err
 }
 
 func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageDraftWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
@@ -516,9 +591,14 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 		if page.State != "active" {
 			return out, conversationError("conflict", "page_archived")
 		}
-		body, normalizeErr := normalizedTypedPageContent(page.ContentType, in.ContentSchemaVersion, in.Content, in.ContentSHA256)
+		body, normalizeErr := s.normalizedTypedPageContent(page.ContentType, in.ContentSchemaVersion, in.Content, in.ContentSHA256)
 		if normalizeErr != nil {
 			return out, normalizeErr
+		}
+		if page.ContentType == knowledgePageTypeFile {
+			if e = s.validateKnowledgeFilePageReference(ctx, tx, libraryID, pageID, body.Content, a); e != nil {
+				return out, e
+			}
 		}
 		draft, found, e := s.pageDraft(ctx, tx, pageID, a)
 		if e != nil {
@@ -526,6 +606,17 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 		}
 		if !found {
 			return out, conversationError("conflict", "page_draft_missing")
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeMultidimensionalTable && draft.Body.Content != body.Content {
+			if library.Role != "manager" {
+				return out, conversationError("forbidden", "page_grid_native_operation_required")
+			}
+			if e = requireGridTableWrite(draft.Body.Content, library, a); e != nil {
+				return out, e
+			}
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeSpreadsheet && draft.Body.Content != body.Content && library.Role != "manager" && (spreadsheetHasProtectedRanges(draft.Body.Content) || spreadsheetHasProtectedRanges(body.Content)) {
+			return out, conversationError("forbidden", "page_spreadsheet_native_operation_required")
 		}
 		var lastKey, lastHash string
 		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgePageDraftTable).Columns("last_request_key", "last_request_hash").Where(pageScope(a, pageID)).Build()
@@ -557,6 +648,17 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 				return out, conversationError("not_found", "page_not_found")
 			}
 		}
+		blockChanges := []knowledgesdk.KnowledgePageBlockChange{}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeDocument {
+			blockChanges, e = knowledgeDocumentBlockChanges(draft.Body.Content, body.Content)
+			if e != nil {
+				return out, conversationError("bad_request", "page_content_diff_invalid")
+			}
+			if e = s.replaceKnowledgePageReferences(ctx, tx, libraryID, pageID, body.Content, a); e != nil {
+				return out, e
+			}
+		}
+		titleBefore := draft.Title
 		page.Title, page.ParentPageID, page.Rank = strings.TrimSpace(in.Title), in.ParentPageID, in.Rank
 		if e = s.updatePage(ctx, tx, &page, in.ExpectedPageRevision, a); e != nil {
 			return out, e
@@ -568,6 +670,17 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 		q, args, e = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageDraftTable).Set("draft_revision", draft.DraftRevision).Set("updated_at", now.UnixMilli()).Set("last_request_key", requestKey).Set("last_request_hash", requestHash).Set("payload_json", conversationJSON(draft)).Where(query.And(pageScope(a, pageID), query.Equal("draft_revision", in.ExpectedDraftRevision))).Build()
 		if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 			return out, conversationError("conflict", "page_draft_revision_conflict")
+		}
+		storedChanges := blockChanges
+		if len(storedChanges) > knowledgePageEditHistoryMaximumChanges {
+			storedChanges = storedChanges[:knowledgePageEditHistoryMaximumChanges]
+		}
+		history := knowledgesdk.KnowledgePageEditHistoryEntry{
+			DraftRevision: draft.DraftRevision, UserID: a.UserID, TitleChanged: titleBefore != draft.Title,
+			ChangedBlockCount: len(blockChanges), Changes: storedChanges, Truncated: len(storedChanges) != len(blockChanges), CreatedAt: now,
+		}
+		if e = s.insertKnowledgePageEditHistory(ctx, tx, pageID, history, a); e != nil {
+			return out, e
 		}
 		if e = s.resetKnowledgeCollaborationState(ctx, tx, pageID, a); e != nil {
 			return out, e
@@ -765,12 +878,22 @@ func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string,
 		if e != nil {
 			return out, e
 		}
+		policy, _, e := s.effectiveKnowledgePageContentPolicy(ctx, tx, libraryID, pageID, a)
+		if e != nil {
+			return out, e
+		}
+		if !contentPolicyAllows(policy, knowledgesdk.KnowledgePageContentOperationDuplicate) {
+			return out, conversationError("forbidden", "page_content_operation_denied")
+		}
 		sourceDraft, found, e := s.pageDraft(ctx, tx, pageID, a)
 		if e != nil {
 			return out, e
 		}
 		if !found {
 			return out, conversationError("conflict", "page_draft_missing")
+		}
+		if sourcePage.ContentType == knowledgesdk.KnowledgePageTypeMultidimensionalTable && gridHasRestrictions(sourceDraft.Body.Content) && library.Role != "manager" {
+			return out, conversationError("forbidden", "page_grid_permission_denied")
 		}
 		if e = s.validatePageParent(ctx, tx, libraryID, "", in.ParentPageID, a); e != nil {
 			return out, e
@@ -809,11 +932,28 @@ func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string,
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e
 		}
+		if e = s.insertDefaultKnowledgePageMetadata(ctx, tx, page, a); e != nil {
+			return out, e
+		}
+		if e = s.replaceKnowledgePageName(ctx, tx, libraryID, id, knowledgePageNameDraftTitle, page.Title, a); e != nil {
+			return out, e
+		}
 		if e = s.insertKnowledgePageAccess(ctx, tx, &page, requestKey, conversationHash(in), a); e != nil {
 			return out, e
 		}
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgePageDraftTable).Columns("scope_key", "page_id", "library_id", "base_published_version", "draft_revision", "updated_at", "last_request_key", "last_request_hash", "payload_json").Values(libraryScope(a), id, libraryID, 0, 1, now.UnixMilli(), requestKey, requestHash, conversationJSON(draft)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
+			return out, e
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeDocument {
+			if e = s.replaceKnowledgePageReferences(ctx, tx, libraryID, id, draft.Body.Content, a); e != nil {
+				return out, e
+			}
+		}
+		if e = s.copyKnowledgePageAttachments(ctx, tx, pageID, id, now, a); e != nil {
+			return out, e
+		}
+		if _, e = s.touchKnowledgePagePersonalState(ctx, tx, libraryID, id, "edited", now, a); e != nil {
 			return out, e
 		}
 		out, e = s.pageView(ctx, tx, library, page, true, a)
@@ -884,11 +1024,17 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 		if e = s.updatePage(ctx, tx, &out, in.ExpectedRevision, a); e != nil {
 			return out, e
 		}
+		if e = s.setKnowledgePageArchiveGovernance(ctx, tx, out, archived, out.UpdatedAt, a); e != nil {
+			return out, e
+		}
 		if archived {
 			if e = s.resetKnowledgeCollaborationState(ctx, tx, pageID, a); e != nil {
 				return out, e
 			}
-			documentID := knowledgePageProjectionDocumentID(a, pageID)
+			documentID, readErr := knowledgePageProjectionDocumentID(a, pageID)
+			if readErr != nil {
+				return out, readErr
+			}
 			var projection persistence.KnowledgeDocumentRecord
 			found, readErr := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, documentID), &projection)
 			if readErr != nil {
@@ -932,7 +1078,7 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 		return out, nil
 	}, &out)
 	if err == nil {
-		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
 	}
 	return
 }
@@ -967,8 +1113,26 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 		if !found {
 			return out, conversationError("conflict", "page_draft_missing")
 		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeMultidimensionalTable {
+			if e = requireGridTableWrite(draft.Body.Content, library, a); e != nil {
+				return out, e
+			}
+		}
 		if draft.DraftRevision != in.ExpectedDraftRevision || page.Revision != in.ExpectedPageRevision {
 			return out, pageDraftConflict("page_draft_revision_conflict", draft)
+		}
+		if e = validatePageTypeBeforePublish(page.ContentType, draft.Body.Content); e != nil {
+			return out, e
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeDocument {
+			if e = validateKnowledgeExternalEmbeds(draft.Body.Content, s.embedProviders); e != nil {
+				return out, conversationError("conflict", "page_embed_unresolved")
+			}
+		}
+		if page.ContentType == knowledgePageTypeFile {
+			if e = s.validateKnowledgeFilePageReference(ctx, tx, libraryID, pageID, draft.Body.Content, a); e != nil {
+				return out, e
+			}
 		}
 		if e = s.validatePublishedPageParent(ctx, tx, libraryID, pageID, draft.ParentPageID, a); e != nil {
 			return out, e
@@ -977,6 +1141,9 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 		version := knowledgesdk.KnowledgePageVersion{PageID: pageID, LibraryID: libraryID, Version: versionNumber, Title: draft.Title, ContentType: page.ContentType, ParentPageID: draft.ParentPageID, Rank: draft.Rank, Body: draft.Body, PublishedByUserID: a.UserID, PublishedAt: time.Now().UTC().Truncate(time.Millisecond), PublishNote: in.PublishNote}
 		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgePageVersionTable).Columns("scope_key", "page_id", "version", "library_id", "published_at", "payload_json").Values(libraryScope(a), pageID, versionNumber, libraryID, version.PublishedAt.UnixMilli(), conversationJSON(version)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
+			return out, e
+		}
+		if e = s.replaceKnowledgePageName(ctx, tx, libraryID, pageID, knowledgePageNamePublishedTitle, version.Title, a); e != nil {
 			return out, e
 		}
 		page.PublishedVersion, page.ProjectionStatus, page.AccessStatus = versionNumber, "queued", "queued"
@@ -1035,7 +1202,8 @@ func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID str
 		return out, conversationError("bad_request", "page_version_query_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		if _, e := s.libraryRecord(ctx, tx, libraryID, a); e != nil {
+		library, e := s.libraryRecord(ctx, tx, libraryID, a)
+		if e != nil {
 			return e
 		}
 		if _, e := s.pageRecord(ctx, tx, libraryID, pageID, a); e != nil {
@@ -1063,6 +1231,9 @@ func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID str
 			if e = unmarshalDurableJSON(raw, &item); e != nil {
 				return e
 			}
+			if e = redactGridVersion(&item, library, a); e != nil {
+				continue
+			}
 			out.Items = append(out.Items, item)
 		}
 		if e = rows.Err(); e != nil {
@@ -1080,15 +1251,18 @@ func (s *Store) KnowledgePageVersions(ctx context.Context, libraryID, pageID str
 
 func (s *Store) KnowledgePageVersion(ctx context.Context, libraryID, pageID string, version int64, a agentsdk.Authority) (out knowledgesdk.KnowledgePageVersion, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		if _, e := s.libraryRecord(ctx, tx, libraryID, a); e != nil {
+		library, e := s.libraryRecord(ctx, tx, libraryID, a)
+		if e != nil {
 			return e
 		}
 		if _, e := s.pageRecord(ctx, tx, libraryID, pageID, a); e != nil {
 			return e
 		}
-		var e error
 		out, e = s.pageVersion(ctx, tx, pageID, version, a)
-		return e
+		if e != nil {
+			return e
+		}
+		return redactGridVersion(&out, library, a)
 	})
 	return
 }
@@ -1191,8 +1365,19 @@ func (s *Store) RestoreKnowledgePageVersion(ctx context.Context, libraryID, page
 		if e != nil {
 			return out, e
 		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeMultidimensionalTable && library.Role != "manager" {
+			return out, conversationError("forbidden", "page_grid_permission_denied")
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeSpreadsheet && library.Role != "manager" && (spreadsheetHasProtectedRanges(draft.Body.Content) || spreadsheetHasProtectedRanges(version.Body.Content)) {
+			return out, conversationError("forbidden", "page_spreadsheet_permission_denied")
+		}
 		if e = s.validatePageParent(ctx, tx, libraryID, pageID, version.ParentPageID, a); e != nil {
 			return out, e
+		}
+		if page.ContentType == knowledgesdk.KnowledgePageTypeDocument {
+			if e = s.replaceKnowledgePageReferences(ctx, tx, libraryID, pageID, version.Body.Content, a); e != nil {
+				return out, e
+			}
 		}
 		page.Title, page.ParentPageID, page.Rank = version.Title, version.ParentPageID, version.Rank
 		if e = s.updatePage(ctx, tx, &page, in.ExpectedPageRevision, a); e != nil {

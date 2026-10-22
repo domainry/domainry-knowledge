@@ -45,7 +45,7 @@ func TestKnowledgeDeleteRecoveryNeedsExplicitSourceAndUsableLease(t *testing.T) 
 		t.Fatal("expired lease dispatched")
 	}
 	leaseUntil := time.Now().Add(time.Minute)
-	if !RecoverKnowledgeDocumentDelete(t.Context(), probe, "frozen", a, leaseUntil) || probe.calls != 1 || probe.id != "frozen" || probe.a != a || probe.deadline.After(leaseUntil.Add(-5*time.Second)) {
+	if !RecoverKnowledgeDocumentDelete(t.Context(), probe, "frozen", a, leaseUntil) || probe.calls != 1 || probe.id != "frozen" || !probe.a.Equal(a) || probe.deadline.After(leaseUntil.Add(-5*time.Second)) {
 		t.Fatal("source identity or lease changed")
 	}
 	probe.err = errors.New("still uncertain")

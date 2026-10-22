@@ -10,7 +10,7 @@ import (
 )
 
 type pageRepository interface {
-	knowledgesdk.PageService
+	knowledgesdk.KnowledgePageRepository
 	knowledgesdk.CommentService
 	knowledgesdk.PageAttachmentService
 }
@@ -139,6 +139,40 @@ func (s *Service) CreateKnowledgePage(ctx context.Context, libraryID string, inp
 	return result, err
 }
 
+func (s *Service) KnowledgePageReferences(ctx context.Context, libraryID, pageID string, direction knowledgesdk.KnowledgePageReferenceDirection, after string, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePageReferencePage, error) {
+	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageReferencesList, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageReferencePage{}, err
+	}
+	result, err := repository.KnowledgePageReferences(ctx, libraryID, pageID, direction, after, limit, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageReferencesList, a)
+	}
+	return result, err
+}
+
+func (s *Service) CreateKnowledgePageReference(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageReferenceCreate, a agentsdk.Authority) (knowledgesdk.KnowledgePageReferenceCreateResult, error) {
+	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageReferencesCreate, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageReferenceCreateResult{}, err
+	}
+	result, err := repository.CreateKnowledgePageReference(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageReferencesCreate, a)
+	}
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageReferencesCreate, "knowledge.page.reference_created", libraryID, pageID, result.Target.Page.ID, input.ClientID, result.Parent.Page.Revision, map[string]string{
+			"expected_parent_draft_revision": strconv.FormatInt(input.ExpectedParentDraftRevision, 10),
+			"reference_block_id":             input.ReferenceBlockID,
+		}, map[string]string{
+			"target_page_id": result.Target.Page.ID,
+			"content_type":   result.Target.Page.ContentType,
+			"display":        input.Display,
+		}, a)
+	}
+	return result, err
+}
+
 func (s *Service) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageDraftWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesUpdate, a)
 	if err != nil {
@@ -153,6 +187,44 @@ func (s *Service) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID 
 			"expected_draft_revision": strconv.FormatInt(input.ExpectedDraftRevision, 10),
 		}, map[string]string{
 			"draft_revision": strconv.FormatInt(result.Draft.DraftRevision, 10), "content_sha256": result.Draft.Body.ContentSHA256,
+		}, a)
+	}
+	return result, err
+}
+
+func (s *Service) ApplyKnowledgePageNativeOperations(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageNativeOperationBatch, a agentsdk.Authority) (knowledgesdk.KnowledgePageNativeOperationResult, error) {
+	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageNativeOperationsApply, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageNativeOperationResult{}, err
+	}
+	result, err := repository.ApplyKnowledgePageNativeOperations(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageNativeOperationsApply, a)
+	}
+	if err == nil && result.View.Draft != nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageNativeOperationsApply, "knowledge.page.native_operations_applied", libraryID, pageID, pageID, input.ClientID, result.View.Draft.DraftRevision, map[string]string{
+			"base_draft_revision": strconv.FormatInt(input.BaseDraftRevision, 10),
+		}, map[string]string{
+			"draft_revision": strconv.FormatInt(result.View.Draft.DraftRevision, 10), "operation_count": strconv.Itoa(len(result.Operations)), "content_type": result.View.Page.ContentType,
+		}, a)
+	}
+	return result, err
+}
+
+func (s *Service) ExecuteKnowledgeGridAutomation(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeGridAutomationExecute, a agentsdk.Authority) (knowledgesdk.KnowledgeGridAutomationResult, error) {
+	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageGridAutomationExecute, a)
+	if err != nil {
+		return knowledgesdk.KnowledgeGridAutomationResult{}, err
+	}
+	result, err := repository.ExecuteKnowledgeGridAutomation(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageGridAutomationExecute, a)
+	}
+	if err == nil && result.View.Draft != nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageGridAutomationExecute, "knowledge.page.grid_automation_executed", libraryID, pageID, pageID, input.ExecutionID, result.View.Draft.DraftRevision, map[string]string{
+			"automation_id": input.AutomationID, "record_id": input.RecordID, "trigger": input.Trigger,
+		}, map[string]string{
+			"field_id": result.FieldID, "draft_revision": strconv.FormatInt(result.View.Draft.DraftRevision, 10),
 		}, a)
 	}
 	return result, err
@@ -221,6 +293,7 @@ func (s *Service) SetKnowledgePageAccess(ctx context.Context, libraryID, pageID 
 	if err == nil {
 		s.WakeKnowledgeDocuments()
 		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageAccessSet, "knowledge.page.access_changed", libraryID, pageID, pageID, input.ClientID, result.Revision, nil, map[string]string{"mode": result.Mode, "grant_count": strconv.Itoa(len(result.Grants))}, a)
+		err = s.appendKnowledgeWebhook(ctx, knowledgesdk.KnowledgeWebhookPermissionChanged, knowledgesdk.ActionPageAccessGet, libraryID, pageID, pageID, result.Revision, a)
 	}
 	return result, err
 }
@@ -247,6 +320,31 @@ func (s *Service) ReorderKnowledgePages(ctx context.Context, libraryID string, i
 func (s *Service) CopyKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageCopy, a agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesCopy, a)
 	if err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	contentPolicy, ok := s.repo.(knowledgesdk.KnowledgePageContentPolicyRepository)
+	if !ok {
+		return knowledgesdk.KnowledgePageView{}, conversationFailure("unavailable", "page_content_policy_unavailable")
+	}
+	decision, err := contentPolicy.EvaluateKnowledgePageContentPolicy(ctx, libraryID, pageID, knowledgesdk.KnowledgePageContentOperationDuplicate, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	if !decision.Allowed {
+		return knowledgesdk.KnowledgePageView{}, conversationFailure("forbidden", "page_content_operation_denied")
+	}
+	decision, err = s.authorizeKnowledgePageOutbound(ctx, decision, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	currentDecision, err := contentPolicy.EvaluateKnowledgePageContentPolicy(ctx, libraryID, pageID, knowledgesdk.KnowledgePageContentOperationDuplicate, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	if !currentDecision.Allowed || currentDecision.SourcePageID != decision.SourcePageID || currentDecision.Revision != decision.Revision {
+		return knowledgesdk.KnowledgePageView{}, conversationFailure("forbidden", "page_content_operation_denied")
+	}
+	if _, err = s.authorizeKnowledgePageOutbound(ctx, currentDecision, a); err != nil {
 		return knowledgesdk.KnowledgePageView{}, err
 	}
 	result, err := repository.CopyKnowledgePage(ctx, libraryID, pageID, input, a)
@@ -308,6 +406,7 @@ func (s *Service) PublishKnowledgePage(ctx context.Context, libraryID, pageID st
 		}, map[string]string{
 			"published_version": strconv.FormatInt(result.Page.PublishedVersion, 10), "content_sha256": contentSHA256,
 		}, a)
+		err = s.appendKnowledgeWebhook(ctx, knowledgesdk.KnowledgeWebhookPagePublished, knowledgesdk.ActionPagesGet, libraryID, pageID, pageID, result.Page.PublishedVersion, a)
 	}
 	return result, err
 }

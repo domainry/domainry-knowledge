@@ -15,9 +15,9 @@ func TestKnowledgeSchemaMigrationContract(t *testing.T) {
 		dialect  dialect.Name
 		checksum string
 	}{
-		{name: "sqlite", dialect: dialect.SQLite, checksum: "47430957834a9158f8974797c329a795563e745a9fb01bfcef5c2dbec0ef29c3"},
-		{name: "mysql", dialect: dialect.MySQL, checksum: "ade7c6de7ab15b213acebcb6d792a631934184aa4c2b121e72ad9cb70cec8e78"},
-		{name: "postgres", dialect: dialect.Postgres, checksum: "47430957834a9158f8974797c329a795563e745a9fb01bfcef5c2dbec0ef29c3"},
+		{name: "sqlite", dialect: dialect.SQLite, checksum: "db1d177782f85df65f9d199e383bcb4448b95754e6a0793fe86f14a9b9a8d496"},
+		{name: "mysql", dialect: dialect.MySQL, checksum: "452609d0192b2849331ea43b11bfe941ba85c7db6abe127760c1791a2b936089"},
+		{name: "postgres", dialect: dialect.Postgres, checksum: "3bd27b03307062a6945c707015eee06c4bc5bb29e8e21bfcbbabfbd66a69ab01"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

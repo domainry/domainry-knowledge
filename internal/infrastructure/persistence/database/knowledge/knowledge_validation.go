@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"strings"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
@@ -12,10 +13,10 @@ func validArtifactSHA(value string) bool {
 	return err == nil && len(raw) == 32 && strings.ToLower(value) == value
 }
 
-func knowledgeDocumentReservationID(library, client, namespace string, authority knowledgesdk.Authority) string {
+func knowledgeDocumentReservationID(library, client, namespace string, authority knowledgesdk.Authority) (string, error) {
 	parts := []string{conversationOwner(authority), library, client}
 	if namespace != "" {
 		parts = append(parts, namespace)
 	}
-	return "kdoc_" + conversationHash(parts)[:32]
+	return entityid.Derive("kdoc", "knowledge.document", parts...)
 }

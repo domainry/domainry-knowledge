@@ -34,6 +34,22 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 		return host
 	}
 	host := open()
+	navigation := httptest.NewRequest(http.MethodGet, "http://knowledge.test/", nil)
+	navigation.Host = "knowledge.test"
+	navigation.Header.Set("Sec-Fetch-Site", "cross-site")
+	navigationResponse := httptest.NewRecorder()
+	host.Handler().ServeHTTP(navigationResponse, navigation)
+	if navigationResponse.Code == http.StatusForbidden {
+		t.Fatalf("safe top-level navigation must not be rejected by CSRF protection: %s", navigationResponse.Body.String())
+	}
+	unsafeCrossSite := httptest.NewRequest(http.MethodPost, "http://knowledge.test/auth/login", strings.NewReader(`{}`))
+	unsafeCrossSite.Host = "knowledge.test"
+	unsafeCrossSite.Header.Set("Sec-Fetch-Site", "cross-site")
+	unsafeCrossSiteResponse := httptest.NewRecorder()
+	host.Handler().ServeHTTP(unsafeCrossSiteResponse, unsafeCrossSite)
+	if unsafeCrossSiteResponse.Code != http.StatusForbidden {
+		t.Fatalf("unsafe cross-site request without the configured Origin status=%d body=%s", unsafeCrossSiteResponse.Code, unsafeCrossSiteResponse.Body.String())
+	}
 	login := callProduct(t, host.Handler(), http.MethodPost, "/auth/login", map[string]any{"workspace_id": options.WorkspaceID, "login": options.AdminLogin, "password": options.AdminPassword}, "")
 	if login.Code != http.StatusOK {
 		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
@@ -48,9 +64,36 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 	if session.Code != http.StatusOK {
 		t.Fatalf("session status=%d body=%s", session.Code, session.Body.String())
 	}
+	csp := session.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "frame-src https://www.youtube-nocookie.com https://player.bilibili.com") || strings.Contains(csp, " https://www.youtube.com") {
+		t.Fatalf("controlled embed CSP is not exact: %q", csp)
+	}
 	created := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries", map[string]any{"kind": "shared", "name": "产品知识库", "client_id": "acceptance-library"}, loginBody.AccessToken)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create library status=%d body=%s", created.Code, created.Body.String())
+	}
+	var library knowledgesdk.KnowledgeLibrary
+	if err := json.Unmarshal(created.Body.Bytes(), &library); err != nil || library.ID == "" {
+		t.Fatalf("create library body=%s err=%v", created.Body.String(), err)
+	}
+	createdPage := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries/"+library.ID+"/pages", map[string]any{
+		"client_id": "acceptance-page", "title": "治理验收", "content_type": knowledgesdk.KnowledgePageTypeDocument,
+	}, loginBody.AccessToken)
+	var page knowledgesdk.KnowledgePageView
+	if createdPage.Code != http.StatusCreated || json.Unmarshal(createdPage.Body.Bytes(), &page) != nil || page.Page.ID == "" {
+		t.Fatalf("create page status=%d body=%s", createdPage.Code, createdPage.Body.String())
+	}
+	metadataResponse := callProduct(t, host.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/metadata", nil, loginBody.AccessToken)
+	var metadata knowledgesdk.KnowledgePageMetadata
+	if metadataResponse.Code != http.StatusOK || json.Unmarshal(metadataResponse.Body.Bytes(), &metadata) != nil || metadata.OwnerUserID == "" {
+		t.Fatalf("metadata status=%d body=%s", metadataResponse.Code, metadataResponse.Body.String())
+	}
+	governance := callProduct(t, host.Handler(), http.MethodPut, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/governance", map[string]any{
+		"client_id": "acceptance-governance", "expected_revision": metadata.Revision, "owner_user_id": metadata.OwnerUserID,
+		"content_admin_user_ids": []string{}, "archive_retention_days": 730, "review_interval_days": 90,
+	}, loginBody.AccessToken)
+	if governance.Code != http.StatusOK {
+		t.Fatalf("set governance status=%d body=%s", governance.Code, governance.Body.String())
 	}
 	if err := host.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -60,6 +103,19 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 	login = callProduct(t, reopened.Handler(), http.MethodPost, "/auth/login", map[string]any{"workspace_id": options.WorkspaceID, "login": options.AdminLogin, "password": options.AdminPassword}, "")
 	if login.Code != http.StatusOK {
 		t.Fatalf("reopened login status=%d body=%s", login.Code, login.Body.String())
+	}
+	if err := json.Unmarshal(login.Body.Bytes(), &loginBody); err != nil || loginBody.AccessToken == "" {
+		t.Fatalf("reopened login body=%s err=%v", login.Body.String(), err)
+	}
+	auditResponse := callProduct(t, reopened.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/governance/audit?event=knowledge.page.governance_set&limit=20", nil, loginBody.AccessToken)
+	var auditPage knowledgesdk.KnowledgeGovernanceAuditPage
+	if auditResponse.Code != http.StatusOK || json.Unmarshal(auditResponse.Body.Bytes(), &auditPage) != nil || len(auditPage.Items) != 1 || auditPage.Items[0].ClientID != "acceptance-governance" || auditPage.Items[0].PageID != page.Page.ID {
+		t.Fatalf("governance audit status=%d body=%s", auditResponse.Code, auditResponse.Body.String())
+	}
+	allGovernanceResponse := callProduct(t, reopened.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/governance/audit?limit=20", nil, loginBody.AccessToken)
+	var allGovernance knowledgesdk.KnowledgeGovernanceAuditPage
+	if allGovernanceResponse.Code != http.StatusOK || json.Unmarshal(allGovernanceResponse.Body.Bytes(), &allGovernance) != nil || len(allGovernance.Items) != 1 || allGovernance.Items[0].Type != "knowledge.page.governance_set" {
+		t.Fatalf("unfiltered governance audit leaked unrelated page events status=%d body=%s", allGovernanceResponse.Code, allGovernanceResponse.Body.String())
 	}
 }
 

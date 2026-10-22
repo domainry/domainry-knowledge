@@ -4,6 +4,11 @@ export type KnowledgeDocumentEnvelope = {
 };
 export declare function parseDocumentBlocks(content: string): Block[];
 export declare function serializeDocumentBlocks(blocks: readonly Block[]): string;
+export declare function documentBlockCommentQuote(block: {
+    type: string;
+    props?: Record<string, unknown>;
+    content?: unknown;
+}): string;
 export declare function documentText(content: string): string;
 export declare function documentStats(content: string): {
     blocks: number;

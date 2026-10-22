@@ -35,12 +35,31 @@ func NewClamdDocumentSecurityScanner(network, address string, timeout time.Durat
 	return application.ChainDocumentSecurityScanners(application.BuiltinDocumentSecurityScanner(), clamd)
 }
 func (runtime Runtime) Validate(options *contract.Options) error {
+	if options != nil {
+		if repository, ok := runtime.repository.(interface {
+			SetKnowledgeEmbedProviders([]knowledgesdk.EmbedProvider) error
+		}); ok {
+			if err := repository.SetKnowledgeEmbedProviders(options.EmbedProviders); err != nil {
+				return err
+			}
+		}
+		if repository, ok := runtime.repository.(interface {
+			SetKnowledgeCollaborationNotifier(knowledgesdk.KnowledgeCollaborationNotifier)
+		}); ok {
+			repository.SetKnowledgeCollaborationNotifier(options.CollaborationNotifier)
+		}
+	}
 	return application.ValidateOptions(runtime.repository, options)
 }
 func (runtime Runtime) Activate(runtimeID string, options contract.Options) error {
 	return application.ActivateDocumentSources(runtime.repository, runtimeID, options)
 }
 func (runtime Runtime) NewService(runtimeID string, options contract.Options) contract.Service {
+	if repository, ok := runtime.repository.(interface {
+		SetKnowledgeCollaborationNotifier(knowledgesdk.KnowledgeCollaborationNotifier)
+	}); ok {
+		repository.SetKnowledgeCollaborationNotifier(options.CollaborationNotifier)
+	}
 	service := newSupervisedService(application.NewService(runtime.repository, runtimeID, options, failureRecorder{}))
 	if runtime.binding != nil {
 		runtime.binding.bindService(service)

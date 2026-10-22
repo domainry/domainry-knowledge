@@ -129,6 +129,18 @@ func (host *Host) ValidateKnowledgeLibraryMember(ctx context.Context, userID str
 	return nil
 }
 
+func (host *Host) ValidateKnowledgeLibraryOrganizationMember(ctx context.Context, organizationID string, authority knowledgesdk.Authority) error {
+	denied := &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.library_organization_member_unavailable"}
+	if !host.validAuthority(authority) || strings.TrimSpace(organizationID) == "" || len(organizationID) > 255 {
+		return denied
+	}
+	organization, found, err := host.identity.Projection().FindOrganizationUnit(requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID), identitysdk.OrganizationUnitLookup{OrgID: organizationID})
+	if err != nil || !found || organization.OrganizationUnitID != organizationID || organization.Status != "active" {
+		return denied
+	}
+	return nil
+}
+
 func (host *Host) SearchKnowledgePrincipals(ctx context.Context, query, after string, limit int, authority knowledgesdk.Authority) (knowledgesdk.KnowledgePrincipalPage, error) {
 	if _, err := host.resolvePrincipal(ctx, authority); err != nil {
 		return knowledgesdk.KnowledgePrincipalPage{}, err
@@ -146,13 +158,13 @@ func (host *Host) SearchKnowledgePrincipals(ctx context.Context, query, after st
 	needle := strings.ToLower(strings.TrimSpace(query))
 	items := make([]knowledgesdk.KnowledgePrincipal, 0, len(users))
 	for _, user := range users {
-		if user.Status != identitysdk.UserStatusActive || user.ID <= after {
+		if user.Status != identitysdk.UserStatusActive || user.UserID <= after {
 			continue
 		}
-		if needle != "" && !strings.Contains(strings.ToLower(user.ID+"\n"+user.Name+"\n"+user.Email), needle) {
+		if needle != "" && !strings.Contains(strings.ToLower(user.UserID+"\n"+user.Name+"\n"+user.Email), needle) {
 			continue
 		}
-		items = append(items, knowledgesdk.KnowledgePrincipal{UserID: user.ID, DisplayName: user.Name, Email: user.Email, Status: user.Status})
+		items = append(items, knowledgesdk.KnowledgePrincipal{UserID: user.UserID, DisplayName: user.Name, Email: user.Email, Status: user.Status})
 	}
 	sort.Slice(items, func(left, right int) bool { return items[left].UserID < items[right].UserID })
 	result := knowledgesdk.KnowledgePrincipalPage{Items: items, Complete: true}
@@ -181,7 +193,29 @@ func (host *Host) ResolveKnowledgePrincipals(ctx context.Context, userIDs []stri
 			result = append(result, knowledgesdk.KnowledgePrincipal{UserID: userID, DisplayName: "账号不可用", Status: "unavailable"})
 			continue
 		}
-		result = append(result, knowledgesdk.KnowledgePrincipal{UserID: user.ID, DisplayName: user.Name, Email: user.Email, Status: user.Status})
+		result = append(result, knowledgesdk.KnowledgePrincipal{UserID: user.UserID, DisplayName: user.Name, Email: user.Email, Status: user.Status})
+	}
+	return result, nil
+}
+
+func (host *Host) ResolveKnowledgeOrganizationPrincipals(ctx context.Context, organizationIDs []string, authority knowledgesdk.Authority) ([]knowledgesdk.KnowledgeOrganizationPrincipal, error) {
+	if len(organizationIDs) > 100 {
+		return nil, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.principal_limit_invalid"}
+	}
+	if _, err := host.resolvePrincipal(ctx, authority); err != nil {
+		return nil, err
+	}
+	result := make([]knowledgesdk.KnowledgeOrganizationPrincipal, 0, len(organizationIDs))
+	for _, organizationID := range organizationIDs {
+		organization, found, err := host.identity.Projection().FindOrganizationUnit(requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID), identitysdk.OrganizationUnitLookup{OrgID: organizationID})
+		if err != nil {
+			return nil, err
+		}
+		if !found || organization.Status != "active" {
+			result = append(result, knowledgesdk.KnowledgeOrganizationPrincipal{OrganizationID: organizationID, DisplayName: "组织不可用", Status: "unavailable"})
+			continue
+		}
+		result = append(result, knowledgesdk.KnowledgeOrganizationPrincipal{OrganizationID: organization.OrganizationUnitID, DisplayName: organization.Name, NodeType: organization.NodeType, Status: organization.Status})
 	}
 	return result, nil
 }
@@ -211,4 +245,38 @@ func (host *Host) ExplainKnowledgeAccess(ctx context.Context, input knowledgesdk
 	}
 	result.Identity = knowledgesdk.KnowledgeAccessLayer{Allowed: decision.Allowed, Code: decision.Code, Label: "Identity 功能权限", Source: decision.PolicyKey}
 	return result, nil
+}
+
+func (host *Host) ResolveKnowledgeAccessAuthority(ctx context.Context, userID string, authority knowledgesdk.Authority) (knowledgesdk.Authority, error) {
+	if !host.validAuthority(authority) || strings.TrimSpace(userID) == "" || len(userID) > 255 {
+		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.access_explain_invalid"}
+	}
+	resolution, err := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(userID)})
+	if err != nil {
+		return knowledgesdk.Authority{}, err
+	}
+	principal := resolution.Principal
+	if !principal.Known || principal.WorkspaceID != authority.WorkspaceID || principal.UserID != userID {
+		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: "not_found", Code: "knowledge.access_principal_unavailable"}
+	}
+	return knowledgesdk.Authority{Known: true, RuntimeID: authority.RuntimeID, WorkspaceID: principal.WorkspaceID, UserID: principal.UserID, RoleKey: principal.RoleKey, OrgID: principal.OrgID, OrgScopeIDs: append([]string(nil), principal.OrgScopeIDs...), AccountType: principal.User.AccountType}, nil
+}
+
+func (host *Host) ResolveKnowledgeTrustedApplication(ctx context.Context, applicationKey, action string) (knowledgesdk.Authority, error) {
+	registration, allowed := host.trustedApplications.Authorize(applicationKey, action)
+	if !allowed {
+		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: knowledgesdk.ErrorClassForbidden, Code: "knowledge.trusted_application_denied"}
+	}
+	resolution, err := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(ctx, host.workspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(registration.ServiceUserID)})
+	if err != nil {
+		return knowledgesdk.Authority{}, err
+	}
+	principal := resolution.Principal
+	if !principal.Known || principal.WorkspaceID != host.workspaceID || principal.UserID != registration.ServiceUserID {
+		return knowledgesdk.Authority{}, &knowledgesdk.Error{Class: knowledgesdk.ErrorClassForbidden, Code: "knowledge.trusted_application_principal_unavailable"}
+	}
+	return knowledgesdk.Authority{
+		Known: true, RuntimeID: host.runtimeID, WorkspaceID: principal.WorkspaceID, UserID: principal.UserID,
+		RoleKey: principal.RoleKey, OrgID: principal.OrgID, OrgScopeIDs: append([]string(nil), principal.OrgScopeIDs...), AccountType: principal.User.AccountType,
+	}, nil
 }

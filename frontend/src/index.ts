@@ -2,6 +2,9 @@ import "./styles.css";
 
 export { KnowledgeLibraryManager, KnowledgeLibraryManagerDialog, KnowledgeWorkspace } from "./KnowledgeWorkspace.tsx";
 export { KnowledgePagesPanel, pageContentSHA256 } from "./KnowledgePagesPanel.tsx";
+export { KnowledgePageShareManager } from "./KnowledgePageShareManager.tsx";
+export { KnowledgeSharedPage } from "./KnowledgeSharedPage.tsx";
+export { createKnowledgePageShareLink, parseKnowledgePageShareLocation } from "./knowledge-share-links.ts";
 export type { KnowledgeWorkspaceProps } from "./KnowledgeWorkspace.tsx";
 export { FilePreviewDialog } from "./FilePreviewDialog.tsx";
 export { canPreviewFilename, downloadFile, downloadFilename, fileSHA256Header, knowledgeDocumentPreviewSource } from "./file-preview.ts";
@@ -23,6 +26,8 @@ export type {
   KnowledgeLibraryPage,
   KnowledgeLibraryMember,
   KnowledgeLibraryMemberPage,
+  KnowledgeLibraryOrganizationMember,
+  KnowledgeLibraryOrganizationMemberPage,
   KnowledgeLibrarySources,
   KnowledgeResult,
   KnowledgePage,
@@ -40,8 +45,15 @@ export type {
   KnowledgePrincipal,
   KnowledgePrincipalPage,
   KnowledgeAccessExplanation,
+  KnowledgeAccessSubject,
+  KnowledgeOrganizationPrincipal,
   KnowledgePageAccessGrant,
   KnowledgePageAccessPolicy,
+  KnowledgePageShare,
+  KnowledgePageShareKind,
+  KnowledgePageSharePage,
+  KnowledgePageShareScope,
+  KnowledgePageSharedView,
   KnowledgePageMoveImpact,
   KnowledgeSearchRequest,
   KnowledgeUploadRequest,

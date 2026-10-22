@@ -1,9 +1,12 @@
 package store
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -14,12 +17,16 @@ import (
 )
 
 const (
-	knowledgeCollaborationLease               = 30 * time.Second
-	knowledgeCollaborationMaximumWait         = 15 * time.Second
-	knowledgeCollaborationRetainedEvents      = int64(256)
-	knowledgeCollaborationMaximumUpdateBytes  = knowledgePageMaximumBytes
-	knowledgeCollaborationMaximumStateBytes   = knowledgePageMaximumBytes * 4
-	knowledgeCollaborationMaximumEditedBlocks = 2048
+	knowledgeCollaborationLease                  = 30 * time.Second
+	knowledgeCollaborationMaximumWait            = 15 * time.Second
+	knowledgeCollaborationRetainedEvents         = int64(256)
+	knowledgeCollaborationMaximumUpdateBytes     = knowledgePageMaximumBytes
+	knowledgeCollaborationMaximumStateBytes      = knowledgePageMaximumBytes * 4
+	knowledgeCollaborationMaximumCheckpointBytes = knowledgeCollaborationMaximumStateBytes + 64*1024
+	knowledgeCollaborationMaximumAwarenessBytes  = 64 * 1024
+	knowledgeCollaborationCheckpointInterval     = int64(32)
+	knowledgeCollaborationCheckpointBytes        = int64(2 * knowledgePageMaximumBytes)
+	knowledgeCollaborationMaximumEditedBlocks    = 2048
 )
 
 func knowledgeCollaborationLibraryNotifierKey(a agentsdk.Authority, libraryID string) string {
@@ -30,12 +37,12 @@ func knowledgeCollaborationPageNotifierKey(a agentsdk.Authority, libraryID, page
 	return libraryScope(a) + ":page:" + libraryID + ":" + pageID
 }
 
-func (s *Store) notifyKnowledgeCollaboration(a agentsdk.Authority, libraryID, pageID string) {
+func (s *Store) notifyKnowledgeCollaboration(ctx context.Context, a agentsdk.Authority, libraryID, pageID string) {
 	keys := []string{knowledgeCollaborationLibraryNotifierKey(a, libraryID)}
 	if pageID != "" {
 		keys = append(keys, knowledgeCollaborationPageNotifierKey(a, libraryID, pageID))
 	}
-	s.collaboration.notify(keys...)
+	s.collaboration.notify(ctx, keys...)
 }
 
 type knowledgeCollaborationSessionRecord struct {
@@ -44,14 +51,45 @@ type knowledgeCollaborationSessionRecord struct {
 	ServerClock                             int64
 	LeaseUntilMillis, LastSeenMillis        int64
 	CursorBlockID, SelectionBlockID         string
+	AwarenessUpdate                         string
 	EditedBlockIDs                          []string
 }
 
 type knowledgeCollaborationUpdateRecord struct {
-	Clock     int64
-	SessionID string
-	UserID    string
-	Update    knowledgesdk.KnowledgeCollaborationUpdate
+	Clock       int64
+	SessionID   string
+	UserID      string
+	RequestHash string
+	Update      knowledgeCollaborationDurableUpdate
+}
+
+type knowledgeCollaborationDurableUpdate struct {
+	ClientID       string
+	UpdateID       string
+	Title          *string
+	YjsUpdate      string
+	Content        string
+	ContentSHA256  string
+	EditedBlockIDs []string
+}
+
+func durableKnowledgeCollaborationUpdate(update knowledgesdk.KnowledgeCollaborationUpdate) knowledgeCollaborationDurableUpdate {
+	return knowledgeCollaborationDurableUpdate{
+		ClientID: update.ClientID, UpdateID: update.UpdateID, Title: update.Title, YjsUpdate: update.YjsUpdate,
+		Content: update.Content, ContentSHA256: update.ContentSHA256, EditedBlockIDs: append([]string(nil), update.EditedBlockIDs...),
+	}
+}
+
+func (update knowledgeCollaborationDurableUpdate) api() knowledgesdk.KnowledgeCollaborationUpdate {
+	return knowledgesdk.KnowledgeCollaborationUpdate{
+		ClientID: update.ClientID, UpdateID: update.UpdateID, Title: update.Title, YjsUpdate: update.YjsUpdate,
+		Content: update.Content, ContentSHA256: update.ContentSHA256, EditedBlockIDs: append([]string(nil), update.EditedBlockIDs...),
+	}
+}
+
+type knowledgeCollaborationSnapshotRecord struct {
+	Snapshot     knowledgesdk.KnowledgeCollaborationSnapshot `json:"snapshot"`
+	YjsStateGzip string                                      `json:"yjs_state_gzip,omitempty"`
 }
 
 func knowledgeCollaborationSessionScope(a agentsdk.Authority, sessionID string) query.Predicate {
@@ -83,11 +121,77 @@ func decodeKnowledgeCollaborationBinary(value string, maximum int, required bool
 	return nil
 }
 
+func knowledgeCollaborationBinaryBytes(value string) int64 {
+	decoded, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		return 0
+	}
+	return int64(len(decoded))
+}
+
+func durableKnowledgeCollaborationSnapshot(snapshot knowledgesdk.KnowledgeCollaborationSnapshot) (knowledgeCollaborationSnapshotRecord, time.Duration, int64, error) {
+	record := knowledgeCollaborationSnapshotRecord{Snapshot: snapshot}
+	if snapshot.YjsState == "" {
+		return record, 0, 0, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(snapshot.YjsState)
+	if err != nil || len(raw) == 0 || len(raw) > knowledgeCollaborationMaximumStateBytes {
+		return record, 0, 0, conversationError("internal", "collaboration_checkpoint_invalid")
+	}
+	started := time.Now()
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	if _, err = writer.Write(raw); err == nil {
+		err = writer.Close()
+	} else {
+		_ = writer.Close()
+	}
+	duration := time.Since(started)
+	if err != nil {
+		return record, duration, 0, err
+	}
+	record.Snapshot.YjsState = ""
+	record.YjsStateGzip = base64.StdEncoding.EncodeToString(compressed.Bytes())
+	return record, duration, int64(compressed.Len()), nil
+}
+
+func restoreKnowledgeCollaborationSnapshot(record knowledgeCollaborationSnapshotRecord) (knowledgesdk.KnowledgeCollaborationSnapshot, error) {
+	snapshot := record.Snapshot
+	if record.YjsStateGzip == "" {
+		if snapshot.YjsState != "" {
+			return snapshot, conversationError("internal", "collaboration_checkpoint_encoding_invalid")
+		}
+		return snapshot, nil
+	}
+	if snapshot.YjsState != "" {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_encoding_invalid")
+	}
+	compressed, err := base64.StdEncoding.DecodeString(record.YjsStateGzip)
+	if err != nil || len(compressed) == 0 || len(compressed) > knowledgeCollaborationMaximumCheckpointBytes {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_encoding_invalid")
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_encoding_invalid")
+	}
+	raw, readErr := io.ReadAll(io.LimitReader(reader, int64(knowledgeCollaborationMaximumStateBytes)+1))
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil || len(raw) == 0 || len(raw) > knowledgeCollaborationMaximumStateBytes {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_encoding_invalid")
+	}
+	snapshot.YjsState = base64.StdEncoding.EncodeToString(raw)
+	return snapshot, nil
+}
+
 func initialKnowledgeCollaborationSnapshot(pageID string, draft knowledgesdk.KnowledgePageDraft, clock int64) knowledgesdk.KnowledgeCollaborationSnapshot {
-	return knowledgesdk.KnowledgeCollaborationSnapshot{
+	snapshot := knowledgesdk.KnowledgeCollaborationSnapshot{
 		PageID: pageID, DraftRevision: draft.DraftRevision, ServerClock: clock,
 		Title: draft.Title, Content: draft.Body.Content, ContentSHA256: draft.Body.ContentSHA256,
 	}
+	if draft.ContentType != knowledgesdk.KnowledgePageTypeDocument {
+		snapshot.YjsStateClock = clock
+	}
+	return snapshot
 }
 
 func validateKnowledgeCollaborationUpdate(update knowledgesdk.KnowledgeCollaborationUpdate) (knowledgesdk.PageContent, error) {
@@ -97,10 +201,10 @@ func validateKnowledgeCollaborationUpdate(update knowledgesdk.KnowledgeCollabora
 	if update.Title != nil && !executionText(*update.Title, 256, true) {
 		return knowledgesdk.PageContent{}, conversationError("bad_request", "collaboration_title_invalid")
 	}
-	if err := decodeKnowledgeCollaborationBinary(update.YjsUpdate, knowledgeCollaborationMaximumUpdateBytes, update.Title == nil); err != nil {
+	if err := decodeKnowledgeCollaborationBinary(update.YjsUpdate, knowledgeCollaborationMaximumUpdateBytes, true); err != nil {
 		return knowledgesdk.PageContent{}, err
 	}
-	if err := decodeKnowledgeCollaborationBinary(update.YjsState, knowledgeCollaborationMaximumStateBytes, true); err != nil {
+	if err := decodeKnowledgeCollaborationBinary(update.YjsState, knowledgeCollaborationMaximumStateBytes, false); err != nil {
 		return knowledgesdk.PageContent{}, err
 	}
 	seen := map[string]bool{}
@@ -140,7 +244,12 @@ func (s *Store) authorizeKnowledgeCollaboration(ctx context.Context, tx *sql.Tx,
 	if err != nil || page.State != "active" {
 		return library, page, knowledgesdk.KnowledgePageDraft{}, conversationError("not_found", "page_not_found")
 	}
-	if page.ContentType != knowledgesdk.KnowledgePageTypeDocument {
+	switch page.ContentType {
+	case knowledgesdk.KnowledgePageTypeDocument,
+		knowledgesdk.KnowledgePageTypeWhiteboard,
+		knowledgesdk.KnowledgePageTypeMindMap,
+		knowledgesdk.KnowledgePageTypeFlowchart:
+	default:
 		return library, page, knowledgesdk.KnowledgePageDraft{}, conversationError("conflict", "page_collaboration_type_unsupported")
 	}
 	effective, err := s.evaluateKnowledgePageAccess(ctx, tx, libraryID, pageID, a)
@@ -157,11 +266,18 @@ func (s *Store) authorizeKnowledgeCollaboration(ctx context.Context, tx *sql.Tx,
 	return library, page, draft, nil
 }
 
-func (s *Store) knowledgeCollaborationSnapshot(ctx context.Context, tx *sql.Tx, pageID string, draft knowledgesdk.KnowledgePageDraft, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSnapshot, bool, error) {
-	var snapshot knowledgesdk.KnowledgeCollaborationSnapshot
-	found, err := s.executionRead(ctx, tx, knowledgePageCollaborationSnapshotTable, pageScope(a, pageID), &snapshot)
+func (s *Store) knowledgeCollaborationSnapshot(ctx context.Context, tx *sql.Tx, pageID string, draft knowledgesdk.KnowledgePageDraft, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSnapshot, knowledgeCollaborationSnapshotRecord, bool, error) {
+	var record knowledgeCollaborationSnapshotRecord
+	found, err := s.executionRead(ctx, tx, knowledgePageCollaborationSnapshotTable, pageScope(a, pageID), &record)
 	if err != nil {
-		return snapshot, false, err
+		return knowledgesdk.KnowledgeCollaborationSnapshot{}, record, false, err
+	}
+	var snapshot knowledgesdk.KnowledgeCollaborationSnapshot
+	if found {
+		snapshot, err = restoreKnowledgeCollaborationSnapshot(record)
+		if err != nil {
+			return snapshot, record, false, err
+		}
 	}
 	if !found || snapshot.PageID != pageID || snapshot.DraftRevision != draft.DraftRevision || snapshot.Title != draft.Title || snapshot.ContentSHA256 != draft.Body.ContentSHA256 {
 		clock := snapshot.ServerClock
@@ -169,23 +285,69 @@ func (s *Store) knowledgeCollaborationSnapshot(ctx context.Context, tx *sql.Tx, 
 			clock++
 		}
 		snapshot = initialKnowledgeCollaborationSnapshot(pageID, draft, clock)
+		record, _, _, err = durableKnowledgeCollaborationSnapshot(snapshot)
+		if err != nil {
+			return snapshot, record, false, err
+		}
 		if found {
-			q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Set("draft_revision", snapshot.DraftRevision).Set("server_clock", snapshot.ServerClock).Set("payload_json", conversationJSON(snapshot)).Where(pageScope(a, pageID)).Build()
+			q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Set("draft_revision", snapshot.DraftRevision).Set("server_clock", snapshot.ServerClock).Set("payload_json", conversationJSON(record)).Where(pageScope(a, pageID)).Build()
 			if err = conversationExec(ctx, tx, q, args, buildErr); err != nil {
-				return snapshot, false, err
+				return snapshot, record, false, err
 			}
 		} else {
-			q, args, buildErr := query.NewInsertBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Columns("scope_key", "page_id", "library_id", "draft_revision", "server_clock", "payload_json").Values(libraryScope(a), pageID, draft.LibraryID, snapshot.DraftRevision, snapshot.ServerClock, conversationJSON(snapshot)).Build()
+			q, args, buildErr := query.NewInsertBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Columns("scope_key", "page_id", "library_id", "draft_revision", "server_clock", "payload_json").Values(libraryScope(a), pageID, draft.LibraryID, snapshot.DraftRevision, snapshot.ServerClock, conversationJSON(record)).Build()
 			if err = conversationExec(ctx, tx, q, args, buildErr); err != nil {
-				return snapshot, false, err
+				return snapshot, record, false, err
 			}
 		}
 		q, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageCollaborationUpdateTable).Where(pageScope(a, pageID)).Build()
 		if err = conversationExec(ctx, tx, q, args, buildErr); err != nil {
-			return snapshot, false, err
+			return snapshot, record, false, err
 		}
 	}
-	return snapshot, found, nil
+	return snapshot, record, found, nil
+}
+
+func (s *Store) knowledgeCollaborationClientSnapshot(ctx context.Context, tx *sql.Tx, pageID string, snapshot knowledgesdk.KnowledgeCollaborationSnapshot, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSnapshot, error) {
+	snapshot.YjsUpdates = nil
+	if snapshot.YjsStateClock < 0 || snapshot.YjsStateClock > snapshot.ServerClock {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_invalid")
+	}
+	if snapshot.YjsStateClock == snapshot.ServerClock {
+		return snapshot, nil
+	}
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageCollaborationUpdateTable).Columns("payload_json").Where(query.And(pageScope(a, pageID), query.GreaterThan("clock", snapshot.YjsStateClock))).OrderBy(query.Ascending("clock")).Limit(int(knowledgeCollaborationRetainedEvents) + 1).Build()
+	if err != nil {
+		return snapshot, err
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return snapshot, err
+	}
+	defer rows.Close()
+	expected := snapshot.YjsStateClock + 1
+	for rows.Next() {
+		var raw []byte
+		if err = rows.Scan(&raw); err != nil {
+			return snapshot, err
+		}
+		var record knowledgeCollaborationUpdateRecord
+		if err = unmarshalDurableJSON(raw, &record); err != nil {
+			return snapshot, err
+		}
+		if record.Clock != expected || record.Update.YjsUpdate == "" {
+			return snapshot, conversationError("internal", "collaboration_checkpoint_gap")
+		}
+		snapshot.YjsUpdates = append(snapshot.YjsUpdates, knowledgesdk.KnowledgeCollaborationYjsUpdate{Clock: record.Clock, UpdateID: record.Update.UpdateID, YjsUpdate: record.Update.YjsUpdate})
+		expected++
+	}
+	if err = rows.Err(); err != nil {
+		return snapshot, err
+	}
+	if expected != snapshot.ServerClock+1 || len(snapshot.YjsUpdates) > int(knowledgeCollaborationRetainedEvents) {
+		return snapshot, conversationError("internal", "collaboration_checkpoint_gap")
+	}
+	return snapshot, nil
 }
 
 func collaborationSessionAPI(record knowledgeCollaborationSessionRecord, snapshot knowledgesdk.KnowledgeCollaborationSnapshot, presence []knowledgesdk.KnowledgeCollaborationPresence) knowledgesdk.KnowledgeCollaborationSession {
@@ -216,7 +378,7 @@ func (s *Store) knowledgeCollaborationPresence(ctx context.Context, tx *sql.Tx, 
 			return nil, err
 		}
 		out = append(out, knowledgesdk.KnowledgeCollaborationPresence{
-			SessionID: record.ID, UserID: record.UserID, CursorBlockID: record.CursorBlockID,
+			SessionID: record.ID, UserID: record.UserID, AwarenessUpdate: record.AwarenessUpdate, CursorBlockID: record.CursorBlockID,
 			SelectionBlockID: record.SelectionBlockID, EditedBlocks: len(record.EditedBlockIDs), LastSeenAt: durableTime(record.LastSeenMillis),
 		})
 	}
@@ -232,7 +394,11 @@ func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pa
 		if authorizeErr != nil {
 			return authorizeErr
 		}
-		snapshot, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
+		snapshot, _, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
+		if readErr != nil {
+			return readErr
+		}
+		clientSnapshot, readErr := s.knowledgeCollaborationClientSnapshot(ctx, tx, pageID, snapshot, a)
 		if readErr != nil {
 			return readErr
 		}
@@ -250,11 +416,13 @@ func (s *Store) ConnectKnowledgeCollaboration(ctx context.Context, libraryID, pa
 		if readErr != nil {
 			return readErr
 		}
-		out = collaborationSessionAPI(record, snapshot, presence)
+		out = collaborationSessionAPI(record, clientSnapshot, presence)
 		return nil
 	})
 	if err == nil {
-		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+		s.collaborationMetrics.recordSnapshot(ctx, knowledgeCollaborationSnapshotSize(out.Snapshot))
+		s.collaborationMetrics.recordOnlineUsers(ctx, knowledgeCollaborationUniqueUsers(out.Presence))
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
 	}
 	return
 }
@@ -309,12 +477,15 @@ func (s *Store) collaborationEvents(ctx context.Context, tx *sql.Tx, pageID stri
 		return nil, err
 	}
 	if len(updates) == 0 || updates[0].Clock != afterClock+1 || len(updates) > int(knowledgeCollaborationRetainedEvents) {
-		copySnapshot := snapshot
+		copySnapshot, snapshotErr := s.knowledgeCollaborationClientSnapshot(ctx, tx, pageID, snapshot, a)
+		if snapshotErr != nil {
+			return nil, snapshotErr
+		}
 		return []knowledgesdk.KnowledgeCollaborationUpdateEvent{{Clock: snapshot.ServerClock, Snapshot: &copySnapshot}}, nil
 	}
 	events := make([]knowledgesdk.KnowledgeCollaborationUpdateEvent, 0, len(updates))
 	for _, update := range updates {
-		copyUpdate := update.Update
+		copyUpdate := update.Update.api()
 		events = append(events, knowledgesdk.KnowledgeCollaborationUpdateEvent{Clock: update.Clock, UserID: update.UserID, Update: &copyUpdate})
 	}
 	return events, nil
@@ -324,6 +495,14 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 	if input.AfterClock < 0 || !validKnowledgeCollaborationBlockID(input.CursorBlockID) || !validKnowledgeCollaborationBlockID(input.SelectionBlockID) {
 		return out, conversationError("bad_request", "collaboration_sync_invalid")
 	}
+	if err = decodeKnowledgeCollaborationBinary(input.AwarenessUpdate, knowledgeCollaborationMaximumAwarenessBytes, false); err != nil {
+		return out, err
+	}
+	acceptedUpdate := false
+	acceptedUpdateBytes, acceptedSnapshotBytes, acceptedCompressedBytes := int64(0), int64(-1), int64(0)
+	acceptedLatency := time.Duration(-1)
+	compressionDuration := time.Duration(0)
+	onlineUsers := int64(-1)
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		_, page, draft, authorizeErr := s.authorizeKnowledgeCollaboration(ctx, tx, libraryID, pageID, a)
 		if authorizeErr != nil {
@@ -333,11 +512,14 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 		if readErr != nil {
 			return readErr
 		}
-		snapshot, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
+		snapshot, durableSnapshot, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
 		if readErr != nil {
 			return readErr
 		}
 		if input.Update != nil {
+			if page.ContentType != knowledgesdk.KnowledgePageTypeDocument {
+				return conversationError("conflict", "page_collaboration_update_unsupported")
+			}
 			if input.Update.ClientID != record.ClientID {
 				return conversationError("forbidden", "collaboration_client_mismatch")
 			}
@@ -347,7 +529,7 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 				return duplicateErr
 			}
 			if found {
-				if replay.Update.ClientID != input.Update.ClientID || conversationHash(replay.Update) != conversationHash(*input.Update) {
+				if replay.Update.ClientID != input.Update.ClientID || replay.RequestHash != conversationHash(*input.Update) {
 					return conversationError("conflict", "collaboration_update_conflict")
 				}
 				out.Applied = true
@@ -356,6 +538,20 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 				if validationErr != nil {
 					return validationErr
 				}
+				blockChanges, diffErr := knowledgeDocumentBlockChanges(snapshot.Content, body.Content)
+				if diffErr != nil {
+					return conversationError("bad_request", "collaboration_content_diff_invalid")
+				}
+				if readErr = s.replaceKnowledgePageReferences(ctx, tx, libraryID, pageID, body.Content, a); readErr != nil {
+					return readErr
+				}
+				titleBefore := draft.Title
+				nextClock := snapshot.ServerClock + 1
+				updateBytes := knowledgeCollaborationBinaryBytes(input.Update.YjsUpdate)
+				checkpointDue := snapshot.YjsState == "" || nextClock-snapshot.YjsStateClock >= knowledgeCollaborationCheckpointInterval || snapshot.YjsUpdateBytes+updateBytes >= knowledgeCollaborationCheckpointBytes
+				if checkpointDue && input.Update.YjsState == "" {
+					return conversationError("conflict", "collaboration_checkpoint_required")
+				}
 				now := time.Now().UTC().Truncate(time.Millisecond)
 				draft.DraftRevision++
 				if input.Update.Title != nil {
@@ -363,19 +559,43 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 				}
 				draft.Body, draft.UpdatedByUserID, draft.UpdatedAt = body, a.UserID, now
 				record.EditedBlockIDs = mergeKnowledgeCollaborationBlockIDs(record.EditedBlockIDs, input.Update.EditedBlockIDs)
-				snapshot.DraftRevision, snapshot.ServerClock = draft.DraftRevision, snapshot.ServerClock+1
-				snapshot.Title, snapshot.Content, snapshot.ContentSHA256, snapshot.YjsState = draft.Title, body.Content, body.ContentSHA256, input.Update.YjsState
+				snapshot.DraftRevision, snapshot.ServerClock = draft.DraftRevision, nextClock
+				snapshot.Title, snapshot.Content, snapshot.ContentSHA256 = draft.Title, body.Content, body.ContentSHA256
+				if input.Update.YjsState != "" {
+					snapshot.YjsState, snapshot.YjsStateClock = input.Update.YjsState, snapshot.ServerClock
+					snapshot.YjsUpdateBytes = 0
+					durableSnapshot, compressionDuration, acceptedCompressedBytes, readErr = durableKnowledgeCollaborationSnapshot(snapshot)
+					if readErr != nil {
+						return readErr
+					}
+				} else {
+					snapshot.YjsUpdateBytes += updateBytes
+					durableSnapshot.Snapshot = snapshot
+					durableSnapshot.Snapshot.YjsState = ""
+				}
 				q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageDraftTable).Set("draft_revision", draft.DraftRevision).Set("updated_at", now.UnixMilli()).Set("last_request_key", "collaboration:"+input.Update.UpdateID).Set("last_request_hash", conversationHash(*input.Update)).Set("payload_json", conversationJSON(draft)).Where(query.And(pageScope(a, pageID), query.Equal("draft_revision", draft.DraftRevision-1))).Build()
 				if readErr = conversationCAS(ctx, tx, q, args, buildErr); readErr != nil {
 					return conversationError("conflict", "page_draft_revision_conflict")
 				}
-				q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Set("draft_revision", snapshot.DraftRevision).Set("server_clock", snapshot.ServerClock).Set("payload_json", conversationJSON(snapshot)).Where(pageScope(a, pageID)).Build()
+				q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSnapshotTable).Set("draft_revision", snapshot.DraftRevision).Set("server_clock", snapshot.ServerClock).Set("payload_json", conversationJSON(durableSnapshot)).Where(pageScope(a, pageID)).Build()
 				if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
 					return readErr
 				}
-				updateRecord := knowledgeCollaborationUpdateRecord{Clock: snapshot.ServerClock, SessionID: record.ID, UserID: a.UserID, Update: *input.Update}
+				updateRecord := knowledgeCollaborationUpdateRecord{Clock: snapshot.ServerClock, SessionID: record.ID, UserID: a.UserID, RequestHash: conversationHash(*input.Update), Update: durableKnowledgeCollaborationUpdate(*input.Update)}
 				q, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), knowledgePageCollaborationUpdateTable).Columns("scope_key", "page_id", "clock", "update_id", "session_id", "user_id", "payload_json").Values(libraryScope(a), pageID, snapshot.ServerClock, input.Update.UpdateID, record.ID, a.UserID, conversationJSON(updateRecord)).Build()
 				if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
+					return readErr
+				}
+				storedChanges := blockChanges
+				if len(storedChanges) > knowledgePageEditHistoryMaximumChanges {
+					storedChanges = storedChanges[:knowledgePageEditHistoryMaximumChanges]
+				}
+				history := knowledgesdk.KnowledgePageEditHistoryEntry{
+					Clock: snapshot.ServerClock, DraftRevision: draft.DraftRevision, UserID: a.UserID,
+					TitleChanged: titleBefore != draft.Title, ChangedBlockCount: len(blockChanges), Changes: storedChanges,
+					Truncated: len(storedChanges) != len(blockChanges), CreatedAt: now,
+				}
+				if readErr = s.insertKnowledgePageEditHistory(ctx, tx, pageID, history, a); readErr != nil {
 					return readErr
 				}
 				if snapshot.ServerClock > knowledgeCollaborationRetainedEvents {
@@ -385,9 +605,22 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 					}
 				}
 				page.UpdatedAt, page.UpdatedByUserID = now, a.UserID
+				page.Title = draft.Title
 				q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageTable).Set("updated_at", now.UnixMilli()).Set("payload_json", conversationJSON(page)).Where(pageScope(a, pageID)).Build()
 				if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
 					return readErr
+				}
+				if readErr = s.replaceKnowledgePageName(ctx, tx, libraryID, pageID, knowledgePageNameDraftTitle, page.Title, a); readErr != nil {
+					return readErr
+				}
+				acceptedUpdate = true
+				acceptedUpdateBytes = updateBytes
+				acceptedSnapshotBytes = knowledgeCollaborationSnapshotSize(snapshot)
+				if !input.Update.ClientCreatedAt.IsZero() {
+					candidate := now.Sub(input.Update.ClientCreatedAt)
+					if candidate >= 0 && candidate <= 24*time.Hour {
+						acceptedLatency = candidate
+					}
 				}
 				out.Applied = true
 			}
@@ -395,6 +628,9 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		record.ServerClock, record.LeaseUntilMillis, record.LastSeenMillis = snapshot.ServerClock, now.Add(knowledgeCollaborationLease).UnixMilli(), now.UnixMilli()
 		record.CursorBlockID, record.SelectionBlockID = input.CursorBlockID, input.SelectionBlockID
+		if input.AwarenessUpdate != "" {
+			record.AwarenessUpdate = input.AwarenessUpdate
+		}
 		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Set("lease_until", record.LeaseUntilMillis).Set("server_clock", record.ServerClock).Set("payload_json", conversationJSON(record)).Where(query.And(knowledgeCollaborationSessionScope(a, record.ID), query.Equal("state", "connected"))).Build()
 		if readErr = conversationExec(ctx, tx, q, args, buildErr); readErr != nil {
 			return readErr
@@ -403,13 +639,24 @@ func (s *Store) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pageI
 		if readErr != nil {
 			return readErr
 		}
-		out.Session = collaborationSessionAPI(record, snapshot, presence)
+		clientSnapshot, snapshotErr := s.knowledgeCollaborationClientSnapshot(ctx, tx, pageID, snapshot, a)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		out.Session = collaborationSessionAPI(record, clientSnapshot, presence)
+		onlineUsers = knowledgeCollaborationUniqueUsers(presence)
 		out.Events, readErr = s.collaborationEvents(ctx, tx, pageID, input.AfterClock, snapshot, a)
 		out.Complete = true
 		return readErr
 	})
 	if err == nil {
-		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+		if onlineUsers >= 0 {
+			s.collaborationMetrics.recordOnlineUsers(ctx, onlineUsers)
+		}
+		if acceptedUpdate {
+			s.collaborationMetrics.recordUpdate(ctx, acceptedUpdateBytes, acceptedLatency, acceptedSnapshotBytes, compressionDuration, acceptedCompressedBytes)
+		}
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
 	}
 	return
 }
@@ -439,7 +686,7 @@ func (s *Store) readKnowledgeCollaborationEvents(ctx context.Context, libraryID,
 		if readErr != nil {
 			return readErr
 		}
-		snapshot, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
+		snapshot, _, _, readErr := s.knowledgeCollaborationSnapshot(ctx, tx, pageID, draft, a)
 		if readErr != nil {
 			return readErr
 		}
@@ -467,10 +714,15 @@ func (s *Store) readKnowledgeCollaborationEvents(ctx context.Context, libraryID,
 }
 
 func (s *Store) KnowledgeCollaborationEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationEvents, a agentsdk.Authority) (out knowledgesdk.KnowledgeCollaborationEventBatch, err error) {
-	if input.AfterClock < 0 || input.WaitMillis < 0 || input.WaitMillis > knowledgeCollaborationMaximumWait.Milliseconds() || conversationAuthority(a) != nil {
+	if input.AfterClock < 0 || input.WaitMillis < 0 || input.WaitMillis > knowledgeCollaborationMaximumWait.Milliseconds() || input.ConnectionAttempt < 0 || input.ConnectionAttempt > 100_000 || conversationAuthority(a) != nil {
 		return out, conversationError("bad_request", "collaboration_events_invalid")
 	}
-	updates, unsubscribe := s.collaboration.subscribe(
+	defer func() {
+		if err == nil {
+			s.collaborationMetrics.recordEventStream(ctx, input.ConnectionAttempt > 0, knowledgeCollaborationReplayCount(out.Events))
+		}
+	}()
+	updates, unsubscribe := s.collaboration.subscribe(ctx,
 		knowledgeCollaborationLibraryNotifierKey(a, libraryID),
 		knowledgeCollaborationPageNotifierKey(a, libraryID, pageID),
 	)
@@ -502,11 +754,13 @@ func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, page
 			return readErr
 		}
 		record.State = "closed"
+		record.AwarenessUpdate, record.CursorBlockID, record.SelectionBlockID = "", "", ""
+		record.EditedBlockIDs = nil
 		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Set("state", record.State).Set("payload_json", conversationJSON(record)).Where(knowledgeCollaborationSessionScope(a, sessionID)).Build()
 		return conversationExec(ctx, tx, q, args, buildErr)
 	})
 	if err == nil {
-		s.notifyKnowledgeCollaboration(a, libraryID, pageID)
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
 	}
 	return
 }
@@ -527,7 +781,7 @@ func (s *Store) PublishKnowledgeCollaboration(ctx context.Context, libraryID, pa
 		if input.ClientID != record.ClientID {
 			return conversationError("forbidden", "collaboration_client_mismatch")
 		}
-		snapshot, _, readErr = s.knowledgeCollaborationSnapshot(ctx, tx, pageID, currentDraft, a)
+		snapshot, _, _, readErr = s.knowledgeCollaborationSnapshot(ctx, tx, pageID, currentDraft, a)
 		if readErr != nil {
 			return readErr
 		}
@@ -572,6 +826,8 @@ func (s *Store) revokeKnowledgeCollaborationSessions(ctx context.Context, tx *sq
 	}
 	for _, record := range records {
 		record.State = "revoked"
+		record.AwarenessUpdate, record.CursorBlockID, record.SelectionBlockID = "", "", ""
+		record.EditedBlockIDs = nil
 		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageCollaborationSessionTable).Set("state", record.State).Set("payload_json", conversationJSON(record)).Where(query.And(predicate, query.Equal("session_id", record.ID), query.Equal("state", "connected"))).Build()
 		if err = conversationExec(ctx, tx, q, args, buildErr); err != nil {
 			return err

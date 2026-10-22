@@ -56,6 +56,73 @@ func (s *Service) SyncKnowledgeCollaboration(ctx context.Context, libraryID, pag
 	return result, err
 }
 
+func (s *Service) KnowledgePageEditHistory(ctx context.Context, libraryID, pageID string, before int64, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePageEditHistoryPage, error) {
+	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageEditHistoryList, a); err != nil {
+		return knowledgesdk.KnowledgePageEditHistoryPage{}, err
+	}
+	repository, ok := s.repo.(knowledgesdk.PageEditHistoryService)
+	if !ok {
+		return knowledgesdk.KnowledgePageEditHistoryPage{}, conversationFailure("unavailable", "page_edit_history_unavailable")
+	}
+	result, err := repository.KnowledgePageEditHistory(ctx, libraryID, pageID, before, limit, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageEditHistoryList, a)
+	}
+	return result, err
+}
+
+func (s *Service) KnowledgePageSuggestions(ctx context.Context, libraryID, pageID string, a agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestionPage, error) {
+	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsList, a); err != nil {
+		return knowledgesdk.KnowledgePageSuggestionPage{}, err
+	}
+	repository, ok := s.repo.(knowledgesdk.PageSuggestionService)
+	if !ok {
+		return knowledgesdk.KnowledgePageSuggestionPage{}, conversationFailure("unavailable", "page_suggestions_unavailable")
+	}
+	result, err := repository.KnowledgePageSuggestions(ctx, libraryID, pageID, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsList, a)
+	}
+	return result, err
+}
+
+func (s *Service) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageSuggestionCreate, a agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestion, error) {
+	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsCreate, a); err != nil {
+		return knowledgesdk.KnowledgePageSuggestion{}, err
+	}
+	repository, ok := s.repo.(knowledgesdk.PageSuggestionService)
+	if !ok {
+		return knowledgesdk.KnowledgePageSuggestion{}, conversationFailure("unavailable", "page_suggestions_unavailable")
+	}
+	result, err := repository.CreateKnowledgePageSuggestion(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsCreate, a)
+	}
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsCreate, "knowledge.page_suggestion.created", libraryID, pageID, result.ID, input.ClientID, result.Revision, nil, map[string]string{"kind": result.Kind, "base_draft_revision": strconv.FormatInt(result.BaseDraftRevision, 10)}, a)
+		s.publishKnowledgeSuggestion(ctx, result, a)
+	}
+	return result, err
+}
+
+func (s *Service) DecideKnowledgePageSuggestion(ctx context.Context, libraryID, pageID, suggestionID string, input knowledgesdk.KnowledgePageSuggestionDecision, a agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestion, error) {
+	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsDecide, a); err != nil {
+		return knowledgesdk.KnowledgePageSuggestion{}, err
+	}
+	repository, ok := s.repo.(knowledgesdk.PageSuggestionService)
+	if !ok {
+		return knowledgesdk.KnowledgePageSuggestion{}, conversationFailure("unavailable", "page_suggestions_unavailable")
+	}
+	result, err := repository.DecideKnowledgePageSuggestion(ctx, libraryID, pageID, suggestionID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsDecide, a)
+	}
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsDecide, "knowledge.page_suggestion.decided", libraryID, pageID, result.ID, input.ClientID, result.Revision, map[string]string{"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10)}, map[string]string{"decision": input.Decision, "status": result.Status}, a)
+	}
+	return result, err
+}
+
 func (s *Service) KnowledgeCollaborationEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationEvents, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationEventBatch, error) {
 	repository, err := s.realtimeCollaborationAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationEvents, a)
 	if err != nil {
@@ -64,6 +131,21 @@ func (s *Service) KnowledgeCollaborationEvents(ctx context.Context, libraryID, p
 	result, err := repository.KnowledgeCollaborationEvents(ctx, libraryID, pageID, input, a)
 	if err == nil {
 		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageCollaborationEvents, a)
+	}
+	return result, err
+}
+
+func (s *Service) KnowledgePageLiveEvents(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageLiveEvents, a agentsdk.Authority) (knowledgesdk.KnowledgePageLiveEventBatch, error) {
+	if _, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageLiveEvents, a); err != nil {
+		return knowledgesdk.KnowledgePageLiveEventBatch{}, err
+	}
+	repository, ok := s.repo.(knowledgesdk.KnowledgePageLiveEventService)
+	if !ok {
+		return knowledgesdk.KnowledgePageLiveEventBatch{}, conversationFailure("unavailable", "page_live_events_unavailable")
+	}
+	result, err := repository.KnowledgePageLiveEvents(ctx, libraryID, pageID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageLiveEvents, a)
 	}
 	return result, err
 }

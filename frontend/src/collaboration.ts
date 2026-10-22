@@ -22,6 +22,17 @@ export function applyKnowledgeYjsState(document: Y.Doc, encodedState?: string) {
   return true;
 }
 
+export function applyKnowledgeYjsUpdate(document: Y.Doc, encodedUpdate?: string) {
+  if (!encodedUpdate) return false;
+  Y.applyUpdate(document, decodeCollaborationBinary(encodedUpdate), "knowledge-remote");
+  return true;
+}
+
+export function mergeKnowledgeYjsUpdates(updates: Uint8Array[]) {
+  if (updates.length === 0) return "";
+  return encodeCollaborationBinary(updates.length === 1 ? updates[0] : Y.mergeUpdates(updates));
+}
+
 export function encodeKnowledgeYjsState(document: Y.Doc) {
   return encodeCollaborationBinary(Y.encodeStateAsUpdate(document));
 }

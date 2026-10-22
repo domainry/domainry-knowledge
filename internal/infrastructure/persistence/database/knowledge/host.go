@@ -1,10 +1,13 @@
 package store
 
 import (
+	"context"
 	"sync"
 
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/modulehost"
+	embedprovider "github.com/domainry/domainry-knowledge/internal/infrastructure/embedprovider"
 	ormdriver "github.com/domainry/domainry-orm/driver"
 )
 
@@ -19,29 +22,65 @@ type DB = modulehost.DB
 type conversationDB = DB
 
 type Store struct {
-	store         Backend
-	operations    *sharedoperation.SQLStore
-	collaboration *knowledgeCollaborationNotifier
+	store                Backend
+	operations           *sharedoperation.SQLStore
+	collaboration        *knowledgeCollaborationNotifier
+	collaborationMetrics knowledgeCollaborationMetrics
+	embedProviders       *knowledgesdk.EmbedProviderRegistry
 }
+
+type knowledgePageRepositoryContract interface {
+	knowledgesdk.KnowledgePageRepository
+	knowledgesdk.CommentService
+	knowledgesdk.PageAttachmentService
+}
+
+var _ knowledgePageRepositoryContract = (*Store)(nil)
 
 func New(backend Backend) *Store {
 	var operations *sharedoperation.SQLStore
 	if backend != nil {
 		operations = sharedoperation.NewSQLStore(backend.Database(), sharedoperation.AdaptDialect(backend.Renderer()))
 	}
-	return &Store{store: backend, operations: operations, collaboration: newKnowledgeCollaborationNotifier()}
+	embeds, err := knowledgesdk.NewEmbedProviderRegistry(embedprovider.Defaults()...)
+	if err != nil {
+		panic(err)
+	}
+	return &Store{
+		store: backend, operations: operations, collaboration: newKnowledgeCollaborationNotifier(),
+		collaborationMetrics: newKnowledgeCollaborationMetrics(), embedProviders: embeds,
+	}
+}
+
+func (s *Store) SetKnowledgeEmbedProviders(providers []knowledgesdk.EmbedProvider) error {
+	if len(providers) == 0 {
+		providers = embedprovider.Defaults()
+	}
+	registry, err := knowledgesdk.NewEmbedProviderRegistry(providers...)
+	if err != nil {
+		return err
+	}
+	s.embedProviders = registry
+	return nil
 }
 
 type knowledgeCollaborationNotifier struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan struct{}]struct{}
+	external    knowledgesdk.KnowledgeCollaborationNotifier
 }
 
 func newKnowledgeCollaborationNotifier() *knowledgeCollaborationNotifier {
 	return &knowledgeCollaborationNotifier{subscribers: map[string]map[chan struct{}]struct{}{}}
 }
 
-func (n *knowledgeCollaborationNotifier) subscribe(keys ...string) (<-chan struct{}, func()) {
+func (n *knowledgeCollaborationNotifier) setExternal(external knowledgesdk.KnowledgeCollaborationNotifier) {
+	n.mu.Lock()
+	n.external = external
+	n.mu.Unlock()
+}
+
+func (n *knowledgeCollaborationNotifier) subscribeLocal(keys ...string) (<-chan struct{}, func()) {
 	updates := make(chan struct{}, 1)
 	n.mu.Lock()
 	for _, key := range keys {
@@ -63,7 +102,57 @@ func (n *knowledgeCollaborationNotifier) subscribe(keys ...string) (<-chan struc
 	}
 }
 
-func (n *knowledgeCollaborationNotifier) notify(keys ...string) {
+func (n *knowledgeCollaborationNotifier) subscribe(ctx context.Context, keys ...string) (<-chan struct{}, func()) {
+	local, unsubscribeLocal := n.subscribeLocal(keys...)
+	n.mu.Lock()
+	external := n.external
+	n.mu.Unlock()
+	if external == nil {
+		return local, unsubscribeLocal
+	}
+	remote, unsubscribeRemote, err := external.SubscribeKnowledgeCollaborationWake(ctx, append([]string(nil), keys...))
+	if err != nil || remote == nil {
+		return local, unsubscribeLocal
+	}
+	updates := make(chan struct{}, 1)
+	done := make(chan struct{})
+	var once sync.Once
+	stop := func() {
+		once.Do(func() {
+			close(done)
+			unsubscribeRemote()
+			unsubscribeLocal()
+		})
+	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				stop()
+				return
+			case <-done:
+				return
+			case <-local:
+				select {
+				case updates <- struct{}{}:
+				default:
+				}
+			case _, ok := <-remote:
+				if !ok {
+					stop()
+					return
+				}
+				select {
+				case updates <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+	return updates, stop
+}
+
+func (n *knowledgeCollaborationNotifier) notifyLocal(keys ...string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	for _, key := range keys {
@@ -73,6 +162,22 @@ func (n *knowledgeCollaborationNotifier) notify(keys ...string) {
 			default:
 			}
 		}
+	}
+}
+
+func (n *knowledgeCollaborationNotifier) notify(ctx context.Context, keys ...string) {
+	n.notifyLocal(keys...)
+	n.mu.Lock()
+	external := n.external
+	n.mu.Unlock()
+	if external != nil {
+		_ = external.PublishKnowledgeCollaborationWake(context.WithoutCancel(ctx), append([]string(nil), keys...))
+	}
+}
+
+func (s *Store) SetKnowledgeCollaborationNotifier(notifier knowledgesdk.KnowledgeCollaborationNotifier) {
+	if s != nil && s.collaboration != nil {
+		s.collaboration.setExternal(notifier)
 	}
 }
 

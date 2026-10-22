@@ -13,6 +13,131 @@ import (
 func (server *Server) dispatchKnowledgeService(ctx context.Context, operation string, raw json.RawMessage) (any, error, bool) {
 	s := server.dependencies.Knowledge
 	switch operation {
+	case knowledgesdk.ActionAIExecutionsCreate:
+		var in struct {
+			LibraryID string                                  `json:"library_id"`
+			PageID    string                                  `json:"page_id"`
+			Input     knowledgesdk.KnowledgeAIExecutionCreate `json:"input"`
+			Authority agentsdk.Authority                      `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.CreateKnowledgeAIExecution(ctx, in.LibraryID, in.PageID, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionAIExecutionsGet:
+		var in struct {
+			LibraryID   string             `json:"library_id"`
+			PageID      string             `json:"page_id"`
+			ExecutionID string             `json:"execution_id"`
+			Authority   agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.KnowledgeAIExecution(ctx, in.LibraryID, in.PageID, in.ExecutionID, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionAIExecutionsConfirm:
+		var in struct {
+			LibraryID   string                                   `json:"library_id"`
+			PageID      string                                   `json:"page_id"`
+			ExecutionID string                                   `json:"execution_id"`
+			Input       knowledgesdk.KnowledgeAIExecutionConfirm `json:"input"`
+			Authority   agentsdk.Authority                       `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.ConfirmKnowledgeAIExecution(ctx, in.LibraryID, in.PageID, in.ExecutionID, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionAgentReferencesResolve:
+		var in struct {
+			Reference knowledgesdk.KnowledgeAgentReference `json:"reference"`
+			Authority agentsdk.Authority                   `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.ResolveKnowledgeAgentReference(ctx, in.Reference, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionApplicationCardsResolve:
+		var in struct {
+			LibraryID string                                       `json:"library_id"`
+			PageID    string                                       `json:"page_id"`
+			Input     knowledgesdk.KnowledgeApplicationCardResolve `json:"input"`
+			Authority agentsdk.Authority                           `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.ResolveKnowledgeApplicationCard(ctx, in.LibraryID, in.PageID, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionWebhookSubscriptionsList:
+		var in struct {
+			LibraryID string             `json:"library_id"`
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.KnowledgeWebhookSubscriptions(ctx, in.LibraryID, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionWebhookSubscriptionsCreate:
+		var in struct {
+			LibraryID string                                          `json:"library_id"`
+			Input     knowledgesdk.KnowledgeWebhookSubscriptionCreate `json:"input"`
+			Authority agentsdk.Authority                              `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.CreateKnowledgeWebhookSubscription(ctx, in.LibraryID, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionWebhookSubscriptionsUpdate:
+		var in struct {
+			LibraryID      string                                          `json:"library_id"`
+			SubscriptionID string                                          `json:"subscription_id"`
+			Input          knowledgesdk.KnowledgeWebhookSubscriptionUpdate `json:"input"`
+			Authority      agentsdk.Authority                              `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.UpdateKnowledgeWebhookSubscription(ctx, in.LibraryID, in.SubscriptionID, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionWebhookEventsList:
+		var in struct {
+			LibraryID string             `json:"library_id"`
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.KnowledgeWebhookEvents(ctx, in.LibraryID, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionWebhookEventsReplay:
+		var in struct {
+			LibraryID string             `json:"library_id"`
+			EventID   string             `json:"event_id"`
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.ReplayKnowledgeWebhookEvent(ctx, in.LibraryID, in.EventID, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionOpenAPIGet:
+		var in struct {
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		if e := s.LibraryAuthorize(ctx, knowledgesdk.ActionOpenAPIGet, agentsdk.KnowledgeLibrary{}, in.Authority); e != nil {
+			return nil, e, true
+		}
+		v, e := knowledgesdk.KnowledgeOpenAPIDocument()
+		return v, e, true
 	case knowledgesdk.ActionSourcesBind:
 		var in struct {
 			ID        string                               `json:"id"`
@@ -120,7 +245,13 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		if e := decodeInput(raw, &in); e != nil {
 			return nil, e, true
 		}
-		v, e := s.DownloadKnowledgeDocument(ctx, in.Library, in.ID, in.Authority)
+		var v agentsdk.KnowledgeDocumentDownload
+		var e error
+		if in.PageID != "" {
+			v, e = s.DownloadKnowledgePageDocument(ctx, in.Library, in.PageID, in.ID, in.Authority)
+		} else {
+			v, e = s.DownloadKnowledgeDocument(ctx, in.Library, in.ID, in.Authority)
+		}
 		if e != nil {
 			return nil, e, true
 		}
@@ -200,6 +331,18 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 		}
 		v, e := s.KnowledgeLibraryMembers(ctx, in.ID, in.After, in.Limit, in.Authority)
 		return v, e, true
+	case knowledgesdk.ActionLibraryOrganizationMembersList:
+		var in struct {
+			ID        string             `json:"id"`
+			After     string             `json:"after"`
+			Limit     int                `json:"limit"`
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.KnowledgeLibraryOrganizationMembers(ctx, in.ID, in.After, in.Limit, in.Authority)
+		return v, e, true
 	case knowledgesdk.ActionSourcesList:
 		var in struct {
 			ID        string             `json:"id"`
@@ -266,6 +409,30 @@ func (server *Server) dispatchKnowledgeService(ctx context.Context, operation st
 			return nil, e, true
 		}
 		v, e := s.SetKnowledgeLibraryMember(ctx, in.ID, in.User, in.Input, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionLibraryOrganizationMembersRemove:
+		var in struct {
+			ID             string             `json:"id"`
+			OrganizationID string             `json:"organization_id"`
+			Revision       int64              `json:"revision"`
+			Authority      agentsdk.Authority `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.RemoveKnowledgeLibraryOrganizationMember(ctx, in.ID, in.OrganizationID, in.Revision, in.Authority)
+		return v, e, true
+	case knowledgesdk.ActionLibraryOrganizationMembersSet:
+		var in struct {
+			ID             string                               `json:"id"`
+			OrganizationID string                               `json:"organization_id"`
+			Input          agentsdk.KnowledgeLibraryMemberWrite `json:"input"`
+			Authority      agentsdk.Authority                   `json:"authority"`
+		}
+		if e := decodeInput(raw, &in); e != nil {
+			return nil, e, true
+		}
+		v, e := s.SetKnowledgeLibraryOrganizationMember(ctx, in.ID, in.OrganizationID, in.Input, in.Authority)
 		return v, e, true
 	case knowledgesdk.ActionDocumentsTransfer:
 		var in struct {

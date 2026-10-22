@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
@@ -44,6 +45,9 @@ func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 	if err != nil || file.ID == "" || file.ContentType != "text/plain" {
 		t.Fatalf("file=%+v err=%v", file, err)
 	}
+	if err = entityid.Validate("art", file.ID); err != nil {
+		t.Fatalf("file ID is not canonical: %v", err)
+	}
 	if err = client.Bind(t.Context(), authority, file.ID, knowledgefiles.Binding{Owner: "im", ResourceType: "message", ResourceID: "message-a", FieldKey: "attachment-a"}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +69,9 @@ func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 	}
 }
 func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.Authority) error {
+	return nil
+}
+func (allowLibraries) ValidateKnowledgeLibraryOrganizationMember(context.Context, string, agentsdk.Authority) error {
 	return nil
 }
 

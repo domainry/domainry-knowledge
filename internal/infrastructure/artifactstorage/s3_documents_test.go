@@ -39,7 +39,7 @@ func TestS3KnowledgeDocumentsStreamSeekAndKeepDeletionFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("a", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("a", 32)}
 	documentID := "kdoc_" + strings.Repeat("b", 32)
 	raw := bytes.Repeat([]byte("0123456789abcdef"), 16*1024)
 	digest := testContentHash(raw)
@@ -98,7 +98,7 @@ func TestS3KnowledgeDocumentRejectsBodyMismatchWithoutLeavingContent(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("c", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("c", 32)}
 	documentID := "kdoc_" + strings.Repeat("d", 32)
 	raw := []byte("declared content")
 	digest := testContentHash(raw)
@@ -130,7 +130,7 @@ func TestS3KnowledgeDocumentUsesMultipartAndPublishesOnlyVerifiedContent(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("e", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("e", 32)}
 	documentID := "kdoc_" + strings.Repeat("f", 32)
 	raw := bytes.Repeat([]byte("multipart-original"), int(knowledgeDocumentMultipartPartBytes/18)+100)
 	digest := testContentHash(raw)
@@ -171,7 +171,7 @@ func TestS3KnowledgeDocumentChunkUploadResumesAndRemovesStagingObjects(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("2", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("2", 32)}
 	documentID := "kdoc_" + strings.Repeat("3", 32)
 	raw := bytes.Repeat([]byte("resumable-s3-original-"), int(2*agentsdk.KnowledgeDocumentUploadChunkBytes/22)+2)
 	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]
@@ -231,7 +231,7 @@ func TestS3KnowledgeDocumentChunkUploadRemovesPartWhenDeleteRacesWrite(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("4", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("4", 32)}
 	documentID := "kdoc_" + strings.Repeat("5", 32)
 	contentKey, deletedKey, err := store.knowledgeDocumentKeys(scope, documentID)
 	if err != nil {

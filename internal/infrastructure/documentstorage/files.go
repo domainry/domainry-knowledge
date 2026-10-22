@@ -6,9 +6,9 @@ import (
 	"context"
 	"errors"
 	"io"
-	"regexp"
 	"strings"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	attachmentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/attachmentstorage"
 )
@@ -24,11 +24,8 @@ func NewFiles(path string) (*Files, error) {
 }
 func (f *Files) Close() error { return f.files.Close() }
 
-var libraryPattern = regexp.MustCompile(`^lib_[a-f0-9]{32}$`)
-var documentPattern = regexp.MustCompile(`^kdoc_[a-f0-9]{32}$`)
-
 func namespace(s agentsdk.KnowledgeDocumentStorageScope, id string) (agentsdk.Authority, string, error) {
-	if !libraryPattern.MatchString(s.LibraryID) || !documentPattern.MatchString(id) {
+	if entityid.Validate("klib", s.LibraryID) != nil || entityid.Validate("kdoc", id) != nil {
 		return agentsdk.Authority{}, "", &agentsdk.Error{Class: "bad_request", Code: "knowledge.document_reference_invalid"}
 	}
 	return agentsdk.Authority{Known: true, RuntimeID: s.RuntimeID, WorkspaceID: s.WorkspaceID, UserID: "knowledge-library:" + s.LibraryID}, "att_" + strings.TrimPrefix(id, "kdoc_"), nil

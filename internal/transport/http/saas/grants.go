@@ -99,6 +99,12 @@ func (GrantBridge) ValidateKnowledgeLibraryMember(ctx context.Context, user stri
 		Authority agentsdk.Authority `json:"authority"`
 	}{user, authority}, nil)
 }
+func (GrantBridge) ValidateKnowledgeLibraryOrganizationMember(ctx context.Context, organizationID string, authority agentsdk.Authority) error {
+	return challengeFor(ctx, "authorize.library_organization_member", struct {
+		OrganizationID string             `json:"organization_id"`
+		Authority      agentsdk.Authority `json:"authority"`
+	}{organizationID, authority}, nil)
+}
 func (GrantBridge) AuthorizeKnowledgeDocumentSource(ctx context.Context, source agentsdk.KnowledgeDocumentSourceAccess, authority agentsdk.Authority) error {
 	return challengeFor(ctx, "authorize.document_source", struct {
 		Source    agentsdk.KnowledgeDocumentSourceAccess `json:"source"`

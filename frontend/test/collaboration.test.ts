@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as Y from "yjs";
-import { applyKnowledgeYjsState, collaborationContentSHA256, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState } from "../src/collaboration.ts";
+import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "../src/collaboration.ts";
+import { knowledgeOfflineCollaborationKey, loadKnowledgeOfflineChange } from "../src/collaborationOffline.ts";
 
 test("collaboration binary codec preserves large Yjs updates", () => {
   const value = new Uint8Array(180_000);
@@ -28,8 +29,32 @@ test("concurrent Yjs rich-document state converges independent of arrival order"
   assert.match(alice.getText("document").toString(), /Bob/);
 });
 
+test("daily collaboration sends mergeable Yjs deltas instead of repeating the full checkpoint", () => {
+  const source = new Y.Doc(), received: Uint8Array[] = [];
+  source.on("update", update => received.push(update));
+  source.getText("document").insert(0, "一段足够长的初始协作文档".repeat(100));
+  const checkpoint = encodeKnowledgeYjsState(source);
+  received.length = 0;
+  source.getText("document").insert(2, "甲");
+  source.getText("document").insert(8, "乙");
+  const delta = mergeKnowledgeYjsUpdates(received);
+  assert.ok(decodeCollaborationBinary(delta).byteLength < decodeCollaborationBinary(checkpoint).byteLength);
+
+  const replica = new Y.Doc();
+  applyKnowledgeYjsState(replica, checkpoint);
+  applyKnowledgeYjsUpdate(replica, delta);
+  assert.equal(replica.getText("document").toString(), source.getText("document").toString());
+});
+
 test("canonical Block JSON hash is deterministic", async () => {
   const content = `{"blocks":[{"id":"block-1","type":"paragraph","props":{},"content":[{"type":"text","text":"正文","styles":{}}],"children":[]}]}`;
   assert.equal(await collaborationContentSHA256(content), await collaborationContentSHA256(content));
   assert.notEqual(await collaborationContentSHA256(content), await collaborationContentSHA256(`${content} `));
+});
+
+test("offline collaboration queues are isolated by user, library, and page", async () => {
+  assert.notEqual(knowledgeOfflineCollaborationKey("alice", "library", "page"), knowledgeOfflineCollaborationKey("bob", "library", "page"));
+  assert.notEqual(knowledgeOfflineCollaborationKey("alice", "library-a", "page"), knowledgeOfflineCollaborationKey("alice", "library-b", "page"));
+  assert.notEqual(knowledgeOfflineCollaborationKey("alice", "library", "page-a"), knowledgeOfflineCollaborationKey("alice", "library", "page-b"));
+  assert.equal(await loadKnowledgeOfflineChange("alice", "library", "page"), null);
 });

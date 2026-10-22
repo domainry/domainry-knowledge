@@ -19,13 +19,14 @@ import (
 	"unicode"
 
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	"github.com/domainry/domainry-foundation/entityid"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 )
 
 const fileKind = "file"
 
 var stableID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$`)
-var fileID = regexp.MustCompile(`^file_[a-f0-9]{32}$`)
+var fileID = regexp.MustCompile(`^art_[a-f0-9]{32}$`)
 
 type Service struct {
 	runtimeID string
@@ -54,7 +55,10 @@ func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Aut
 		return out, failure("bad_request", "knowledge.file_invalid")
 	}
 	identity := digest([]string{service.runtimeID, authority.WorkspaceID, authority.SubjectID, input.ClientID})
-	id := "file_" + identity[:32]
+	id, err := entityid.Derive("art", "knowledge.upload-file", service.runtimeID, authority.WorkspaceID, authority.SubjectID, input.ClientID)
+	if err != nil {
+		return out, err
+	}
 	contentDigest := sha256.Sum256(input.Data)
 	contentSHA := hex.EncodeToString(contentDigest[:])
 	idempotencyKey := "uploads-file:" + identity
@@ -84,7 +88,7 @@ func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Aut
 	}
 	now := service.now()
 	value := sharedartifact.Artifact{
-		ID: id, WorkspaceID: authority.WorkspaceID, Owner: sharedartifact.OwnerUploads, Kind: fileKind,
+		ArtifactID: id, WorkspaceID: authority.WorkspaceID, Owner: sharedartifact.OwnerUploads, Kind: fileKind,
 		IdempotencyKey: idempotencyKey, CreatedBy: authority.SubjectID, Filename: input.Filename, MediaType: input.ContentType,
 		ContentSHA256: contentSHA, SizeBytes: int64(len(input.Data)), StorageReference: info.Reference,
 		Status: sharedartifact.StatusAvailable, ScanStatus: sharedartifact.ScanNotRequired,
@@ -130,7 +134,7 @@ func (service *Service) Download(ctx context.Context, authority knowledgefiles.A
 	if int64(len(raw)) != value.SizeBytes || hex.EncodeToString(sum[:]) != value.ContentSHA256 {
 		return knowledgefiles.Download{}, failure("unavailable", "knowledge.file_content_mismatch")
 	}
-	current, found, err := service.store.ByID(ctx, value.WorkspaceID, value.ID)
+	current, found, err := service.store.ByID(ctx, value.WorkspaceID, value.ArtifactID)
 	if err != nil {
 		return knowledgefiles.Download{}, err
 	}
@@ -155,9 +159,8 @@ func (service *Service) Bind(ctx context.Context, authority knowledgefiles.Autho
 	if !stableID.MatchString(binding.Owner) || !stableID.MatchString(binding.ResourceType) || !stableID.MatchString(binding.ResourceID) || len(binding.FieldKey) > 255 || binding.FieldKey != "" && !stableID.MatchString(binding.FieldKey) {
 		return failure("bad_request", "knowledge.file_binding_invalid")
 	}
-	key := digest([]string{id, binding.Owner, binding.ResourceType, binding.ResourceID, binding.FieldKey})
 	_, _, err = service.store.Bind(ctx, sharedartifact.Binding{
-		ID: "bind_" + key[:32], WorkspaceID: authority.WorkspaceID, ArtifactID: id,
+		WorkspaceID: authority.WorkspaceID, ArtifactID: id,
 		Owner: binding.Owner, Kind: sharedartifact.BindingObjectField, ResourceType: binding.ResourceType,
 		ResourceID: binding.ResourceID, FieldKey: binding.FieldKey, Metadata: json.RawMessage(`{}`), CreatedAt: service.now(),
 	})
@@ -260,7 +263,7 @@ func sameUpload(value sharedartifact.Artifact, authority knowledgefiles.Authorit
 }
 
 func fileView(value sharedartifact.Artifact) knowledgefiles.File {
-	return knowledgefiles.File{ID: value.ID, WorkspaceID: value.WorkspaceID, CreatedBy: value.CreatedBy, Filename: value.Filename, ContentType: value.MediaType, SizeBytes: value.SizeBytes, SHA256: value.ContentSHA256, CreatedAt: value.CreatedAt}
+	return knowledgefiles.File{ID: value.ArtifactID, WorkspaceID: value.WorkspaceID, CreatedBy: value.CreatedBy, Filename: value.Filename, ContentType: value.MediaType, SizeBytes: value.SizeBytes, SHA256: value.ContentSHA256, CreatedAt: value.CreatedAt}
 }
 
 func normalizeContentType(supplied string, data []byte) string {

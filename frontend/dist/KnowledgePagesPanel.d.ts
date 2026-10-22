@@ -1,19 +1,19 @@
-import type { ReactNode } from "react";
-import type { KnowledgeClient, KnowledgeDocument, KnowledgeLibrary } from "./types.ts";
-type KnowledgeDocumentsSlotProps = {
-    selectedDocumentID: string;
-    showUploader: boolean;
-    onDocumentsChange(documents: KnowledgeDocument[]): void;
-    onSelectedDocumentChange(documentID: string): void;
-};
+import type { KnowledgeClient, KnowledgeLibrary, KnowledgePageSearchLocation } from "./types.ts";
 export declare function pageContentSHA256(content: string): Promise<string>;
-export declare function KnowledgePagesPanel({ client, library, disabled, formatError, embedded, documents, onManage }: {
+export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, onSelectionChange, onManage }: {
     client: KnowledgeClient;
     library: KnowledgeLibrary;
+    currentUserID?: string;
     disabled: boolean;
     formatError(error: unknown): string;
     embedded?: boolean;
-    documents?: (props: KnowledgeDocumentsSlotProps) => ReactNode;
+    initialPageID?: string;
+    initialBlockID?: string;
+    initialSearchLocation?: KnowledgePageSearchLocation;
+    initialPageMode?: "read" | "edit";
+    onSelectionChange?: (page: {
+        id: string;
+        title: string;
+    } | null) => void;
     onManage?: () => void;
 }): import("react").JSX.Element;
-export {};

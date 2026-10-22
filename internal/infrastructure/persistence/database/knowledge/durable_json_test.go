@@ -45,8 +45,20 @@ func TestOwnedKnowledgeStorageShapesUseNumericInstants(t *testing.T) {
 		{"document", persistence.KnowledgeDocumentRecord{Document: agentsdk.KnowledgeDocument{CreatedAt: instant, UpdatedAt: instant}}, &persistence.KnowledgeDocumentRecord{}},
 		{"document lease", persistence.KnowledgeDocumentLease{ExpiresAt: instant}, &persistence.KnowledgeDocumentLease{}},
 		{"datasource", persistence.KnowledgeDatasourceBinding{CreatedAt: instant}, &persistence.KnowledgeDatasourceBinding{}},
-		{"page view", knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Published: &knowledgesdk.KnowledgePageVersion{PublishedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}}, &knowledgesdk.KnowledgePageView{}},
-		{"page page", knowledgesdk.KnowledgePagePage{Items: []knowledgesdk.KnowledgePage{{CreatedAt: instant, UpdatedAt: instant}}, Complete: true}, &knowledgesdk.KnowledgePagePage{}},
+		{"page view", knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Published: &knowledgesdk.KnowledgePageVersion{PublishedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}, Governance: knowledgesdk.KnowledgePageContentGovernance{Classification: knowledgesdk.KnowledgePageClassificationRestricted, DynamicWatermark: &knowledgesdk.KnowledgePageDynamicWatermark{Text: "alice · 2026-09-25 00:00 UTC", GeneratedAt: instant}}}, &knowledgesdk.KnowledgePageView{}},
+		{"grid automation result", knowledgesdk.KnowledgeGridAutomationResult{View: knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}}, AutomationID: "automation-1", RecordID: "record-1", FieldID: "field-1", Applied: true}, &knowledgesdk.KnowledgeGridAutomationResult{}},
+		{"page page", knowledgesdk.KnowledgePagePage{Items: []knowledgesdk.KnowledgePage{{HasChildren: true, CreatedAt: instant, UpdatedAt: instant}}, Complete: true}, &knowledgesdk.KnowledgePagePage{}},
+		{"page metadata", knowledgesdk.KnowledgePageMetadata{NextReviewAt: &instant, UpdatedAt: &instant, Tags: []string{}, Properties: []knowledgesdk.KnowledgePageCustomProperty{}}, &knowledgesdk.KnowledgePageMetadata{}},
+		{"page task", knowledgesdk.KnowledgePageTask{DueAt: &instant, ReminderAt: &instant, CreatedAt: instant, UpdatedAt: instant}, &knowledgesdk.KnowledgePageTask{}},
+		{"page poll", knowledgesdk.KnowledgePagePoll{CreatedAt: instant, UpdatedAt: instant}, &knowledgesdk.KnowledgePagePoll{}},
+		{"page poll view", knowledgesdk.KnowledgePagePollView{Poll: knowledgesdk.KnowledgePagePoll{CreatedAt: instant, UpdatedAt: instant}}, &knowledgesdk.KnowledgePagePollView{}},
+		{"page template", knowledgesdk.KnowledgePageTemplate{CreatedAt: instant, UpdatedAt: instant}, &knowledgesdk.KnowledgePageTemplate{}},
+		{"page template version", knowledgesdk.KnowledgePageTemplateVersion{CreatedAt: instant}, &knowledgesdk.KnowledgePageTemplateVersion{}},
+		{"page template instance", knowledgesdk.KnowledgePageTemplateInstance{Root: knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{CreatedAt: instant, UpdatedAt: instant}, Draft: &knowledgesdk.KnowledgePageDraft{UpdatedAt: instant}}}, &knowledgesdk.KnowledgePageTemplateInstance{}},
+		{"page content policy", knowledgesdk.KnowledgePageContentPolicy{PageID: "page-1", LibraryID: "library-1", Scope: knowledgesdk.KnowledgePageContentPolicySubtree, AllowCopy: true, AllowDownload: true, AllowPrint: true, AllowExport: true, AllowDuplicate: true, Classification: knowledgesdk.KnowledgePageClassificationConfidential, WatermarkMode: knowledgesdk.KnowledgePageWatermarkIdentity, SensitiveAction: knowledgesdk.KnowledgePageSensitiveContentAllow, RequireApproval: true, Revision: 1, UpdatedByUserID: "manager-1", UpdatedAt: instant}, &knowledgesdk.KnowledgePageContentPolicy{}},
+		{"webhook subscription", knowledgesdk.KnowledgeWebhookSubscription{CreatedAt: instant, UpdatedAt: instant}, &knowledgesdk.KnowledgeWebhookSubscription{}},
+		{"webhook event", knowledgesdk.KnowledgeWebhookEvent{OccurredAt: instant}, &knowledgesdk.KnowledgeWebhookEvent{}},
+		{"webhook delivery", knowledgesdk.KnowledgeWebhookDelivery{NextAttemptAt: instant, UpdatedAt: instant}, &knowledgesdk.KnowledgeWebhookDelivery{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

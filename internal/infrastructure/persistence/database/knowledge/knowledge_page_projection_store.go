@@ -5,14 +5,15 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
-func knowledgePageProjectionDocumentID(a agentsdk.Authority, pageID string) string {
-	return "kdoc_" + conversationHash([]string{libraryScope(a), pageID})[:32]
+func knowledgePageProjectionDocumentID(a agentsdk.Authority, pageID string) (string, error) {
+	return entityid.Derive("kdoc", "knowledge.page_projection_document", a.RuntimeID, a.WorkspaceID, pageID)
 }
 
 func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, owner string, now time.Time, ttl time.Duration) (out knowledgesdk.KnowledgePageProjectionWork, found bool, err error) {
@@ -81,7 +82,7 @@ func (s *Store) currentPageProjectionJob(ctx context.Context, tx *sql.Tx, lease 
 	if err != nil {
 		return job, err
 	}
-	if !found || job.Fence != lease.Token || job.LeaseUntil != lease.ExpiresAt || job.PageID != lease.PageID || job.LibraryID != lease.LibraryID || job.Version != lease.Version || job.AccessRevision != lease.AccessRevision || job.Actor != lease.Actor || !job.LeaseUntil.After(time.Now().UTC()) {
+	if !found || job.Fence != lease.Token || job.LeaseUntil != lease.ExpiresAt || job.PageID != lease.PageID || job.LibraryID != lease.LibraryID || job.Version != lease.Version || job.AccessRevision != lease.AccessRevision || !job.Actor.Equal(lease.Actor) || !job.LeaseUntil.After(time.Now().UTC()) {
 		return job, conversationError("conflict", "page_projection_lease_lost")
 	}
 	return job, nil
@@ -121,7 +122,10 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		if sourceID == "" {
 			return conversationError("unavailable", "document_management_unavailable")
 		}
-		documentID := knowledgePageProjectionDocumentID(lease.Actor, lease.PageID)
+		documentID, err := knowledgePageProjectionDocumentID(lease.Actor, lease.PageID)
+		if err != nil {
+			return err
+		}
 		origin := persistence.KnowledgePageProjectionOrigin{PageID: lease.PageID, Version: lease.Version, AccessRevision: lease.AccessRevision, PermissionID: lease.PermissionID}
 		var record persistence.KnowledgeDocumentRecord
 		found, err := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(lease.Actor, documentID), &record)

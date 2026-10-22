@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	auditsdk "github.com/domainry/domainry-audit-sdk"
+	auditmodulehost "github.com/domainry/domainry-audit-sdk/modulehost"
 	auditmodule "github.com/domainry/domainry-audit/module"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
@@ -24,7 +26,9 @@ import (
 	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	documentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
+	embedprovider "github.com/domainry/domainry-knowledge/internal/infrastructure/embedprovider"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/migrationhost"
+	webhookdelivery "github.com/domainry/domainry-knowledge/internal/infrastructure/webhookdelivery"
 	knowledgemodule "github.com/domainry/domainry-knowledge/module"
 	metadatamodule "github.com/domainry/domainry-metadata/module"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
@@ -48,23 +52,37 @@ type Options struct {
 }
 
 type Host struct {
-	runtimeID   string
-	workspaceID string
-	application identitysdk.ApplicationRef
-	database    *sql.DB
-	dialect     knowledgemodulehost.Dialect
-	profile     ormdriver.Profile
-	registrar   *migrationhost.Registrar
-	identity    identitysdk.Binding
-	knowledge   knowledgemodulehost.ModuleBinding
-	retrieval   knowledgecontract.Knowledge
-	documents   io.Closer
-	handler     http.Handler
+	runtimeID           string
+	workspaceID         string
+	application         identitysdk.ApplicationRef
+	database            *sql.DB
+	dialect             ormdialect.Renderer
+	profile             ormdriver.Profile
+	registrar           *migrationhost.Registrar
+	identity            identitysdk.Binding
+	audit               auditsdk.Binding
+	knowledge           knowledgemodulehost.ModuleBinding
+	retrieval           knowledgecontract.Knowledge
+	documents           io.Closer
+	handler             http.Handler
+	embedFrameOrigins   []string
+	trustedApplications *knowledgesdk.TrustedApplicationRegistry
 }
 
 func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	if strings.TrimSpace(options.RuntimeID) == "" || strings.TrimSpace(options.WorkspaceID) == "" || strings.TrimSpace(options.ApplicationKey) == "" || strings.TrimSpace(options.DatabasePath) == "" || strings.TrimSpace(options.StoragePath) == "" {
 		return nil, fmt.Errorf("Knowledge product configuration is incomplete")
+	}
+	if len(options.Knowledge.EmbedProviders) == 0 {
+		options.Knowledge.EmbedProviders = embedprovider.Defaults()
+	}
+	embedRegistry, err := knowledgesdk.NewEmbedProviderRegistry(options.Knowledge.EmbedProviders...)
+	if err != nil {
+		return nil, err
+	}
+	trustedApplications, err := knowledgesdk.NewTrustedApplicationRegistry(options.Knowledge.TrustedApplications...)
+	if err != nil {
+		return nil, err
 	}
 	databasePath, err := filepath.Abs(options.DatabasePath)
 	if err != nil {
@@ -84,7 +102,9 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	database.SetMaxOpenConns(8)
 	host := &Host{
 		runtimeID: options.RuntimeID, workspaceID: options.WorkspaceID, database: database,
-		application: identitysdk.ApplicationRef{WorkspaceID: identitysdk.WorkspaceID(options.WorkspaceID), ApplicationKey: identitysdk.ApplicationKey(options.ApplicationKey)},
+		application:         identitysdk.ApplicationRef{WorkspaceID: identitysdk.WorkspaceID(options.WorkspaceID), ApplicationKey: identitysdk.ApplicationKey(options.ApplicationKey)},
+		embedFrameOrigins:   embedRegistry.FrameOrigins(),
+		trustedApplications: trustedApplications,
 	}
 	defer func() {
 		if resultErr != nil {
@@ -112,7 +132,14 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	if err = host.openIdentity(ctx, options); err != nil {
 		return nil, err
 	}
+	host.audit, err = auditmodule.NewFactory(auditmodule.Options{}).OpenModule(ctx, auditsdk.ApplicationRef{InstallationID: options.RuntimeID + "-knowledge"}, auditPersistenceHost{host: host})
+	if err != nil {
+		return nil, fmt.Errorf("open Knowledge audit binding: %w", err)
+	}
 	if err = host.registerKnowledgePermissions(ctx); err != nil {
+		return nil, err
+	}
+	if err = host.registerTrustedKnowledgeApplications(ctx); err != nil {
 		return nil, err
 	}
 
@@ -125,7 +152,14 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	knowledgeOptions.LibraryAuthorizer = host
 	knowledgeOptions.PrincipalDirectory = host
 	knowledgeOptions.AccessExplainer = host
+	knowledgeOptions.TrustedApplicationResolver = host
+	if knowledgeOptions.WebhookDeliverer == nil {
+		knowledgeOptions.WebhookDeliverer = webhookdelivery.New(nil)
+	}
 	knowledgeOptions.DocumentStorage = documents
+	auditBridge := &knowledgeAuditBridge{appender: host.audit.Appender(), reader: host.audit.Reader()}
+	knowledgeOptions.AuditAppender = auditBridge
+	knowledgeOptions.AuditReader = auditBridge
 	if options.ProviderFactory != nil {
 		source, sourceErr := options.ProviderFactory.NewSource(options.ProviderConfig)
 		if sourceErr != nil {
@@ -176,6 +210,17 @@ func (host *Host) Dialect() knowledgemodulehost.Dialect               { return h
 func (host *Host) Migrations() knowledgemodulehost.MigrationRegistrar { return host.registrar }
 func (host *Host) Profile() ormdriver.Profile                         { return host.profile }
 
+// auditPersistenceHost adapts the shared database primitives to Audit's
+// deliberately separate modulehost contract. Host cannot expose two Dialect
+// methods whose return types are distinct named interfaces in Go.
+type auditPersistenceHost struct{ host *Host }
+
+func (adapter auditPersistenceHost) Database() auditmodulehost.Database { return adapter.host.database }
+func (adapter auditPersistenceHost) Dialect() auditmodulehost.Dialect   { return adapter.host.dialect }
+func (adapter auditPersistenceHost) Migrations() auditmodulehost.MigrationRegistrar {
+	return adapter.host.registrar
+}
+
 func (host *Host) Handler() http.Handler {
 	if host == nil || host.handler == nil {
 		return http.NotFoundHandler()
@@ -191,6 +236,10 @@ func (host *Host) Close(ctx context.Context) error {
 	if host.knowledge != nil {
 		values = append(values, host.knowledge.Close(ctx))
 		host.knowledge = nil
+	}
+	if host.audit != nil {
+		values = append(values, host.audit.Close(ctx))
+		host.audit = nil
 	}
 	if host.identity != nil {
 		values = append(values, host.identity.Close(ctx))
@@ -225,3 +274,4 @@ var _ knowledgemodulehost.Host = (*Host)(nil)
 var _ knowledgesdk.KnowledgeLibraryAuthorizer = (*Host)(nil)
 var _ knowledgesdk.KnowledgePrincipalDirectory = (*Host)(nil)
 var _ knowledgesdk.KnowledgeAccessExplainer = (*Host)(nil)
+var _ knowledgesdk.KnowledgeTrustedApplicationResolver = (*Host)(nil)

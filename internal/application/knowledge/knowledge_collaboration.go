@@ -34,6 +34,27 @@ func validateResolvedKnowledgePrincipals(userIDs []string, principals []knowledg
 	return nil
 }
 
+func validateResolvedKnowledgeOrganizations(organizationIDs []string, principals []knowledgesdk.KnowledgeOrganizationPrincipal) error {
+	if len(principals) != len(organizationIDs) {
+		return conversationFailure("unavailable", "principal_directory_invalid")
+	}
+	expected := make(map[string]struct{}, len(organizationIDs))
+	for _, organizationID := range organizationIDs {
+		expected[organizationID] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(principals))
+	for _, principal := range principals {
+		if _, ok := expected[principal.OrganizationID]; !ok {
+			return conversationFailure("unavailable", "principal_directory_invalid")
+		}
+		if _, duplicate := seen[principal.OrganizationID]; duplicate || !conversationText(principal.OrganizationID, 255, true) || !conversationText(principal.DisplayName, 512, true) || !conversationText(principal.NodeType, 64, false) || !conversationText(principal.Status, 64, true) {
+			return conversationFailure("unavailable", "principal_directory_invalid")
+		}
+		seen[principal.OrganizationID] = struct{}{}
+	}
+	return nil
+}
+
 func validateSearchedKnowledgePrincipals(page knowledgesdk.KnowledgePrincipalPage, limit int) error {
 	if len(page.Items) > limit || !conversationText(page.NextAfter, 255, false) || page.Complete && page.NextAfter != "" || !page.Complete && page.NextAfter == "" {
 		return conversationFailure("unavailable", "principal_directory_invalid")
@@ -73,7 +94,7 @@ func (s *Service) CreateKnowledgePageComment(ctx context.Context, libraryID, pag
 		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageCommentsCreate, "knowledge.page_comment.created", libraryID, pageID, result.ID, input.ClientID, result.Revision, nil, map[string]string{
 			"published_version": strconv.FormatInt(result.PublishedVersion, 10), "parent_comment_id": result.ParentCommentID, "mention_count": strconv.Itoa(len(result.MentionedUserIDs)),
 		}, a)
-		s.publishKnowledgeMentions(ctx, result, a)
+		err = s.publishKnowledgeMentions(ctx, result, a)
 	}
 	return result, err
 }
@@ -91,7 +112,7 @@ func (s *Service) UpdateKnowledgePageComment(ctx context.Context, libraryID, pag
 		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageCommentsUpdate, "knowledge.page_comment.updated", libraryID, pageID, result.ID, input.ClientID, result.Revision, map[string]string{
 			"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10),
 		}, map[string]string{"mention_count": strconv.Itoa(len(result.MentionedUserIDs))}, a)
-		s.publishKnowledgeMentions(ctx, result, a)
+		err = s.publishKnowledgeMentions(ctx, result, a)
 	}
 	return result, err
 }
@@ -126,6 +147,23 @@ func (s *Service) DeleteKnowledgePageComment(ctx context.Context, libraryID, pag
 		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageCommentsDelete, "knowledge.page_comment.deleted", libraryID, pageID, result.ID, input.ClientID, result.Revision, map[string]string{
 			"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10),
 		}, map[string]string{"deleted": strconv.FormatBool(result.Deleted)}, a)
+	}
+	return result, err
+}
+
+func (s *Service) SetKnowledgePageCommentReaction(ctx context.Context, libraryID, pageID, commentID string, input knowledgesdk.KnowledgePageCommentReactionWrite, a agentsdk.Authority) (knowledgesdk.KnowledgePageComment, error) {
+	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsReact, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageComment{}, err
+	}
+	result, err := repository.SetKnowledgePageCommentReaction(ctx, libraryID, pageID, commentID, input, a)
+	if err == nil {
+		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageCommentsReact, a)
+	}
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageCommentsReact, "knowledge.page_comment.reaction_changed", libraryID, pageID, result.ID, input.ClientID, result.Revision, nil, map[string]string{
+			"emoji": input.Emoji, "active": strconv.FormatBool(input.Active),
+		}, a)
 	}
 	return result, err
 }
@@ -236,6 +274,39 @@ func (s *Service) ResolveKnowledgePrincipals(ctx context.Context, userIDs []stri
 	return result, nil
 }
 
+func (s *Service) ResolveKnowledgeOrganizationPrincipals(ctx context.Context, organizationIDs []string, a agentsdk.Authority) ([]knowledgesdk.KnowledgeOrganizationPrincipal, error) {
+	if err := s.authorize(a); err != nil {
+		return nil, err
+	}
+	if s.options.PrincipalDirectory == nil {
+		return nil, conversationFailure("unavailable", "principal_directory_unavailable")
+	}
+	if len(organizationIDs) < 1 || len(organizationIDs) > 100 {
+		return nil, conversationFailure("bad_request", "principal_limit_invalid")
+	}
+	seen := make(map[string]struct{}, len(organizationIDs))
+	for _, organizationID := range organizationIDs {
+		if !conversationText(organizationID, 255, true) || strings.TrimSpace(organizationID) != organizationID {
+			return nil, conversationFailure("bad_request", "principal_invalid")
+		}
+		if _, duplicate := seen[organizationID]; duplicate {
+			return nil, conversationFailure("bad_request", "principal_invalid")
+		}
+		seen[organizationID] = struct{}{}
+	}
+	if err := s.authorizeLibraryAction(ctx, knowledgesdk.ActionOrganizationPrincipalsResolve, agentsdk.KnowledgeLibrary{}, a); err != nil {
+		return nil, err
+	}
+	result, err := s.options.PrincipalDirectory.ResolveKnowledgeOrganizationPrincipals(ctx, append([]string(nil), organizationIDs...), a)
+	if err == nil {
+		err = s.authorizeLibraryAction(ctx, knowledgesdk.ActionOrganizationPrincipalsResolve, agentsdk.KnowledgeLibrary{}, a)
+	}
+	if err == nil {
+		err = validateResolvedKnowledgeOrganizations(organizationIDs, result)
+	}
+	return result, err
+}
+
 func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, query, after string, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePrincipalPage, error) {
 	libraries, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersSearch, a)
 	if err != nil {
@@ -305,18 +376,22 @@ func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, 
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("unavailable", "access_explainer_unavailable")
 	}
 	rule, known := KnowledgeResourcePolicy[input.Action]
-	if !known || !conversationText(input.UserID, 255, true) || strings.TrimSpace(input.UserID) != input.UserID || !conversationText(input.PageID, 96, false) {
+	if !known || !conversationText(input.UserID, 255, true) || strings.TrimSpace(input.UserID) != input.UserID || !conversationText(input.PageID, 96, false) || !conversationText(input.ShareID, 96, false) || input.ShareID != "" && (input.PageID == "" || input.Action != knowledgesdk.ActionPageSharesRead) {
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("bad_request", "knowledge_access_invalid")
 	}
 	roleReader, ok := s.repo.(interface {
-		KnowledgeLibraryRoleForUser(context.Context, string, string, agentsdk.Authority) (string, error)
+		KnowledgeLibraryRoleForAuthority(context.Context, string, agentsdk.Authority, agentsdk.Authority) (string, error)
 		KnowledgeLibraryPageCount(context.Context, string, agentsdk.Authority) (int, error)
-		EvaluateKnowledgePageAccessForUser(context.Context, string, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error)
+		EvaluateKnowledgePageAccessForAuthority(context.Context, string, string, agentsdk.Authority, agentsdk.Authority) (knowledgesdk.KnowledgePageEffectiveAccess, error)
 	})
 	if !ok {
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("unavailable", "access_explainer_unavailable")
 	}
-	role, err := roleReader.KnowledgeLibraryRoleForUser(ctx, libraryID, input.UserID, a)
+	targetAuthority, err := s.options.AccessExplainer.ResolveKnowledgeAccessAuthority(ctx, input.UserID, a)
+	if err != nil {
+		return knowledgesdk.KnowledgeAccessExplanation{}, err
+	}
+	role, err := roleReader.KnowledgeLibraryRoleForAuthority(ctx, libraryID, targetAuthority, a)
 	if err != nil {
 		return knowledgesdk.KnowledgeAccessExplanation{}, err
 	}
@@ -339,11 +414,19 @@ func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, 
 	if result.UserID != input.UserID || result.LibraryID != libraryID || result.PageID != input.PageID || result.Action != input.Action || !conversationText(result.Identity.Code, 255, true) || !conversationText(result.Identity.Label, 512, true) || !conversationText(result.Identity.Source, 512, false) {
 		return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("unavailable", "access_explainer_invalid")
 	}
-	roleAllowed := resourceRoleLevel(role) >= resourceRoleLevel(rule.MinimumRole)
+	requiredRole := rule.MinimumRole
+	if input.ShareID != "" {
+		// A controlled share grants only published read access. Keep the normal
+		// library/page layers visible against the reader threshold, then report
+		// the share as the endpoint's explicit alternative decision below.
+		requiredRole = "reader"
+	}
+	roleAllowed := resourceRoleLevel(role) >= resourceRoleLevel(requiredRole)
 	result.LibraryRole = role
 	result.InheritedFrom = libraryID
 	result.ImpactPages = pageCount
 	result.Proposed = input.ProposedRole != ""
+	result.ShareID = input.ShareID
 	result.Library = knowledgesdk.KnowledgeAccessLayer{Allowed: roleAllowed, Code: "library_role_denied", Label: "资料库成员角色"}
 	if roleAllowed {
 		result.Library.Code = "library_role_allowed"
@@ -361,14 +444,14 @@ func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, 
 		if pageErr != nil {
 			return knowledgesdk.KnowledgeAccessExplanation{}, pageErr
 		}
-		effective, accessErr := roleReader.EvaluateKnowledgePageAccessForUser(ctx, libraryID, input.PageID, input.UserID, a)
+		effective, accessErr := roleReader.EvaluateKnowledgePageAccessForAuthority(ctx, libraryID, input.PageID, targetAuthority, a)
 		if accessErr != nil {
 			return knowledgesdk.KnowledgeAccessExplanation{}, accessErr
 		}
 		if input.ProposedRole != "" && role == input.ProposedRole && effective.Source == "not_member" {
 			effective = knowledgesdk.KnowledgePageEffectiveAccess{Allowed: page.Page.AccessMode == knowledgesdk.KnowledgePageAccessInherit, Role: input.ProposedRole, Mode: page.Page.AccessMode, Source: "library"}
 		}
-		pageAllowed = page.Page.State == "active" && effective.Allowed && resourceRoleLevel(effective.Role) >= resourceRoleLevel(rule.MinimumRole)
+		pageAllowed = page.Page.State == "active" && effective.Allowed && resourceRoleLevel(effective.Role) >= resourceRoleLevel(requiredRole)
 		pageSource = effective.Source
 		switch effective.Source {
 		case "direct_grant":
@@ -386,7 +469,24 @@ func (s *Service) ExplainKnowledgeAccess(ctx context.Context, libraryID string, 
 	if !pageAllowed {
 		result.Page.Code = "page_access_denied"
 	}
-	result.Final = knowledgesdk.KnowledgeAccessLayer{Allowed: result.Identity.Allowed && roleAllowed && pageAllowed, Code: "access_denied", Label: "最终权限"}
+	finalAllowed := result.Identity.Allowed && roleAllowed && pageAllowed
+	finalSource := "page_acl"
+	if input.ShareID != "" {
+		shareReader, shareOK := s.repo.(interface {
+			EvaluateKnowledgePageShareAccessForAuthority(context.Context, string, string, string, agentsdk.Authority, agentsdk.Authority) (knowledgesdk.KnowledgeAccessLayer, error)
+		})
+		if !shareOK {
+			return knowledgesdk.KnowledgeAccessExplanation{}, conversationFailure("unavailable", "access_explainer_unavailable")
+		}
+		share, shareErr := shareReader.EvaluateKnowledgePageShareAccessForAuthority(ctx, libraryID, input.ShareID, input.PageID, targetAuthority, a)
+		if shareErr != nil {
+			return knowledgesdk.KnowledgeAccessExplanation{}, shareErr
+		}
+		result.Share = &share
+		finalAllowed = result.Identity.Allowed && share.Allowed
+		finalSource = "share"
+	}
+	result.Final = knowledgesdk.KnowledgeAccessLayer{Allowed: finalAllowed, Code: "access_denied", Label: "最终权限", Source: finalSource}
 	if result.Final.Allowed {
 		result.Final.Code = "access_allowed"
 	}

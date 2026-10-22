@@ -33,4 +33,5 @@ export declare function readPreviewRange(source: FilePreviewSource, begin: numbe
 }>;
 export declare function downloadFile(source: FilePreviewSource, signal: AbortSignal): Promise<void>;
 export declare function knowledgeDocumentPreviewSource(client: KnowledgeClient, document: KnowledgeDocument): FilePreviewSource;
+export declare function knowledgePageDocumentDownloadSource(client: KnowledgeClient, pageID: string, document: KnowledgeDocument): FilePreviewSource;
 export declare function downloadDocument(client: KnowledgeClient, document: KnowledgeDocument, signal: AbortSignal): Promise<void>;

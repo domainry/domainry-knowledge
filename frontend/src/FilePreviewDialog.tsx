@@ -10,7 +10,7 @@ import { PresentationViewer } from "./viewers/PresentationViewer.tsx";
 import { TextViewer } from "./viewers/TextViewer.tsx";
 import { WordViewer } from "./viewers/WordViewer.tsx";
 
-export function FilePreviewDialog({ source, formatError = defaultErrorMessage, onClose }: { source: FilePreviewSource; formatError?: (error: unknown) => string; onClose(): void }) {
+export function FilePreviewDialog({ source, downloadSource = source, formatError = defaultErrorMessage, onClose }: { source: FilePreviewSource; downloadSource?: FilePreviewSource; formatError?: (error: unknown) => string; onClose(): void }) {
   const [file, setFile] = useState<PreviewFile | null>(null), [text, setText] = useState<PreviewText | null>(null);
   const [error, setError] = useState(""), [refresh, setRefresh] = useState(0), [downloading, setDownloading] = useState(false);
   const format = previewFormat(source.file.filename);
@@ -33,7 +33,7 @@ export function FilePreviewDialog({ source, formatError = defaultErrorMessage, o
   async function download() {
     if (downloading) return;
     setDownloading(true); setError("");
-    try { await downloadFile(source, AbortSignal.timeout(120_000)); }
+    try { await downloadFile(downloadSource, AbortSignal.timeout(120_000)); }
     catch (failure) { setError(formatError(failure)); }
     finally { setDownloading(false); }
   }

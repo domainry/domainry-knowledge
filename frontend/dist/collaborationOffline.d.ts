@@ -1,0 +1,20 @@
+export type KnowledgeOfflineCollaborationChange = {
+    userID: string;
+    libraryID: string;
+    pageID: string;
+    clientID: string;
+    updateID: string;
+    title: string;
+    content: string;
+    yjsUpdate: string;
+    yjsState: string;
+    editedBlockIDs: string[];
+    cursorBlockID?: string;
+    selectionBlockID?: string;
+    createdAt: number;
+    updatedAt: number;
+};
+export declare function knowledgeOfflineCollaborationKey(userID: string, libraryID: string, pageID: string): string;
+export declare function loadKnowledgeOfflineChange(userID: string, libraryID: string, pageID: string): Promise<KnowledgeOfflineCollaborationChange | null>;
+export declare function saveKnowledgeOfflineChange(value: KnowledgeOfflineCollaborationChange): Promise<void>;
+export declare function removeKnowledgeOfflineChange(userID: string, libraryID: string, pageID: string): Promise<void>;

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/domainry/domainry-foundation/entityid"
 	"github.com/domainry/domainry-knowledge-sdk/contract"
 	"github.com/domainry/domainry-orm/driver"
 	"github.com/domainry/domainry-orm/query"
@@ -24,7 +25,8 @@ type Write = contract.Write
 type Page = contract.Page
 type Validator = contract.Validator
 type storedRecord struct {
-	ID        string          `json:"id"`
+	ID        int64           `json:"id"`
+	RecordID  string          `json:"record_id"`
 	Kind      string          `json:"kind"`
 	Title     string          `json:"title"`
 	Status    string          `json:"status"`
@@ -35,7 +37,7 @@ type storedRecord struct {
 }
 
 func marshalRecord(value Record) ([]byte, error) {
-	return json.Marshal(storedRecord{ID: value.ID, Kind: value.Kind, Title: value.Title, Status: value.Status, Revision: value.Revision, Data: value.Data, CreatedAt: value.CreatedAt.UTC().UnixMilli(), UpdatedAt: value.UpdatedAt.UTC().UnixMilli()})
+	return json.Marshal(storedRecord{ID: value.ID, RecordID: value.RecordID, Kind: value.Kind, Title: value.Title, Status: value.Status, Revision: value.Revision, Data: value.Data, CreatedAt: value.CreatedAt.UTC().UnixMilli(), UpdatedAt: value.UpdatedAt.UTC().UnixMilli()})
 }
 
 func unmarshalRecord(raw []byte, value *Record) error {
@@ -43,7 +45,7 @@ func unmarshalRecord(raw []byte, value *Record) error {
 	if err := json.Unmarshal(raw, &stored); err != nil {
 		return err
 	}
-	*value = Record{ID: stored.ID, Kind: stored.Kind, Title: stored.Title, Status: stored.Status, Revision: stored.Revision, Data: stored.Data, CreatedAt: time.UnixMilli(stored.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(stored.UpdatedAt).UTC()}
+	*value = Record{ID: stored.ID, RecordID: stored.RecordID, Kind: stored.Kind, Title: stored.Title, Status: stored.Status, Revision: stored.Revision, Data: stored.Data, CreatedAt: time.UnixMilli(stored.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(stored.UpdatedAt).UTC()}
 	return nil
 }
 
@@ -64,8 +66,8 @@ func New(db sqlhost.Database, renderer query.Renderer, profile driver.Profile, n
 func (s *Store) owner(kind, owner string) query.Predicate {
 	return query.And(query.Equal("namespace", s.namespace), query.Equal("owner", owner), query.Equal("kind", kind))
 }
-func (s *Store) document(kind, owner, id string) query.Predicate {
-	return query.And(s.owner(kind, owner), query.Equal("id", id))
+func (s *Store) document(kind, owner, recordID string) query.Predicate {
+	return query.And(s.owner(kind, owner), query.Equal("record_id", recordID))
 }
 func (s *Store) receipt(kind, owner, client string) query.Predicate {
 	return query.And(s.owner(kind, owner), query.Equal("client", client))
@@ -86,6 +88,33 @@ func execute(ctx context.Context, db sqlhost.Executor, builder statementBuilder)
 		return nil, err
 	}
 	return db.ExecContext(ctx, statement, args...)
+}
+
+func insertPhysicalID(ctx context.Context, db sqlhost.DBTX, profile driver.Profile, builder *query.InsertBuilder) (int64, error) {
+	if profile.Capabilities().Returning {
+		returning, err := profile.ApplyReturning(builder, "id")
+		if err != nil {
+			return 0, err
+		}
+		statement, args, err := returning.Build()
+		if err != nil {
+			return 0, err
+		}
+		var id int64
+		if err := db.QueryRowContext(ctx, statement, args...).Scan(&id); err != nil {
+			return 0, err
+		}
+		return id, nil
+	}
+	result, err := execute(ctx, db, builder)
+	if err != nil {
+		return 0, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 func failure(class sdk.ErrorClass, code string) error {
 	return &sdk.Error{Class: class, Code: "knowledge.records." + code}
@@ -123,9 +152,17 @@ func (s *Store) Get(ctx context.Context, kind, id string, revision int64, a sdk.
 	}
 	var raw []byte
 	if revision == 0 {
-		err = readRow(ctx, s.db, query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("payload").Where(s.document(kind, o, id)), &raw)
+		var physicalID int64
+		err = readRow(ctx, s.db, query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("id", "payload").Where(s.document(kind, o, id)), &physicalID, &raw)
+		if err == nil {
+			err = unmarshalRecord(raw, &out)
+			out.ID = physicalID
+		}
 	} else {
 		err = readRow(ctx, s.db, query.NewSelectBuilder(s.renderer, "knowledge_record_versions").Columns("payload").Where(query.And(s.document(kind, o, id), query.Equal("revision", revision))), &raw)
+		if err == nil {
+			err = unmarshalRecord(raw, &out)
+		}
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return out, failure("not_found", "not_found")
@@ -133,16 +170,15 @@ func (s *Store) Get(ctx context.Context, kind, id string, revision int64, a sdk.
 	if err != nil {
 		return out, err
 	}
-	err = unmarshalRecord(raw, &out)
 	return out, err
 }
-func (s *Store) List(ctx context.Context, kind, q, after string, limit int, a sdk.Authority) (Page, error) {
+func (s *Store) List(ctx context.Context, kind, q string, after int64, limit int, a sdk.Authority) (Page, error) {
 	out := Page{Items: []Record{}, Complete: true}
 	o, err := scope(a)
 	if err != nil {
 		return out, err
 	}
-	if !key(kind) || len(q) > 255 || after != "" && !key(after) {
+	if !key(kind) || len(q) > 255 || after < 0 {
 		return out, failure("bad_request", "query_invalid")
 	}
 	if limit == 0 {
@@ -151,7 +187,7 @@ func (s *Store) List(ctx context.Context, kind, q, after string, limit int, a sd
 	if limit < 1 || limit > 50 {
 		return out, failure("bad_request", "query_invalid")
 	}
-	statement, args, err := query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("payload").Where(query.And(s.owner(kind, o), query.GreaterThan("id", after))).OrderBy(query.Ascending("id")).Build()
+	statement, args, err := query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("id", "payload").Where(query.And(s.owner(kind, o), query.GreaterThan("id", after))).OrderBy(query.Ascending("id")).Build()
 	if err != nil {
 		return out, err
 	}
@@ -161,14 +197,16 @@ func (s *Store) List(ctx context.Context, kind, q, after string, limit int, a sd
 	}
 	defer rows.Close()
 	for rows.Next() {
+		var physicalID int64
 		var raw []byte
 		var r Record
-		if err = rows.Scan(&raw); err != nil {
+		if err = rows.Scan(&physicalID, &raw); err != nil {
 			return out, err
 		}
 		if err = unmarshalRecord(raw, &r); err != nil {
 			return out, err
 		}
+		r.ID = physicalID
 		if q != "" && !strings.Contains(strings.ToLower(r.Title+" "+string(r.Data)), strings.ToLower(q)) {
 			continue
 		}
@@ -187,7 +225,7 @@ func (s *Store) Save(ctx context.Context, kind string, in Write, a sdk.Authority
 	if err != nil {
 		return out, err
 	}
-	if !key(kind) || !key(in.ClientID) || in.ID != "" && !key(in.ID) || in.ExpectedRevision < 0 || strings.TrimSpace(in.Title) == "" || len(in.Title) > 255 || len(in.Data) > 32768 || !json.Valid(in.Data) || validate == nil {
+	if !key(kind) || !key(in.ClientID) || in.RecordID != "" && !key(in.RecordID) || in.ExpectedRevision < 0 || strings.TrimSpace(in.Title) == "" || len(in.Title) > 255 || len(in.Data) > 32768 || !json.Valid(in.Data) || validate == nil {
 		return out, failure("bad_request", "document_invalid")
 	}
 	// Retry the entire transaction after a serialization/deadlock or concurrent
@@ -232,10 +270,11 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		return out, err
 	}
 	var previous *Record
-	id := in.ID
-	if id != "" {
+	recordID := in.RecordID
+	if recordID != "" {
 		var p Record
-		err = readRow(ctx, tx, query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("payload").Where(s.document(kind, o, id)), &raw)
+		var physicalID int64
+		err = readRow(ctx, tx, query.NewSelectBuilder(s.renderer, "knowledge_records").Columns("id", "payload").Where(s.document(kind, o, recordID)), &physicalID, &raw)
 		if errors.Is(err, sql.ErrNoRows) {
 			return out, failure("not_found", "not_found")
 		}
@@ -245,6 +284,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		if err = unmarshalRecord(raw, &p); err != nil {
 			return out, err
 		}
+		p.ID = physicalID
 		previous = &p
 		if p.Revision != in.ExpectedRevision {
 			return out, failure("conflict", "revision_conflict")
@@ -253,26 +293,40 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 		if in.ExpectedRevision != 0 {
 			return out, failure("conflict", "revision_conflict")
 		}
-		id = "rec_" + hash([]string{s.namespace, o, kind, in.ClientID})[:32]
+		recordID, err = entityid.Derive("krec", "knowledge.record", s.namespace, o, kind, in.ClientID)
+		if err != nil {
+			return out, err
+		}
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	out = Record{ID: id, Kind: kind, Title: strings.TrimSpace(in.Title), Status: in.Status, Revision: 1, Data: append(json.RawMessage(nil), in.Data...), CreatedAt: now, UpdatedAt: now}
+	out = Record{RecordID: recordID, Kind: kind, Title: strings.TrimSpace(in.Title), Status: in.Status, Revision: 1, Data: append(json.RawMessage(nil), in.Data...), CreatedAt: now, UpdatedAt: now}
 	if previous != nil {
+		out.ID = previous.ID
 		out.Revision = previous.Revision + 1
 		out.CreatedAt = previous.CreatedAt
 	}
 	if err = validate(previous, &out); err != nil {
 		return Record{}, err
 	}
-	raw, err = marshalRecord(out)
-	if err != nil {
-		return Record{}, err
-	}
 	if previous == nil {
-		_, err = execute(ctx, tx, query.NewInsertBuilder(s.renderer, "knowledge_records").Columns("namespace", "owner", "kind", "id", "revision", "payload").Values(s.namespace, o, kind, id, out.Revision, string(raw)))
+		raw, err = marshalRecord(out)
+		if err != nil {
+			return Record{}, err
+		}
+		out.ID, err = insertPhysicalID(ctx, tx, s.profile, query.NewInsertBuilder(s.renderer, "knowledge_records").Columns("namespace", "owner", "kind", "record_id", "revision", "payload").Values(s.namespace, o, kind, recordID, out.Revision, string(raw)))
+		if err == nil {
+			raw, err = marshalRecord(out)
+		}
+		if err == nil {
+			_, err = execute(ctx, tx, query.NewUpdateBuilder(s.renderer, "knowledge_records").Set("payload", string(raw)).Where(query.Equal("id", out.ID)))
+		}
 	} else {
+		raw, err = marshalRecord(out)
+		if err != nil {
+			return Record{}, err
+		}
 		var r sql.Result
-		r, err = execute(ctx, tx, query.NewUpdateBuilder(s.renderer, "knowledge_records").Set("revision", out.Revision).Set("payload", string(raw)).Where(query.And(s.document(kind, o, id), query.Equal("revision", previous.Revision))))
+		r, err = execute(ctx, tx, query.NewUpdateBuilder(s.renderer, "knowledge_records").Set("revision", out.Revision).Set("payload", string(raw)).Where(query.And(s.document(kind, o, recordID), query.Equal("revision", previous.Revision))))
 		if err == nil {
 			n, e := r.RowsAffected()
 			if e != nil {
@@ -286,7 +340,7 @@ func (s *Store) save(ctx context.Context, kind string, in Write, o string, valid
 	if err != nil {
 		return out, err
 	}
-	if _, err = execute(ctx, tx, query.NewInsertBuilder(s.renderer, "knowledge_record_versions").Columns("namespace", "owner", "kind", "id", "revision", "payload").Values(s.namespace, o, kind, id, out.Revision, string(raw))); err != nil {
+	if _, err = execute(ctx, tx, query.NewInsertBuilder(s.renderer, "knowledge_record_versions").Columns("namespace", "owner", "kind", "record_id", "revision", "payload").Values(s.namespace, o, kind, recordID, out.Revision, string(raw))); err != nil {
 		return out, err
 	}
 	if _, err = execute(ctx, tx, query.NewInsertBuilder(s.renderer, "knowledge_record_receipts").Columns("namespace", "owner", "kind", "client", "digest", "payload").Values(s.namespace, o, kind, in.ClientID, hash(in), string(raw))); err != nil {

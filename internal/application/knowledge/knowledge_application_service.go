@@ -34,6 +34,9 @@ type Service struct {
 	failures                      FailureRecorder
 	runtimeID, owner              string
 	documentWake                  chan struct{}
+	webhookWake                   chan struct{}
+	aiWake                        chan struct{}
+	applicationCards              *agentsdk.KnowledgeApplicationCardRegistry
 	workerMu                      sync.Mutex
 	nextDocumentUploadExpirySweep time.Time
 }
@@ -52,10 +55,20 @@ func NewService(repo any, runtimeID string, options Options, failures FailureRec
 	if options.DocumentUploadIdleTimeout == 0 {
 		options.DocumentUploadIdleTimeout = 24 * time.Hour
 	}
+	if options.WebhookPoll == 0 {
+		options.WebhookPoll = 2 * time.Second
+	}
+	if options.AIPoll == 0 {
+		options.AIPoll = 2 * time.Second
+	}
 	if options.DocumentStorage != nil && options.DocumentSecurity == nil {
 		options.DocumentSecurity = builtinDocumentSecurity{}
 	}
-	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, failures: failures, documentWake: make(chan struct{}, 1)}
+	applicationCards, err := agentsdk.NewKnowledgeApplicationCardRegistry(options.ApplicationCardProviders...)
+	if err != nil {
+		panic(err)
+	}
+	return &Service{repo: repo, runtimeID: runtimeID, owner: hex.EncodeToString(b[:]), options: options, failures: failures, documentWake: make(chan struct{}, 1), webhookWake: make(chan struct{}, 1), aiWake: make(chan struct{}, 1), applicationCards: applicationCards}
 }
 
 // Start and Close are intentionally lifecycle-neutral. The assembly wrapper

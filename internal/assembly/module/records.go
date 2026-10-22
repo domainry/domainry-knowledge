@@ -30,7 +30,7 @@ func NewRecordStore(ctx context.Context, backend store.Backend, registrar module
 	if err != nil {
 		return nil, err
 	}
-	if err = registrar.ApplyOwnedMigrations(ctx, "knowledge_records", migrations); err != nil {
+	if err = registrar.ApplyOwnedMigrations(ctx, records.MigrationOwner, migrations); err != nil {
 		return nil, err
 	}
 	return result, nil

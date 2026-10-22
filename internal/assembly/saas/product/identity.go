@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/domainry/domainry-foundation/requestcontext"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	identitymodule "github.com/domainry/domainry-identity/module"
 )
@@ -81,6 +82,20 @@ func (host *Host) openIdentity(ctx context.Context, options Options) error {
 	}
 	if _, err = host.identity.Applications().Register(ctx, identitysdk.ApplicationRegistration{Application: host.application}); err != nil {
 		return fmt.Errorf("register Knowledge application identity: %w", err)
+	}
+	return nil
+}
+
+func (host *Host) registerTrustedKnowledgeApplications(ctx context.Context) error {
+	for _, registration := range host.trustedApplications.Registrations() {
+		application := identitysdk.ApplicationRef{WorkspaceID: identitysdk.WorkspaceID(host.workspaceID), ApplicationKey: identitysdk.ApplicationKey(registration.ApplicationKey)}
+		if _, err := host.identity.Applications().Register(ctx, identitysdk.ApplicationRegistration{Application: application}); err != nil {
+			return fmt.Errorf("register trusted Knowledge application %q: %w", registration.ApplicationKey, err)
+		}
+		resolution, err := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(ctx, host.workspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(registration.ServiceUserID)})
+		if err != nil || !resolution.Principal.Known || resolution.Principal.WorkspaceID != host.workspaceID || resolution.Principal.UserID != registration.ServiceUserID {
+			return fmt.Errorf("trusted Knowledge application %q service user %q is unavailable", registration.ApplicationKey, registration.ServiceUserID)
+		}
 	}
 	return nil
 }

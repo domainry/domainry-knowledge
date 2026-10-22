@@ -23,6 +23,21 @@ function textFromContent(content: unknown): string {
   return typeof value.text === "string" ? value.text : textFromContent(value.content);
 }
 
+const commentQuotePropertyKeys = new Set(["caption", "description", "displayName", "email", "icon", "label", "name", "question", "siteName", "title"]);
+
+export function documentBlockCommentQuote(block: { type: string; props?: Record<string, unknown>; content?: unknown }) {
+  const words: string[] = [];
+  const props = block.props || {};
+  for (const key of [...commentQuotePropertyKeys].sort()) {
+    const value = props?.[key];
+    if (typeof value === "string" && value.trim()) words.push(value);
+  }
+  const content = textFromContent(block.content).trim();
+  if (content) words.push(content);
+  const normalized = words.join(" ").replace(/\s+/g, " ").trim() || block.type;
+  return Array.from(normalized).slice(0, 1024).join("");
+}
+
 export function documentText(content: string) {
   const lines: string[] = [];
   const visit = (blocks: Block[]) => {

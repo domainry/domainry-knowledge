@@ -34,8 +34,11 @@ func (s *Service) ProcessKnowledgePageProjection(ctx context.Context, repository
 	digest := sha256.Sum256(content)
 	hash := hex.EncodeToString(digest[:])
 	filename := work.Page.ID + ".md"
-	scopeKey := conversationDigest([]string{work.Lease.RuntimeID, work.Lease.WorkspaceID})
-	documentID := "kdoc_" + conversationDigest([]string{scopeKey, work.Lease.PageID})[:32]
+	documentID, err := knowledgesdk.DeriveKnowledgeEntityID("kdoc", "knowledge.page_projection_document", work.Lease.RuntimeID, work.Lease.WorkspaceID, work.Lease.PageID)
+	if err != nil {
+		resultErr = err
+		return
+	}
 	reference, err := s.options.DocumentStorage.PutKnowledgeDocumentContent(ctx, DocumentStorageScope(work.Lease.LibraryID, work.Lease.Actor), documentID, hash, int64(len(content)), bytes.NewReader(content))
 	if err != nil {
 		resultErr = err

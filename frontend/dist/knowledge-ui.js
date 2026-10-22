@@ -1,15 +1,19 @@
-import { G as o, K as r, H as n, J as s, L as l, M as i, N as g, O as d, P as w, Q as P, T as p, V as H } from "./index-CChAJr3y.js";
+import { az as o, aA as r, aB as n, aC as s, aD as g, aE as l, aF as d, aG as i, aH as w, aI as P, aJ as K, aK as S, aL as c, aM as p, aN as t, aO as F } from "./index-xTnnSBIQ.js";
 export {
   o as FilePreviewDialog,
   r as KnowledgeLibraryManager,
   n as KnowledgeLibraryManagerDialog,
-  s as KnowledgePagesPanel,
-  l as KnowledgeWorkspace,
+  s as KnowledgePageShareManager,
+  g as KnowledgePagesPanel,
+  l as KnowledgeSharedPage,
+  d as KnowledgeWorkspace,
   i as canPreviewFilename,
-  g as downloadFile,
-  d as downloadFilename,
-  w as fileSHA256Header,
-  P as knowledgeDocumentPreviewSource,
+  w as createKnowledgePageShareLink,
+  P as downloadFile,
+  K as downloadFilename,
+  S as fileSHA256Header,
+  c as knowledgeDocumentPreviewSource,
   p as pageContentSHA256,
-  H as parseHTTPErrorResponse
+  t as parseHTTPErrorResponse,
+  F as parseKnowledgePageShareLocation
 };

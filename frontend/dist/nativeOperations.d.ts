@@ -1,0 +1,11 @@
+import type { KnowledgePageContentType, KnowledgePageNativeOperation } from "./types.ts";
+export declare function stableNativeJSON(value: unknown): string;
+export declare function nativeValueSHA256(value: unknown): Promise<string>;
+export declare function multidimensionalTableOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function spreadsheetOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function whiteboardOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function flowchartOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function mindMapOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function presentationOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function formOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]>;
+export declare function nativePageOperations(contentType: KnowledgePageContentType, beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[] | undefined>;

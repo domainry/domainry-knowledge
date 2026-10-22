@@ -60,8 +60,16 @@ func conversationError(class agentsdk.ErrorClass, code string) error {
 }
 
 func conversationAuthority(a agentsdk.Authority) error {
-	if !a.Known || strings.TrimSpace(a.RuntimeID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || strings.TrimSpace(a.UserID) == "" || len(a.RuntimeID) > 255 || len(a.WorkspaceID) > 255 || len(a.UserID) > 255 {
+	if !a.Known || strings.TrimSpace(a.RuntimeID) == "" || strings.TrimSpace(a.WorkspaceID) == "" || strings.TrimSpace(a.UserID) == "" || len(a.RuntimeID) > 255 || len(a.WorkspaceID) > 255 || len(a.UserID) > 255 || len(a.OrgScopeIDs) > 128 || len(a.OrgID) > 255 || len(a.AccountType) > 64 {
 		return conversationError("forbidden", "principal_required")
+	}
+	for _, id := range append(append([]string(nil), a.OrgScopeIDs...), a.OrgID) {
+		if id == "" {
+			continue
+		}
+		if !executionText(id, 255, true) || strings.TrimSpace(id) != id {
+			return conversationError("forbidden", "principal_required")
+		}
 	}
 	return nil
 }
@@ -123,4 +131,8 @@ func (s *Store) transaction(ctx context.Context, fn func(*sql.Tx) error) error {
 
 func required(name string, kind ormschema.ColumnType) ormschema.ColumnDefinition {
 	return ormschema.Column(name, kind).NotNull()
+}
+
+func physicalID() ormschema.ColumnDefinition {
+	return ormschema.Column("id", ormschema.BigInt()).NotNull().AutoIncrement()
 }

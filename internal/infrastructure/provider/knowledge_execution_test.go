@@ -94,7 +94,7 @@ func TestKnowledgeReceiptsRecheckCurrentRemoteAccessAndSource(t *testing.T) {
 				case "source":
 					copy.ScopeSHA256 = "forged"
 				case "library":
-					copy.LibraryID = "lib_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+					copy.LibraryID = "klib_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				}
 				before := calls.Load()
 				if k.RevalidateKnowledge(t.Context(), copy, other) == nil || k.AuthorizeKnowledgeResultRead(t.Context(), copy, other) == nil || calls.Load() != before {

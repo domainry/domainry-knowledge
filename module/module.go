@@ -88,6 +88,7 @@ type SQLBackend = store.SQLBackend
 func NewStore(backend Backend) *Store { return store.New(backend) }
 
 const MigrationOwner = store.MigrationOwner
+const RecordMigrationOwner = recordstore.MigrationOwner
 
 type MigrationRegistrar = store.MigrationRegistrar
 
@@ -97,8 +98,13 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 func SchemaMigrations(d knowledgemodulehost.Dialect) ([]knowledgemodulehost.SchemaMigration, error) {
 	return store.SchemaMigrations(d)
 }
-func SchemaOwnership() []schemaownership.Table { return store.SchemaOwnership() }
-func OwnedTables() []string                    { return schemaownership.Names(SchemaOwnership()) }
+func RecordSchemaMigrations(d knowledgemodulehost.Dialect) ([]knowledgemodulehost.SchemaMigration, error) {
+	return recordstore.Migrations(d)
+}
+func SchemaOwnership() []schemaownership.Table {
+	return append(store.SchemaOwnership(), recordstore.SchemaOwnership()...)
+}
+func OwnedTables() []string { return schemaownership.Names(SchemaOwnership()) }
 
 type Record = recordstore.Record
 type RecordWrite = recordstore.Write

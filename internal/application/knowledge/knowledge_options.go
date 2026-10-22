@@ -2,6 +2,7 @@ package application
 
 import (
 	"fmt"
+	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"time"
 )
@@ -43,6 +44,29 @@ func ValidateOptions(repo any, options *Options) error {
 	}
 	if options.DocumentUploadIdleTimeout < 5*time.Minute || options.DocumentUploadIdleTimeout > 30*24*time.Hour || options.DocumentUploadIdleTimeout%time.Second != 0 {
 		return fmt.Errorf("invalid document upload idle timeout")
+	}
+	if options.WebhookPoll == 0 {
+		options.WebhookPoll = 2 * time.Second
+	}
+	if options.WebhookPoll < 10*time.Millisecond || options.WebhookPoll > time.Minute {
+		return fmt.Errorf("invalid webhook polling interval")
+	}
+	if options.AIPoll == 0 {
+		options.AIPoll = 2 * time.Second
+	}
+	if options.AIPoll < 10*time.Millisecond || options.AIPoll > time.Minute {
+		return fmt.Errorf("invalid AI polling interval")
+	}
+	if options.AIProvider != nil {
+		if options.AccessExplainer == nil {
+			return fmt.Errorf("Knowledge AI requires a current-principal resolver")
+		}
+		if _, ok := repo.(knowledgesdk.KnowledgeAIRepository); !ok {
+			return fmt.Errorf("Knowledge AI requires execution persistence")
+		}
+	}
+	if _, err := knowledgesdk.NewKnowledgeApplicationCardRegistry(options.ApplicationCardProviders...); err != nil {
+		return err
 	}
 	return nil
 }

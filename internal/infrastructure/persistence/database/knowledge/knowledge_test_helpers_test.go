@@ -72,7 +72,7 @@ func reserveSubjectDocument(t *testing.T, store *Store, storage knowledgesdk.Kno
 	scope := knowledgesdk.KnowledgeDocumentStorageScope{RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: library.ID}
 	reference, err := storage.PutKnowledgeDocumentContent(t.Context(), scope, record.Document.ID, record.Document.SHA256, int64(len(body)), bytes.NewReader(body))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("put document %s in library %s: %v", record.Document.ID, library.ID, err)
 	}
 	record, err = store.CommitKnowledgeDocumentContent(t.Context(), record.Document.ID, record.Document.Revision, reference, authority)
 	if err != nil {

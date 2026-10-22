@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,7 +15,84 @@ import (
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-orm/query"
 )
+
+type collaborationMetricsRecorder struct {
+	snapshotBytes       []int64
+	updateBytes         []int64
+	latencies           []time.Duration
+	compressedBytes     []int64
+	compressionDuration []time.Duration
+	onlineUsers         []int64
+	reconnects          int
+	replayed            int64
+}
+
+func (recorder *collaborationMetricsRecorder) recordSnapshot(_ context.Context, value int64) {
+	recorder.snapshotBytes = append(recorder.snapshotBytes, value)
+}
+
+func (recorder *collaborationMetricsRecorder) recordUpdate(_ context.Context, updateBytes int64, latency time.Duration, snapshotBytes int64, compressionDuration time.Duration, compressedBytes int64) {
+	recorder.updateBytes = append(recorder.updateBytes, updateBytes)
+	recorder.latencies = append(recorder.latencies, latency)
+	recorder.snapshotBytes = append(recorder.snapshotBytes, snapshotBytes)
+	recorder.compressionDuration = append(recorder.compressionDuration, compressionDuration)
+	recorder.compressedBytes = append(recorder.compressedBytes, compressedBytes)
+}
+
+func (recorder *collaborationMetricsRecorder) recordOnlineUsers(_ context.Context, value int64) {
+	recorder.onlineUsers = append(recorder.onlineUsers, value)
+}
+
+func (recorder *collaborationMetricsRecorder) recordEventStream(_ context.Context, reconnected bool, replayed int64) {
+	if reconnected {
+		recorder.reconnects++
+	}
+	recorder.replayed += replayed
+}
+
+type collaborationWakeBus struct {
+	mu          sync.Mutex
+	subscribers map[string]map[chan struct{}]struct{}
+}
+
+func newCollaborationWakeBus() *collaborationWakeBus {
+	return &collaborationWakeBus{subscribers: map[string]map[chan struct{}]struct{}{}}
+}
+
+func (bus *collaborationWakeBus) PublishKnowledgeCollaborationWake(_ context.Context, keys []string) error {
+	bus.mu.Lock()
+	defer bus.mu.Unlock()
+	for _, key := range keys {
+		for subscriber := range bus.subscribers[key] {
+			select {
+			case subscriber <- struct{}{}:
+			default:
+			}
+		}
+	}
+	return nil
+}
+
+func (bus *collaborationWakeBus) SubscribeKnowledgeCollaborationWake(_ context.Context, keys []string) (<-chan struct{}, func(), error) {
+	updates := make(chan struct{}, 1)
+	bus.mu.Lock()
+	for _, key := range keys {
+		if bus.subscribers[key] == nil {
+			bus.subscribers[key] = map[chan struct{}]struct{}{}
+		}
+		bus.subscribers[key][updates] = struct{}{}
+	}
+	bus.mu.Unlock()
+	return updates, func() {
+		bus.mu.Lock()
+		defer bus.mu.Unlock()
+		for _, key := range keys {
+			delete(bus.subscribers[key], updates)
+		}
+	}, nil
+}
 
 func connectCollaborationFixture(t *testing.T, store *Store, libraryID, pageID, clientID string, authority agentsdk.Authority) knowledgesdk.KnowledgeCollaborationSession {
 	t.Helper()
@@ -61,10 +140,137 @@ func TestKnowledgeCollaborationBlockSnapshotSurvivesRestart(t *testing.T) {
 	if !result.Applied || result.Session.Snapshot.YjsState != update.YjsState {
 		t.Fatalf("Yjs checkpoint was not applied: %+v", result)
 	}
+	retry, err := store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID, AfterClock: session.ServerClock, Update: &update}, authority)
+	if err != nil || !retry.Applied || retry.Session.Snapshot.DraftRevision != result.Session.Snapshot.DraftRevision {
+		t.Fatalf("identical checkpoint retry was not idempotent: result=%+v err=%v", retry, err)
+	}
+	conflicting := update
+	conflicting.YjsState = base64.StdEncoding.EncodeToString([]byte("different checkpoint"))
+	_, err = store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID, AfterClock: result.Session.ServerClock, Update: &conflicting}, authority)
+	var failure *knowledgesdk.Error
+	if !errors.As(err, &failure) || failure.Code != "knowledge.collaboration_update_conflict" {
+		t.Fatalf("same update ID with different checkpoint did not conflict: %v", err)
+	}
+	if err := store.transaction(t.Context(), func(tx *sql.Tx) error {
+		var snapshotRecord knowledgeCollaborationSnapshotRecord
+		found, readErr := store.executionRead(t.Context(), tx, knowledgePageCollaborationSnapshotTable, pageScope(authority, page.Page.ID), &snapshotRecord)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || snapshotRecord.YjsStateGzip == "" || snapshotRecord.Snapshot.YjsState != "" {
+			t.Fatalf("durable checkpoint was not gzip-only: %+v", snapshotRecord)
+		}
+		restored, restoreErr := restoreKnowledgeCollaborationSnapshot(snapshotRecord)
+		if restoreErr != nil || restored.YjsState != update.YjsState {
+			t.Fatalf("durable checkpoint did not round-trip: snapshot=%+v err=%v", restored, restoreErr)
+		}
+		var updateRecord knowledgeCollaborationUpdateRecord
+		found, readErr = store.executionRead(t.Context(), tx, knowledgePageCollaborationUpdateTable, query.And(pageScope(authority, page.Page.ID), query.Equal("update_id", update.UpdateID)), &updateRecord)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || updateRecord.RequestHash == "" || updateRecord.Update.YjsUpdate == "" {
+			t.Fatalf("durable update log lost idempotency or delta: %+v", updateRecord)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	restarted := New(store.store)
 	reconnected := connectCollaborationFixture(t, restarted, library.ID, page.Page.ID, "client-restart", authority)
 	if reconnected.Snapshot.Content != update.Content || reconnected.Snapshot.YjsState != update.YjsState || reconnected.Snapshot.DraftRevision != result.Session.Snapshot.DraftRevision {
 		t.Fatalf("collaboration checkpoint did not survive restart: %+v", reconnected.Snapshot)
+	}
+}
+
+func TestKnowledgeCollaborationPersistsContinuousBlockEditHistory(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	page = savePageFixture(t, store, authority, library, page, "history-base", "原标题", "第一段")
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "history-client", authority)
+	newTitle := "新标题"
+	update := collaborationUpdateFixture("history-client", "history-update", "第一段已修改\n第二段", &newTitle, "block-1", "block-2")
+	result := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, session.ServerClock, &update, authority)
+	history, err := store.KnowledgePageEditHistory(t.Context(), library.ID, page.Page.ID, 0, 20, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Items) != 2 || !history.Complete {
+		t.Fatalf("unexpected edit history page: %+v", history)
+	}
+	entry := history.Items[0]
+	if entry.Clock != result.Session.ServerClock || entry.DraftRevision != result.Session.Snapshot.DraftRevision || entry.UserID != authority.UserID || !entry.TitleChanged || entry.ChangedBlockCount != 2 || entry.Truncated || len(entry.Changes) != 2 {
+		t.Fatalf("unexpected edit history entry: %+v", entry)
+	}
+	if entry.Changes[0].NodeID != "block-1" || entry.Changes[0].Kind != "update" || entry.Changes[0].BeforePreview != "第一段" || entry.Changes[0].AfterPreview != "第一段已修改" {
+		t.Fatalf("missing block update diff: %+v", entry.Changes)
+	}
+	if entry.Changes[1].NodeID != "block-2" || entry.Changes[1].Kind != "insert" || entry.Changes[1].AfterPreview != "第二段" {
+		t.Fatalf("missing block insert diff: %+v", entry.Changes)
+	}
+}
+
+func TestKnowledgeCollaborationRecordsOperationalMetricsWithoutContentLabels(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	recorder := &collaborationMetricsRecorder{}
+	store.collaborationMetrics = recorder
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "metrics-client", authority)
+	update := collaborationUpdateFixture("metrics-client", "metrics-update", "metrics body", nil, "block-1")
+	update.ClientCreatedAt = time.Now().Add(-20 * time.Millisecond)
+	result := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, session.ServerClock, &update, authority)
+	if !result.Applied {
+		t.Fatal("metrics fixture update was not applied")
+	}
+	if len(recorder.updateBytes) != 1 || recorder.updateBytes[0] != int64(len("update:"+update.UpdateID)) || len(recorder.latencies) != 1 || recorder.latencies[0] < 0 || len(recorder.compressedBytes) != 1 || recorder.compressedBytes[0] <= 0 || len(recorder.compressionDuration) != 1 || recorder.compressionDuration[0] <= 0 {
+		t.Fatalf("update/checkpoint metrics missing: %+v", recorder)
+	}
+	if len(recorder.onlineUsers) < 2 || recorder.onlineUsers[len(recorder.onlineUsers)-1] != 1 || len(recorder.snapshotBytes) < 2 || recorder.snapshotBytes[len(recorder.snapshotBytes)-1] <= 0 {
+		t.Fatalf("snapshot/presence metrics missing: %+v", recorder)
+	}
+	batch, err := store.KnowledgeCollaborationEvents(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: session.ID, AfterClock: 0, ConnectionAttempt: 2}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batch.Events) == 0 || recorder.reconnects != 1 || recorder.replayed < 1 {
+		t.Fatalf("reconnect/replay metrics missing: batch=%+v recorder=%+v", batch, recorder)
+	}
+}
+
+func TestKnowledgeCollaborationReplaysDeltasAfterBoundedCheckpoint(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "delta-client", authority)
+	checkpoint := collaborationUpdateFixture("delta-client", "delta-checkpoint", "初始正文", nil, "block-1")
+	first := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, session.ServerClock, &checkpoint, authority)
+	delta := collaborationUpdateFixture("delta-client", "delta-only", "增量后的正文", nil, "block-1")
+	delta.YjsState = ""
+	second := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, first.Session.ServerClock, &delta, authority)
+	if !second.Applied || second.Session.Snapshot.YjsState != checkpoint.YjsState || second.Session.Snapshot.YjsStateClock != first.Session.ServerClock {
+		t.Fatalf("delta unexpectedly replaced the durable checkpoint: %+v", second.Session.Snapshot)
+	}
+	reconnected := connectCollaborationFixture(t, New(store.store), library.ID, page.Page.ID, "delta-reconnect", authority)
+	if reconnected.Snapshot.YjsState != checkpoint.YjsState || len(reconnected.Snapshot.YjsUpdates) != 1 || reconnected.Snapshot.YjsUpdates[0].UpdateID != delta.UpdateID || reconnected.Snapshot.YjsUpdates[0].Clock != second.Session.ServerClock {
+		t.Fatalf("reconnect did not return checkpoint plus ordered delta replay: %+v", reconnected.Snapshot)
+	}
+}
+
+func TestKnowledgeCollaborationRequiresPeriodicCheckpointBeforeReplayWindowCanOverflow(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "checkpoint-client", authority)
+	first := collaborationUpdateFixture("checkpoint-client", "checkpoint-1", "1", nil, "block-1")
+	result := syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, session.ServerClock, &first, authority)
+	for clock := int64(2); clock <= knowledgeCollaborationCheckpointInterval; clock++ {
+		update := collaborationUpdateFixture("checkpoint-client", fmt.Sprintf("delta-%d", clock), fmt.Sprintf("%d", clock), nil, "block-1")
+		update.YjsState = ""
+		result = syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, result.Session.ServerClock, &update, authority)
+	}
+	required := collaborationUpdateFixture("checkpoint-client", "checkpoint-required", "checkpoint required", nil, "block-1")
+	required.YjsState = ""
+	if _, err := store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID, AfterClock: result.Session.ServerClock, Update: &required}, authority); err == nil || !strings.Contains(err.Error(), "collaboration_checkpoint_required") {
+		t.Fatalf("unbounded delta chain was accepted: %v", err)
+	}
+	required.YjsState = base64.StdEncoding.EncodeToString([]byte("checkpoint:required"))
+	result = syncCollaborationFixture(t, store, library.ID, page.Page.ID, session, result.Session.ServerClock, &required, authority)
+	if result.Session.Snapshot.YjsStateClock != result.Session.ServerClock || len(result.Session.Snapshot.YjsUpdates) != 0 {
+		t.Fatalf("periodic checkpoint did not compact the client replay view: %+v", result.Session.Snapshot)
 	}
 }
 
@@ -81,8 +287,9 @@ func TestKnowledgeCollaborationPresenceReportsBlocksAndEventAuthors(t *testing.T
 	bob := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "bob", bobAuthority)
 	title := "协作标题"
 	update := collaborationUpdateFixture("bob", "bob-update", "Bob 修改", &title, "block-1")
+	awareness := base64.StdEncoding.EncodeToString([]byte("transient-awareness"))
 	result, err := store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{
-		SessionID: bob.ID, AfterClock: bob.ServerClock, Update: &update, CursorBlockID: "block-1", SelectionBlockID: "block-1",
+		SessionID: bob.ID, AfterClock: bob.ServerClock, Update: &update, AwarenessUpdate: awareness, CursorBlockID: "block-1", SelectionBlockID: "block-1",
 	}, bobAuthority)
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +300,7 @@ func TestKnowledgeCollaborationPresenceReportsBlocksAndEventAuthors(t *testing.T
 			bobPresence = &result.Session.Presence[index]
 		}
 	}
-	if bobPresence == nil || bobPresence.CursorBlockID != "block-1" || bobPresence.SelectionBlockID != "block-1" || bobPresence.EditedBlocks != 1 {
+	if bobPresence == nil || bobPresence.AwarenessUpdate != awareness || bobPresence.CursorBlockID != "block-1" || bobPresence.SelectionBlockID != "block-1" || bobPresence.EditedBlocks != 1 {
 		t.Fatalf("presence did not expose block cursor and edit count: %+v", result.Session.Presence)
 	}
 	aliceResult := syncCollaborationFixture(t, store, library.ID, page.Page.ID, alice, alice.ServerClock, nil, authority)
@@ -214,6 +421,19 @@ func TestKnowledgeCollaborationMemberRemovalRevokesSession(t *testing.T) {
 	if _, err = store.RemoveKnowledgeLibraryMember(t.Context(), library.ID, bob.UserID, library.Revision, authority); err != nil {
 		t.Fatal(err)
 	}
+	if err = store.transaction(t.Context(), func(tx *sql.Tx) error {
+		var record knowledgeCollaborationSessionRecord
+		found, readErr := store.executionRead(t.Context(), tx, knowledgePageCollaborationSessionTable, knowledgeCollaborationSessionScope(authority, session.ID), &record)
+		if readErr != nil {
+			return readErr
+		}
+		if !found || record.State != "revoked" || record.AwarenessUpdate != "" || record.CursorBlockID != "" || record.SelectionBlockID != "" || len(record.EditedBlockIDs) != 0 {
+			t.Fatalf("revoked session retained transient collaboration state: %+v", record)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID}, bob); err == nil {
 		t.Fatal("removed member retained an active collaboration session")
 	}
@@ -273,6 +493,40 @@ func TestKnowledgeCollaborationEventsWakeImmediatelyAndResumeByClock(t *testing.
 	}
 }
 
+func TestKnowledgeCollaborationExternalNotifierWakesAnotherStoreInstance(t *testing.T) {
+	writer, authority, library, page := pageFixture(t)
+	readerStore := New(writer.store)
+	bus := newCollaborationWakeBus()
+	writer.SetKnowledgeCollaborationNotifier(bus)
+	readerStore.SetKnowledgeCollaborationNotifier(bus)
+	reader := connectCollaborationFixture(t, readerStore, library.ID, page.Page.ID, "cross-instance-reader", authority)
+	writerSession := connectCollaborationFixture(t, writer, library.ID, page.Page.ID, "cross-instance-writer", authority)
+	result := make(chan knowledgesdk.KnowledgeCollaborationEventBatch, 1)
+	errors := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	go func() {
+		batch, waitErr := readerStore.KnowledgeCollaborationEvents(ctx, library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationEvents{SessionID: reader.ID, AfterClock: reader.ServerClock, WaitMillis: 2500}, authority)
+		if waitErr != nil {
+			errors <- waitErr
+			return
+		}
+		result <- batch
+	}()
+	update := collaborationUpdateFixture("cross-instance-writer", "cross-instance-update", "跨实例唤醒", nil, "block-1")
+	synced := syncCollaborationFixture(t, writer, library.ID, page.Page.ID, writerSession, writerSession.ServerClock, &update, authority)
+	select {
+	case waitErr := <-errors:
+		t.Fatal(waitErr)
+	case batch := <-result:
+		if batch.ServerClock != synced.Session.ServerClock || len(batch.Events) == 0 || batch.Events[0].Update == nil || batch.Events[0].Update.UpdateID != update.UpdateID {
+			t.Fatalf("external notifier woke without durable replay: %+v", batch)
+		}
+	case <-ctx.Done():
+		t.Fatal("external notifier did not wake the second store instance")
+	}
+}
+
 func TestKnowledgeCollaborationEventsWakeWhenMembershipRevokesSession(t *testing.T) {
 	store, authority, library, page := pageFixture(t)
 	bob := authority
@@ -283,6 +537,10 @@ func TestKnowledgeCollaborationEventsWakeWhenMembershipRevokesSession(t *testing
 		t.Fatal(err)
 	}
 	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "bob-events", bob)
+	awareness := base64.StdEncoding.EncodeToString([]byte("revoked-awareness"))
+	if _, err = store.SyncKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgeCollaborationSync{SessionID: session.ID, AfterClock: session.ServerClock, AwarenessUpdate: awareness, CursorBlockID: "block-1", SelectionBlockID: "block-1"}, bob); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
 	defer cancel()
 	streamErr := make(chan error, 1)
@@ -300,6 +558,63 @@ func TestKnowledgeCollaborationEventsWakeWhenMembershipRevokesSession(t *testing
 		}
 	case <-ctx.Done():
 		t.Fatal("membership revocation did not wake the existing event wait")
+	}
+}
+
+func TestKnowledgePageLiveEventsWakeForReadersAndCloseOnRevocation(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	page = savePageFixture(t, store, authority, library, page, "live-reader-save", "实时引用", "已发布内容")
+	page = publishPageFixture(t, store, authority, library, page, "live-reader-publish")
+	bob := authority
+	bob.UserID = "live-reader-bob"
+	var err error
+	library, err = store.SetKnowledgeLibraryMember(t.Context(), library.ID, bob.UserID, agentsdk.KnowledgeLibraryMemberWrite{Role: "reader", ExpectedRevision: library.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := store.KnowledgePageLiveEvents(t.Context(), library.ID, page.Page.ID, knowledgesdk.KnowledgePageLiveEvents{AfterRevision: page.Page.Revision}, bob)
+	if err != nil || len(initial.Events) != 1 || initial.Events[0].Type != knowledgesdk.KnowledgePageLiveEventHeartbeat {
+		t.Fatalf("unexpected initial live event: batch=%+v err=%v", initial, err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	changed := make(chan knowledgesdk.KnowledgePageLiveEventBatch, 1)
+	errors := make(chan error, 1)
+	go func() {
+		batch, waitErr := store.KnowledgePageLiveEvents(ctx, library.ID, page.Page.ID, knowledgesdk.KnowledgePageLiveEvents{AfterRevision: initial.Revision, WaitMillis: 2500}, bob)
+		if waitErr != nil {
+			errors <- waitErr
+			return
+		}
+		changed <- batch
+	}()
+	page = savePageFixture(t, store, authority, library, page, "live-reader-draft", "实时引用", "更新中的草稿")
+	select {
+	case waitErr := <-errors:
+		t.Fatal(waitErr)
+	case batch := <-changed:
+		if len(batch.Events) != 1 || batch.Events[0].Type != knowledgesdk.KnowledgePageLiveEventChanged || batch.Events[0].PageID != page.Page.ID {
+			t.Fatalf("page change did not produce a content-free signal: %+v", batch)
+		}
+	case <-ctx.Done():
+		t.Fatal("page live event did not wake after a page change")
+	}
+
+	revoked := make(chan error, 1)
+	go func() {
+		_, waitErr := store.KnowledgePageLiveEvents(ctx, library.ID, page.Page.ID, knowledgesdk.KnowledgePageLiveEvents{AfterRevision: page.Page.Revision, WaitMillis: 2500}, bob)
+		revoked <- waitErr
+	}()
+	if _, err = store.RemoveKnowledgeLibraryMember(t.Context(), library.ID, bob.UserID, library.Revision, authority); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case waitErr := <-revoked:
+		if waitErr == nil || !strings.Contains(waitErr.Error(), "library_not_found") {
+			t.Fatalf("revoked page live wait returned %v", waitErr)
+		}
+	case <-ctx.Done():
+		t.Fatal("membership revocation did not close the page live wait")
 	}
 }
 

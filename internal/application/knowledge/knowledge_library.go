@@ -180,6 +180,71 @@ func (s *Service) RemoveKnowledgeLibraryMember(ctx context.Context, id, user str
 	return out, err
 }
 
+func (s *Service) KnowledgeLibraryOrganizationMembers(ctx context.Context, id, after string, limit int, a agentsdk.Authority) (agentsdk.KnowledgeLibraryOrganizationMembers, error) {
+	repo, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryOrganizationMembersList, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibraryOrganizationMembers{}, err
+	}
+	item, err := repo.KnowledgeLibrary(ctx, id, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibraryOrganizationMembers{}, err
+	}
+	if err = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryOrganizationMembersList, item, a); err != nil {
+		return agentsdk.KnowledgeLibraryOrganizationMembers{}, err
+	}
+	return repo.KnowledgeLibraryOrganizationMembers(ctx, id, after, limit, a)
+}
+
+func (s *Service) SetKnowledgeLibraryOrganizationMember(ctx context.Context, id, organizationID string, in agentsdk.KnowledgeLibraryMemberWrite, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
+	repo, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryOrganizationMembersSet, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	item, err := repo.KnowledgeLibrary(ctx, id, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	if err = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryOrganizationMembersSet, item, a); err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	if item.Kind != "shared" || item.Role != "manager" {
+		return agentsdk.KnowledgeLibrary{}, conversationFailure("forbidden", "library_manage_required")
+	}
+	if err = s.options.LibraryAuthorizer.ValidateKnowledgeLibraryOrganizationMember(ctx, organizationID, a); err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	out, err := repo.SetKnowledgeLibraryOrganizationMember(ctx, id, organizationID, in, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionLibraryOrganizationMembersSet, "knowledge.library_organization_member.set", id, "", organizationID, "", out.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(in.ExpectedRevision, 10),
+		}, map[string]string{"organization_id": organizationID, "role": in.Role}, a)
+	}
+	return out, err
+}
+
+func (s *Service) RemoveKnowledgeLibraryOrganizationMember(ctx context.Context, id, organizationID string, revision int64, a agentsdk.Authority) (agentsdk.KnowledgeLibrary, error) {
+	repo, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryOrganizationMembersRemove, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	item, err := repo.KnowledgeLibrary(ctx, id, a)
+	if err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	if err = s.LibraryAuthorize(ctx, knowledgesdk.ActionLibraryOrganizationMembersRemove, item, a); err != nil {
+		return agentsdk.KnowledgeLibrary{}, err
+	}
+	out, err := repo.RemoveKnowledgeLibraryOrganizationMember(ctx, id, organizationID, revision, a)
+	out, err = s.LibraryResult(ctx, out, err, a)
+	if err == nil {
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionLibraryOrganizationMembersRemove, "knowledge.library_organization_member.removed", id, "", organizationID, "", out.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(revision, 10), "organization_id": organizationID,
+		}, nil, a)
+	}
+	return out, err
+}
+
 func libraryState(archived bool) string {
 	if archived {
 		return "archived"

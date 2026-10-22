@@ -16,11 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
-var knowledgeLibraryIDPattern = regexp.MustCompile(`^lib_[a-f0-9]{32}$`)
-var knowledgeDocumentIDPattern = regexp.MustCompile(`^kdoc_[a-f0-9]{32}$`)
 var knowledgeDocumentReferencePattern = regexp.MustCompile(`^s3_document_[a-f0-9]{64}$`)
 var knowledgeDocumentSHA256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
@@ -31,7 +30,7 @@ func knowledgeDocumentStorageError(class agentsdk.ErrorClass, code string) error
 }
 
 func knowledgeDocumentScopeHash(scope agentsdk.KnowledgeDocumentStorageScope, documentID string) (string, error) {
-	if strings.TrimSpace(scope.RuntimeID) == "" || strings.TrimSpace(scope.WorkspaceID) == "" || len(scope.RuntimeID) > 255 || len(scope.WorkspaceID) > 255 || !knowledgeLibraryIDPattern.MatchString(scope.LibraryID) || !knowledgeDocumentIDPattern.MatchString(documentID) {
+	if strings.TrimSpace(scope.RuntimeID) == "" || strings.TrimSpace(scope.WorkspaceID) == "" || len(scope.RuntimeID) > 255 || len(scope.WorkspaceID) > 255 || entityid.Validate("klib", scope.LibraryID) != nil || entityid.Validate("kdoc", documentID) != nil {
 		return "", knowledgeDocumentStorageError("bad_request", "document_reference_invalid")
 	}
 	raw, _ := json.Marshal([]string{scope.RuntimeID, scope.WorkspaceID, scope.LibraryID})

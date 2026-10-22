@@ -60,8 +60,8 @@ export async function errorFrom(response: Response) {
     : new APIError(`http.${response.status}`, response.status);
 }
 
-async function identityRequest(path: string, body: unknown, token = "") {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+async function identityRequest(path: string, body: unknown, token = "", additionalHeaders: Record<string, string> = {}) {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ...additionalHeaders };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(path, { method: "POST", credentials: "same-origin", cache: "no-store", headers, body: JSON.stringify(body) });
   if (!response.ok) throw await errorFrom(response);
@@ -100,8 +100,13 @@ export async function logout() {
   finally { accessToken = ""; sessionRevision += 1; }
 }
 
-export async function changePassword(currentPassword: string, newPassword: string) {
-  const value = await identityRequest("/auth/change-password", { current_password: currentPassword, new_password: newPassword }, accessToken);
+export async function changePassword(currentPassword: string, newPassword: string, idempotencyKey: string) {
+  const value = await identityRequest(
+    "/auth/change-password",
+    { current_password: currentPassword, new_password: newPassword },
+    accessToken,
+    { "Idempotency-Key": idempotencyKey },
+  );
   return acceptIdentitySession(value);
 }
 
@@ -140,6 +145,24 @@ export function formatError(error: unknown) {
       "identity.challenge_required": "该账号需要完成额外验证，当前登录页暂未启用此验证方式。",
       "knowledge.origin_required": "请求来源校验失败，请从当前站点重新打开。",
       "knowledge.retrieval_unavailable": "知识检索服务尚未配置。",
+      "knowledge.page_form_required": "当前页面不是可提交的问卷。",
+      "knowledge.page_form_unavailable": "问卷当前不可提交，请刷新后重试。",
+      "knowledge.page_form_submit_denied": "你没有提交这份问卷的权限。",
+      "knowledge.page_form_not_open": "问卷尚未开放提交。",
+      "knowledge.page_form_closed": "问卷已截止提交。",
+      "knowledge.page_form_duplicate_submission": "你已经提交过这份问卷，不能重复提交。",
+      "knowledge.page_form_submission_limit": "这份问卷的答卷数量已达到上限。",
+      "knowledge.page_form_answer_required": "请完成所有必填问题。",
+      "knowledge.page_form_answer_hidden": "答卷包含当前条件下不可见的问题，请刷新后重新填写。",
+      "knowledge.page_form_answer_unknown": "答卷包含问卷中不存在的问题，请刷新后重新填写。",
+      "knowledge.page_form_answer_invalid": "部分答案格式不正确，请检查后重新提交。",
+      "knowledge.page_form_answers_invalid": "答卷格式不正确，请刷新后重新填写。",
+      "knowledge.page_form_answers_too_large": "答卷内容过大，请精简后重新提交。",
+      "knowledge.page_form_unpublished": "问卷尚未发布，暂时没有可统计的答卷。",
+      "knowledge.page_form_export_limit": "答卷数量超过单次导出上限，请缩小导出范围。",
+      "knowledge.page_share_redeem_required": "请先验证当前登录账号的分享访问资格。",
+      "knowledge.page_share_password_invalid": "访问密码不正确。",
+      "knowledge.page_share_not_found": "分享已撤销、已过期、账号不在允许范围，或页面不再发布。",
     };
     return messages[error.code] || `请求失败：${error.message}`;
   }

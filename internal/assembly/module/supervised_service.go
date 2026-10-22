@@ -35,7 +35,7 @@ func (service *supervisedService) Start(parent context.Context) {
 		}
 		ctx, cancel := context.WithCancel(parent)
 		service.cancel = cancel
-		done := make([]<-chan struct{}, 0, 1)
+		done := make([]<-chan struct{}, 0, 3)
 		interval := service.implementation.DocumentWorkerInterval()
 		if interval <= 0 {
 			interval = 2 * time.Second
@@ -53,6 +53,48 @@ func (service *supervisedService) Start(parent context.Context) {
 				service.implementation.DocumentWorkerWakeups(),
 				func(tickCtx context.Context) (workerplatform.TickResult, error) {
 					result, err := service.implementation.KnowledgeDocumentWorkerTick(tickCtx)
+					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
+				},
+			))
+		}
+		webhookInterval := service.implementation.WebhookWorkerInterval()
+		if webhookInterval <= 0 {
+			webhookInterval = 2 * time.Second
+		}
+		webhookMaxInterval := webhookInterval * 16
+		if webhookMaxInterval < 30*time.Second {
+			webhookMaxInterval = 30 * time.Second
+		}
+		if service.implementation.WebhookWorkerEnabled() {
+			done = append(done, workerplatform.StartWakeableAdaptiveLoop(
+				ctx,
+				workerplatform.Identity{Owner: "knowledge", Name: "webhook"},
+				webhookInterval,
+				webhookMaxInterval,
+				service.implementation.WebhookWorkerWakeups(),
+				func(tickCtx context.Context) (workerplatform.TickResult, error) {
+					result, err := service.implementation.KnowledgeWebhookWorkerTick(tickCtx)
+					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
+				},
+			))
+		}
+		aiInterval := service.implementation.AIWorkerInterval()
+		if aiInterval <= 0 {
+			aiInterval = 2 * time.Second
+		}
+		aiMaxInterval := aiInterval * 16
+		if aiMaxInterval < 30*time.Second {
+			aiMaxInterval = 30 * time.Second
+		}
+		if service.implementation.AIWorkerEnabled() {
+			done = append(done, workerplatform.StartWakeableAdaptiveLoop(
+				ctx,
+				workerplatform.Identity{Owner: "knowledge", Name: "ai"},
+				aiInterval,
+				aiMaxInterval,
+				service.implementation.AIWorkerWakeups(),
+				func(tickCtx context.Context) (workerplatform.TickResult, error) {
+					result, err := service.implementation.KnowledgeAIWorkerTick(tickCtx)
 					return workerplatform.TickResult{Worked: result.Worked, ProcessedCount: result.ProcessedCount}, err
 				},
 			))

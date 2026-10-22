@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
@@ -33,7 +34,7 @@ func (s *Store) knowledgeSourceClaimed(ctx context.Context, db conversationDB, s
 	return count > 0, err
 }
 func validKnowledgeDocumentID(id string) bool {
-	return strings.HasPrefix(id, "kdoc_") && len(id) == 37 && personalMemoryKey(id)
+	return entityid.Validate("kdoc", id) == nil
 }
 func requireDocumentWriting(l agentsdk.KnowledgeLibrary) error {
 	if l.Archived {
@@ -186,7 +187,10 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 	if in.DocumentOrigin != nil {
 		namespace = "knowledge_document_transfer.v1"
 	}
-	id := knowledgeDocumentReservationID(in.LibraryID, in.ClientID, namespace, a)
+	id, err := knowledgeDocumentReservationID(in.LibraryID, in.ClientID, namespace, a)
+	if err != nil {
+		return out, err
+	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		out = persistence.KnowledgeDocumentRecord{}
 		library, e := s.libraryRecord(ctx, tx, in.LibraryID, a)
@@ -305,7 +309,8 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 	if limit == 0 {
 		limit = 20
 	}
-	if limit < 1 || limit > 50 || after != "" && !validKnowledgeDocumentID(after) {
+	afterID, valid := parsePhysicalAfter(after)
+	if limit < 1 || limit > 50 || !valid {
 		return out, conversationError("bad_request", "document_query_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
@@ -313,7 +318,11 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 		if _, e := s.libraryRecord(ctx, tx, library, a); e != nil {
 			return e
 		}
-		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeDocumentTable).Columns("payload_json").Where(query.And(libraryPredicate(a, library), query.Equal("projection_kind", "file"), query.GreaterThan("document_id", after), query.NotEqual("state", "deleted"))).OrderBy(query.Ascending("document_id")).Limit(limit + 1).Build()
+		predicate := query.And(libraryPredicate(a, library), query.Equal("projection_kind", "file"), query.NotEqual("state", "deleted"))
+		if afterID > 0 {
+			predicate = query.And(predicate, query.GreaterThan("id", afterID))
+		}
+		q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeDocumentTable).Columns("id", "payload_json").Where(predicate).OrderBy(query.Ascending("id")).Limit(limit + 1).Build()
 		if e != nil {
 			return e
 		}
@@ -322,15 +331,18 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 			return e
 		}
 		defer rows.Close()
+		physicalIDs := make([]int64, 0, limit+1)
 		for rows.Next() {
+			var physicalID int64
 			var raw []byte
 			var r persistence.KnowledgeDocumentRecord
-			if e = rows.Scan(&raw); e != nil {
+			if e = rows.Scan(&physicalID, &raw); e != nil {
 				return e
 			}
 			if e = unmarshalDurableJSON(raw, &r); e != nil {
 				return e
 			}
+			physicalIDs = append(physicalIDs, physicalID)
 			out.Items = append(out.Items, r.Document)
 		}
 		if e = rows.Err(); e != nil {
@@ -339,7 +351,7 @@ func (s *Store) KnowledgeDocuments(ctx context.Context, library, after string, l
 		if len(out.Items) > limit {
 			out.Items = out.Items[:limit]
 			out.Complete = false
-			out.NextAfter = out.Items[limit-1].ID
+			out.NextAfter = physicalAfterValue(physicalIDs[limit-1])
 		}
 		return nil
 	})

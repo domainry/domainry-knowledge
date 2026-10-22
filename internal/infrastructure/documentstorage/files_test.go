@@ -25,7 +25,7 @@ func TestLibraryOriginalIsolationAndDurableDeletionFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { f.Close() }()
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("a", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("a", 32)}
 	id, raw := "kdoc_"+strings.Repeat("b", 32), []byte("shared immutable original")
 	ref, err := f.PutKnowledgeDocumentContent(t.Context(), scope, id, digest(raw), int64(len(raw)), bytes.NewReader(raw))
 	if err != nil {
@@ -44,7 +44,7 @@ func TestLibraryOriginalIsolationAndDurableDeletionFence(t *testing.T) {
 		t.Fatalf("range=%q err=%v", part, err)
 	}
 	other := scope
-	other.LibraryID = "lib_" + strings.Repeat("c", 32)
+	other.LibraryID = "klib_" + strings.Repeat("c", 32)
 	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), other, id, ref, digest(raw), int64(len(raw))); err == nil {
 		t.Fatal("cross-library original read")
 	}
@@ -75,7 +75,7 @@ func TestLibraryOriginalChunkUploadResumesAndPublishesAtomically(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "lib_" + strings.Repeat("d", 32)}
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("d", 32)}
 	id := "kdoc_" + strings.Repeat("e", 32)
 	raw := bytes.Repeat([]byte("chunked-original-"), int(2*agentsdk.KnowledgeDocumentUploadChunkBytes/17)+2)
 	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]

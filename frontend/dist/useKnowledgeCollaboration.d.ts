@@ -6,8 +6,11 @@ type Options = {
     client: KnowledgeClient;
     libraryID: string;
     pageID: string;
+    currentUserID: string;
     initialTitle: string;
     initialContent: string;
+    resolveUserName?(userID: string): string;
+    resolveUserColor?(userID: string): string;
     onDocument(title: string, content: string, synced: boolean): void;
     onError(error: unknown): void;
 };
@@ -22,10 +25,16 @@ export declare function useKnowledgeCollaboration(options: Options): {
     mergeCount: number;
     serverClock: number;
     draftRevision: number;
+    sessionID: string;
     userID: string;
     edit: (title: string, content: string, change?: KnowledgeEditorChange) => void;
     updatePresence: (cursorBlockID?: string, selectionBlockID?: string) => void;
     publish: (publishNote?: string) => Promise<KnowledgePageView>;
+    flush: () => Promise<{
+        draftRevision: number;
+        title: string;
+        content: string;
+    }>;
     reconnect: () => void;
     encodeState: () => string;
 };
