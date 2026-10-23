@@ -6,7 +6,18 @@ export type KnowledgeSlashMenuItem = DefaultReactSuggestionItem & {
   submenu?: string;
   disabledReason?: string;
   recent?: boolean;
+  filePicker?: {
+    blockType: "image" | "video" | "audio" | "file";
+    accept: string;
+  };
+  formulaInput?: { displayMode: "block" | "inline" };
 };
+
+export type KnowledgeSlashMenuEntry =
+  | { kind: "item"; item: KnowledgeSlashMenuItem; index: number }
+  | { kind: "submenu"; label: string; items: { item: KnowledgeSlashMenuItem; index: number }[] };
+
+export type KnowledgeSlashMenuGroup = { label: string; entries: KnowledgeSlashMenuEntry[] };
 
 const recentStorageKey = "domainry.knowledge.slash-recent.v1";
 const recentLimit = 6;
@@ -35,6 +46,36 @@ export function recordKnowledgeSlashRecentID(id: string) {
   }
 }
 
+export function groupKnowledgeSlashMenuItems(items: readonly KnowledgeSlashMenuItem[]): KnowledgeSlashMenuGroup[] {
+  const groups = new Map<string, KnowledgeSlashMenuGroup>();
+  const submenus = new Map<string, Extract<KnowledgeSlashMenuEntry, { kind: "submenu" }>>();
+  const groupFor = (label: string) => {
+    const existing = groups.get(label);
+    if (existing) return existing;
+    const group = { label, entries: [] } satisfies KnowledgeSlashMenuGroup;
+    groups.set(label, group);
+    return group;
+  };
+
+  items.forEach((item, index) => {
+    const groupLabel = item.group || "其他";
+    if (!item.submenu) {
+      groupFor(groupLabel).entries.push({ kind: "item", item, index });
+      return;
+    }
+    const existing = submenus.get(item.submenu);
+    if (existing) {
+      existing.items.push({ item, index });
+      return;
+    }
+    const submenu = { kind: "submenu", label: item.submenu, items: [{ item, index }] } satisfies Extract<KnowledgeSlashMenuEntry, { kind: "submenu" }>;
+    submenus.set(item.submenu, submenu);
+    groupFor(groupLabel).entries.push(submenu);
+  });
+
+  return [...groups.values()];
+}
+
 export function arrangeKnowledgeSlashMenuItems(items: readonly KnowledgeSlashMenuItem[], query: string, recentIDs = readKnowledgeSlashRecentIDs()): KnowledgeSlashMenuItem[] {
   const unique = [...new Map(items.map(item => [item.id, item])).values()];
   const normalizedQuery = query.trim();
@@ -42,10 +83,12 @@ export function arrangeKnowledgeSlashMenuItems(items: readonly KnowledgeSlashMen
     return filterSuggestionItems(unique, normalizedQuery).map(item => ({ ...item, group: "搜索结果", submenu: undefined, recent: false }));
   }
   const byID = new Map(unique.map(item => [item.id, item]));
-  const recent = normalizeKnowledgeSlashRecentIDs(recentIDs).flatMap(id => {
+  const presentRecentIDs = normalizeKnowledgeSlashRecentIDs(recentIDs).filter(id => byID.has(id));
+  const recent = presentRecentIDs.flatMap(id => {
     const item = byID.get(id);
     return item ? [{ ...item, group: "最近使用", submenu: undefined, recent: true }] : [];
   });
-  return [...recent, ...unique];
+  const recentIDSet = new Set(presentRecentIDs);
+  return [...recent, ...unique.filter(item => !recentIDSet.has(item.id))];
 }
 

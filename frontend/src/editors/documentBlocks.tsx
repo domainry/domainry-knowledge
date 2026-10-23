@@ -10,6 +10,7 @@ import "katex/dist/katex.min.css";
 import { createElement, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { createPortal } from "react-dom";
+import { Select } from "../components.tsx";
 import { renderSafeLatex } from "../latex.ts";
 import { serializeDocumentBlocks } from "../documentContent.ts";
 import { pageTypeCapability, pageTypeDefinitions } from "../pageTypeRegistry.ts";
@@ -49,7 +50,7 @@ const cropAspectRatio: Record<(typeof knowledgeImageCropAspects)[number], string
 
 function KnowledgeImageVisual({ block, source, onPreview }: { block: ReactCustomBlockRenderProps<typeof knowledgeImageBlockConfig>["block"]; source?: string; onPreview?(): void }) {
   const cropped = block.props.cropAspect !== "original";
-  const image = <img
+  const image = source ? <img
     className="bn-visual-media knowledge-image-media"
     src={source}
     alt={block.props.name || ""}
@@ -64,7 +65,7 @@ function KnowledgeImageVisual({ block, source, onPreview }: { block: ReactCustom
       transform: `scale(${block.props.cropZoom / 100})`,
       transformOrigin: `${block.props.cropX}% ${block.props.cropY}%`,
     } : undefined}
-  />;
+  /> : <div className="bn-visual-media knowledge-image-loading" role="status">正在加载图片…</div>;
   return <div
     className={`knowledge-image-visual${cropped ? " is-cropped" : ""}`}
     style={cropped ? {
@@ -113,6 +114,13 @@ const knowledgeImageBlock = createReactBlockSpec(knowledgeImageBlockConfig, {
   runsBefore: ["file"],
 });
 
+const calloutToneOptions = [
+  { tone: "info", label: "信息", icon: "💡" },
+  { tone: "success", label: "成功", icon: "✅" },
+  { tone: "warning", label: "提醒", icon: "🔔" },
+  { tone: "danger", label: "警告", icon: "⚠️" },
+] as const;
+
 const calloutBlock = createReactBlockSpec(
   {
     type: "callout",
@@ -123,13 +131,14 @@ const calloutBlock = createReactBlockSpec(
     content: "inline",
   },
   {
-    render: ({ block, contentRef, editor }) => <aside className={`knowledge-block-callout is-${block.props.tone}`}>
-      <input contentEditable={false} aria-label="提示块图标" value={block.props.icon} maxLength={2} readOnly={!editor.isEditable} onChange={event => editor.updateBlock(block, { props: { icon: event.target.value } })} />
-      <div ref={contentRef} className="knowledge-block-callout-content" />
-      {editor.isEditable && <select contentEditable={false} aria-label="提示块类型" value={block.props.tone} onChange={event => editor.updateBlock(block, { props: { tone: event.target.value as typeof block.props.tone } })}>
-        <option value="info">信息</option><option value="success">成功</option><option value="warning">提醒</option><option value="danger">警告</option>
-      </select>}
-    </aside>,
+    render: ({ block, contentRef, editor }) => {
+      const currentIndex = Math.max(0, calloutToneOptions.findIndex(item => item.tone === block.props.tone));
+      const current = calloutToneOptions[currentIndex], next = calloutToneOptions[(currentIndex + 1) % calloutToneOptions.length];
+      return <aside className={`knowledge-block-callout is-${current.tone}`}>
+        {editor.isEditable ? <button type="button" contentEditable={false} className="knowledge-callout-tone" aria-label={`提示类型：${current.label}。点击切换为${next.label}`} title={`${current.label} · 点击切换为${next.label}`} onClick={() => editor.updateBlock(block, { props: { tone: next.tone, icon: next.icon } })}>{current.icon}</button> : <span className="knowledge-callout-tone" role="img" aria-label={`提示类型：${current.label}`}>{current.icon}</span>}
+        <div ref={contentRef} className="knowledge-block-callout-content" />
+      </aside>;
+    },
   },
 );
 
@@ -477,17 +486,18 @@ function taskStatusLabel(status: KnowledgeTaskStatus) {
 function TaskAssigneePicker({ task, runtime, disabled, onUpdate }: { task: KnowledgePageTask; runtime: KnowledgeTaskRuntime; disabled: boolean; onUpdate(userIDs: string[]): Promise<void> }) {
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<KnowledgePrincipal[]>([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
   useEffect(() => {
-    if (disabled) { setCandidates([]); return; }
+    if (disabled || !pickerOpen) { setCandidates([]); return; }
     const abort = new AbortController();
     const timer = window.setTimeout(() => void runtime.searchMembers(query.trim(), abort.signal).then(items => {
       if (!abort.signal.aborted) setCandidates(items.filter(item => !task.assignee_user_ids.includes(item.user_id)));
     }, () => { if (!abort.signal.aborted) setCandidates([]); }), 180);
     return () => { window.clearTimeout(timer); abort.abort(); };
-  }, [disabled, query, runtime, task.assignee_user_ids.join("\u0000")]);
+  }, [disabled, pickerOpen, query, runtime, task.assignee_user_ids.join("\u0000")]);
   return <div className="knowledge-task-assignees">
     <div className="knowledge-task-chips">{task.assignee_user_ids.map(userID => <span key={userID}><UserRound size={13} />{runtime.memberName(userID)}{!disabled && <button type="button" aria-label={`移除负责人 ${runtime.memberName(userID)}`} onClick={() => void onUpdate(task.assignee_user_ids.filter(id => id !== userID))}><X size={12} /></button>}</span>)}{task.assignee_user_ids.length === 0 && <small>未指派</small>}</div>
-    {!disabled && <details><summary><UserPlus size={14} />添加负责人</summary><div className="knowledge-task-member-picker"><input aria-label="搜索任务负责人" value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="按姓名或邮箱搜索" />{candidates.map(person => <button key={person.user_id} type="button" onClick={() => { void onUpdate([...task.assignee_user_ids, person.user_id]); setQuery(""); }}><span>{(person.display_name || "?").slice(0, 1)}</span><strong>{person.display_name || person.user_id}<small>{person.email || person.user_id}</small></strong></button>)}{query && candidates.length === 0 && <small>没有可指派的当前知识库成员</small>}</div></details>}
+    {!disabled && <details open={pickerOpen} onToggle={event => setPickerOpen(event.currentTarget.open)}><summary><UserPlus size={14} />添加负责人</summary><div className="knowledge-task-member-picker"><input aria-label="搜索任务负责人" value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="按姓名或邮箱搜索" />{candidates.map(person => <button key={person.user_id} type="button" onClick={() => { void onUpdate([...task.assignee_user_ids, person.user_id]); setQuery(""); }}><span>{(person.display_name || "?").slice(0, 1)}</span><strong>{person.display_name || person.user_id}<small>{person.email || person.user_id}</small></strong></button>)}{query && candidates.length === 0 && <small>没有可指派的当前知识库成员</small>}</div></details>}
   </div>;
 }
 
@@ -514,13 +524,13 @@ function KnowledgeTaskBlockView({ block, editor }: ReactCustomBlockRenderProps<t
     <header>
       <button type="button" className="knowledge-task-check" aria-label={task?.status === "done" ? "重新打开任务" : "完成任务"} disabled={!task || !canUpdateStatus || busy} onClick={() => void update({ status: task?.status === "done" ? "todo" : "done" })}>{task?.status === "done" ? <CheckCircle2 size={20} /> : busy ? <LoaderCircle className="knowledge-spin" size={20} /> : <Circle size={20} />}</button>
       <div>{editor.isEditable ? <input className="knowledge-task-title" aria-label="任务标题" value={block.props.title} maxLength={512} onChange={event => editor.updateBlock(block, { props: { title: event.currentTarget.value } })} onBlur={event => { const next = event.currentTarget.value.trim() || "待办任务"; if (next !== event.currentTarget.value) editor.updateBlock(block, { props: { title: next } }); if (task && canManage && next !== task.title) void update({ title: next }); }} /> : <strong>{title}</strong>}<small>{task ? `${taskStatusLabel(task.status)} · 独立任务 revision ${task.revision}` : runtime?.ready ? "任务尚未登记" : "正在读取任务状态…"}</small></div>
-      {task && <select aria-label="任务状态" value={task.status} disabled={!canUpdateStatus || busy} onChange={event => void update({ status: event.currentTarget.value as KnowledgeTaskStatus })}>{taskStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>}
+      {task && <Select aria-label="任务状态" value={task.status} disabled={!canUpdateStatus || busy} onChange={event => void update({ status: event.currentTarget.value as KnowledgeTaskStatus })}>{taskStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select>}
     </header>
     {task && <div className="knowledge-task-fields">
       <TaskAssigneePicker task={task} runtime={runtime!} disabled={!canManage || busy} onUpdate={assignee_user_ids => update({ assignee_user_ids })} />
-      <label><Flag size={14} /><span>优先级</span><select aria-label="任务优先级" value={task.priority} disabled={!canManage || busy} onChange={event => void update({ priority: event.currentTarget.value as KnowledgeTaskPriority })}>{taskPriorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-      <label><CalendarDays size={14} /><span>截止</span><input aria-label="任务截止时间" type="datetime-local" value={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy} onChange={event => { const due_at = taskDateTimeISO(event.currentTarget.value); void update(due_at ? { due_at } : { due_at: undefined, reminder_at: undefined }); }} /></label>
-      <label><Bell size={14} /><span>提醒</span><input aria-label="任务提醒时间" type="datetime-local" value={taskDateTimeInputValue(task.reminder_at)} max={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy || !task.due_at} onChange={event => void update({ reminder_at: taskDateTimeISO(event.currentTarget.value) })} /></label>
+      <label><Flag size={14} /><span>优先级</span><Select aria-label="任务优先级" value={task.priority} disabled={!canManage || busy} onChange={event => void update({ priority: event.currentTarget.value as KnowledgeTaskPriority })}>{taskPriorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></label>
+      <label><CalendarDays size={14} /><span>截止</span><input key={`due-${task.due_at || "empty"}`} aria-label="任务截止时间" type="datetime-local" defaultValue={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy} onBlur={event => { const due_at = taskDateTimeISO(event.currentTarget.value); void update(due_at ? { due_at } : { due_at: undefined, reminder_at: undefined }); }} /></label>
+      <label><Bell size={14} /><span>提醒</span><input key={`reminder-${task.reminder_at || "empty"}`} aria-label="任务提醒时间" type="datetime-local" defaultValue={taskDateTimeInputValue(task.reminder_at)} max={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy || !task.due_at} onBlur={event => void update({ reminder_at: taskDateTimeISO(event.currentTarget.value) })} /></label>
     </div>}
     {error && <p role="alert" className="knowledge-task-error">{error}</p>}
   </article>;
@@ -610,7 +620,7 @@ function KnowledgePollBlockView({ block, editor }: ReactCustomBlockRenderProps<t
         return <div key={option.id} className={`knowledge-poll-option${checked ? " is-selected" : ""}`}>
           <div className="knowledge-poll-option-main">
             <button type="button" className="knowledge-poll-vote" role={poll.poll.multiple ? "checkbox" : "radio"} aria-checked={checked} aria-label={`选择 ${option.label}`} disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}><span className="knowledge-poll-choice">{checked ? <Check size={14} /> : null}</span></button>
-            <span className="knowledge-poll-label">{editor.isEditable && canManage && !structureLocked ? <input aria-label={`投票选项 ${index + 1}`} value={optionDrafts[index] ?? option.label} maxLength={256} onChange={event => setOptionDrafts(current => current.map((value, optionIndex) => optionIndex === index ? event.currentTarget.value : value))} onBlur={() => commitOption(index)} /> : <button type="button" disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}>{option.label}</button>}</span>
+            <span className="knowledge-poll-label">{editor.isEditable && canManage && !structureLocked ? <input aria-label={`投票选项 ${index + 1}`} value={optionDrafts[index] ?? option.label} maxLength={256} onChange={event => { const value = event.currentTarget.value; setOptionDrafts(current => current.map((draft, optionIndex) => optionIndex === index ? value : draft)); }} onBlur={() => commitOption(index)} /> : <button type="button" disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}>{option.label}</button>}</span>
             <strong>{votes} 票</strong><small>{pollPercentage(votes, poll.total_voters)}%</small>
           </div>
           <span className="knowledge-poll-bar" aria-hidden="true"><i style={{ width: `${pollPercentage(votes, poll.total_voters)}%` }} /></span>
@@ -659,10 +669,10 @@ function canonicalExternalEmbedURL(provider: "youtube" | "bilibili", value: stri
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port || parsed.hash) return null;
     if (provider === "youtube") {
       let videoID = "";
-      if (parsed.hostname === "www.youtube-nocookie.com" && parsed.pathname.startsWith("/embed/") && !parsed.search) videoID = parsed.pathname.slice(7);
+      if (parsed.hostname === "www.youtube.com" && parsed.pathname.startsWith("/embed/") && !parsed.search) videoID = parsed.pathname.slice(7);
       else if (["youtube.com", "www.youtube.com", "m.youtube.com"].includes(parsed.hostname) && parsed.pathname === "/watch") videoID = parsed.searchParams.get("v") || "";
       else if (parsed.hostname === "youtu.be") videoID = parsed.pathname.slice(1);
-      return /^[A-Za-z0-9_-]{11}$/.test(videoID) ? `https://www.youtube-nocookie.com/embed/${videoID}` : null;
+      return /^[A-Za-z0-9_-]{11}$/.test(videoID) ? `https://www.youtube.com/embed/${videoID}` : null;
     }
     let videoID = "";
     if (parsed.hostname === "player.bilibili.com" && parsed.pathname === "/player.html") videoID = parsed.searchParams.get("bvid") || "";
@@ -671,6 +681,33 @@ function canonicalExternalEmbedURL(provider: "youtube" | "bilibili", value: stri
   } catch {
     return null;
   }
+}
+
+function externalEmbedPlatformURL(provider: "youtube" | "bilibili", source: string): string {
+  const parsed = new URL(source);
+  if (provider === "youtube") return `https://www.youtube.com/watch?v=${parsed.pathname.slice(7)}`;
+  return `https://www.bilibili.com/video/${parsed.searchParams.get("bvid") || ""}`;
+}
+
+function externalEmbedPlayerURL(provider: "youtube" | "bilibili", source: string): string {
+  if (provider !== "youtube" || typeof window === "undefined") return source;
+  const parsed = new URL(source);
+  // Since July 2025 YouTube rejects anonymous iframe clients with player error
+  // 153. The browser still sends the strict-origin referrer below, while these
+  // parameters give the IFrame API an explicit, environment-correct client
+  // identity without persisting a deployment hostname in document content.
+  parsed.searchParams.set("enablejsapi", "1");
+  parsed.searchParams.set("origin", window.location.origin);
+  return parsed.href;
+}
+
+function externalEmbedLocalFallback(provider: "youtube" | "bilibili", source: string): { poster: string; reason: string } | null {
+  if (provider !== "youtube" || typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return null;
+  const videoID = new URL(source).pathname.slice(7);
+  return {
+    poster: `https://i.ytimg.com/vi/${videoID}/hqdefault.jpg`,
+    reason: "YouTube 不允许 localhost 作为嵌入来源，请在平台中播放",
+  };
 }
 
 function CardInput({ label, value, maximum, placeholder, normalize, onCommit }: { label: string; value: string; maximum: number; placeholder?: string; normalize?(value: string): string | null; onCommit(value: string): void }) {
@@ -754,7 +791,7 @@ const applicationCardKinds: { id: KnowledgeApplicationCardKind; label: string }[
 const applicationCardConfig = {
   type: "applicationCard",
   propSchema: {
-    provider: { default: "" },
+    provider: { default: "web" },
     kind: { default: "web", values: ["calendar_event", "meeting", "group", "task", "jira", "web"] as const },
     resourceId: { default: "" },
   },
@@ -803,7 +840,10 @@ function ApplicationCardView({ block, editor }: ReactCustomBlockRenderProps<type
       {href && <a className="knowledge-block-card-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={`打开${card?.title || kindLabel}`}><ExternalLink size={16} /></a>}
     </div>
     {editor.isEditable && <div className="knowledge-block-card-fields knowledge-block-application-fields">
-      <select aria-label="应用卡片类型" value={block.props.kind} onChange={event => update({ kind: event.currentTarget.value as KnowledgeApplicationCardKind })}>{applicationCardKinds.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
+      <Select aria-label="应用卡片类型" value={block.props.kind} onChange={event => {
+        const kind = event.currentTarget.value as KnowledgeApplicationCardKind;
+        update({ kind, provider: kind === "web" && !block.props.provider.trim() ? "web" : kind !== "web" && block.props.provider === "web" ? "" : block.props.provider });
+      }}>{applicationCardKinds.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</Select>
       <CardInput label="应用连接器" value={block.props.provider} maximum={64} placeholder="例如 jira、google-calendar" normalize={value => { const next = value.trim(); return next === "" || /^[a-z0-9][a-z0-9_-]{0,63}$/.test(next) ? next : null; }} onCommit={provider => update({ provider })} />
       <CardInput label="应用资源 ID" value={block.props.resourceId} maximum={2048} placeholder="稳定资源 ID（不是访问令牌）" normalize={value => { const next = value.trim(); return /[\u0000-\u001f\u007f-\u009f]/.test(next) ? null : next; }} onCommit={resourceId => update({ resourceId })} />
     </div>}
@@ -823,20 +863,30 @@ const externalEmbedConfig = {
 
 function ExternalEmbedView({ block, editor }: ReactCustomBlockRenderProps<typeof externalEmbedConfig>) {
   const source = canonicalExternalEmbedURL(block.props.provider, block.props.url);
+  const playerSource = source ? externalEmbedPlayerURL(block.props.provider, source) : "";
+  const platformURL = source ? externalEmbedPlatformURL(block.props.provider, source) : "";
+  const localFallback = source ? externalEmbedLocalFallback(block.props.provider, source) : null;
   const update = (props: Partial<typeof block.props>) => editor.updateBlock(block, { props });
   return <figure className="knowledge-block-embed" contentEditable={false}>
-    <header><span><PlaySquare size={17} />{block.props.title || "外部视频"}</span><small>{block.props.provider === "youtube" ? "YouTube 隐私增强模式" : "哔哩哔哩播放器"}</small></header>
-    {source ? <iframe
-      src={source}
+    <header>
+      <span><PlaySquare size={17} />{block.props.title || "外部视频"}</span>
+      <div className="knowledge-block-embed-actions">
+        <small>{block.props.provider === "youtube" ? "YouTube 播放器" : "哔哩哔哩播放器"}</small>
+        {platformURL && <a style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }} href={platformURL} target="_blank" rel="noopener noreferrer" aria-label={`在${block.props.provider === "youtube" ? "YouTube" : "哔哩哔哩"}打开视频`}><ExternalLink size={14} />平台播放</a>}
+      </div>
+    </header>
+    {localFallback && platformURL ? <a className="knowledge-block-embed-fallback" style={{ position: "relative", display: "grid", placeItems: "center", width: "100%", aspectRatio: "16 / 9", overflow: "hidden", color: "#fff", background: "#101814", textDecoration: "none" }} href={platformURL} target="_blank" rel="noopener noreferrer" aria-label="YouTube 本地预览不可用，前往平台播放">
+      <img style={{ width: "100%", height: "100%", objectFit: "cover", opacity: .48 }} src={localFallback.poster} alt="" />
+      <span style={{ position: "absolute", display: "grid", justifyItems: "center", gap: 7, padding: "16px 22px", textAlign: "center", background: "rgb(10 27 19 / 82%)", border: "1px solid rgb(255 255 255 / 26%)", borderRadius: 12 }}><PlaySquare size={34} /><strong>前往 YouTube 播放</strong><small style={{ maxWidth: 420, color: "#d7e5dd" }}>{localFallback.reason}</small></span>
+    </a> : playerSource ? <iframe
+      src={playerSource}
       title={block.props.title || "受控外部视频"}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      sandbox="allow-scripts allow-same-origin allow-presentation"
+      referrerPolicy="strict-origin-when-cross-origin"
       allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
       allowFullScreen
     /> : <div className="knowledge-block-embed-empty"><PlaySquare size={30} /><span>填写受支持的视频地址后显示预览</span></div>}
     {editor.isEditable && <figcaption>
-      <label>服务<select aria-label="外部嵌入服务" value={block.props.provider} onChange={event => update({ provider: event.currentTarget.value as typeof block.props.provider, url: "" })}><option value="youtube">YouTube</option><option value="bilibili">哔哩哔哩</option></select></label>
+      <label>服务<Select aria-label="外部嵌入服务" value={block.props.provider} onChange={event => update({ provider: event.currentTarget.value as typeof block.props.provider, url: "" })}><option value="youtube">YouTube</option><option value="bilibili">哔哩哔哩</option></Select></label>
       <CardInput label="外部嵌入地址" value={block.props.url} maximum={2048} placeholder={block.props.provider === "youtube" ? "YouTube 视频地址" : "哔哩哔哩视频地址"} normalize={value => value.trim() === "" ? "" : canonicalExternalEmbedURL(block.props.provider, value)} onCommit={url => update({ url })} />
       <CardInput label="外部嵌入标题" value={block.props.title} maximum={256} onCommit={title => update({ title })} />
     </figcaption>}
@@ -904,9 +954,9 @@ function KnowledgeReferenceBlockView({ block, editor }: ReactCustomBlockRenderPr
     }) || <div className="knowledge-reference-empty"><span className="knowledge-block-reference-icon"><BookOpen size={18} /></span><div><strong>{block.props.title}</strong><small>{block.props.targetType} · {block.props.referenceMode === "fixed" ? `固定版本 ${block.props.targetVersion}` : "实时引用"}</small></div></div>}
     {editor.isEditable && <div className="knowledge-block-reference-fields">
       <button type="button" onClick={() => setPickerOpen(value => !value)}><Search size={14} />{unresolved ? "选择页面" : "更换页面"}</button>
-      {!unresolved && <><select aria-label="引用显示方式" value={block.props.display} onChange={event => { const display = event.target.value as "card" | "embed"; update({ display, embeddedEdit: display === "embed" && block.props.referenceMode === "live" && block.props.embeddedEdit }); }}><option value="card">卡片</option><option value="embed">内嵌</option></select>
-        <select aria-label="引用更新方式" value={block.props.referenceMode} onChange={event => void setReferenceMode(event.target.value as "live" | "fixed")}><option value="live">实时引用</option><option value="fixed">固定版本</option></select>
-        {block.props.referenceMode === "fixed" && <select aria-label="固定版本" value={block.props.targetVersion} onChange={event => update({ targetVersion: Number(event.target.value) })}>{versions.map(version => <option key={version.version} value={version.version}>版本 {version.version}</option>)}</select>}
+      {!unresolved && <><Select aria-label="引用显示方式" value={block.props.display} onChange={event => { const display = event.target.value as "card" | "embed"; update({ display, embeddedEdit: display === "embed" && block.props.referenceMode === "live" && block.props.embeddedEdit }); }}><option value="card">卡片</option><option value="embed">内嵌</option></Select>
+        <Select aria-label="引用更新方式" value={block.props.referenceMode} onChange={event => void setReferenceMode(event.target.value as "live" | "fixed")}><option value="live">实时引用</option><option value="fixed">固定版本</option></Select>
+        {block.props.referenceMode === "fixed" && <Select aria-label="固定版本" value={block.props.targetVersion} onChange={event => update({ targetVersion: Number(event.target.value) })}>{versions.map(version => <option key={version.version} value={version.version}>版本 {version.version}</option>)}</Select>}
         {block.props.display === "embed" && block.props.referenceMode === "live" && <label><input type="checkbox" checked={block.props.embeddedEdit} onChange={event => update({ embeddedEdit: event.target.checked })} />允许内嵌编辑</label>}</>}
     </div>}
     {pickerOpen && <div className="knowledge-reference-picker" role="dialog" aria-label="选择引用页面">
@@ -982,7 +1032,7 @@ function TableOfContentsView({ block, editor }: ReactCustomBlockRenderProps<type
     if (editor.isEditable) editor.setTextCursorPosition(id, "start");
   };
   return <nav className="knowledge-block-toc" aria-label="页面目录" contentEditable={false}>
-    <header><strong>目录</strong>{editor.isEditable && <label>层级<select aria-label="目录层级" value={block.props.maxDepth} onChange={event => editor.updateBlock(block, { props: { maxDepth: Number(event.target.value) as 1 | 2 | 3 } })}><option value={1}>H1</option><option value={2}>H1–H2</option><option value={3}>H1–H3</option></select></label>}</header>
+    <header><strong>目录</strong>{editor.isEditable && <label>层级<Select aria-label="目录层级" value={block.props.maxDepth} onChange={event => editor.updateBlock(block, { props: { maxDepth: Number(event.target.value) as 1 | 2 | 3 } })}><option value={1}>H1</option><option value={2}>H1–H2</option><option value={3}>H1–H3</option></Select></label>}</header>
     {headings.length ? <ol>{headings.map(heading => <li key={heading.id} data-level={heading.level}><button type="button" onClick={() => jumpTo(heading.id)}>{heading.text}</button></li>)}</ol> : <p>添加标题后会自动生成目录。</p>}
   </nav>;
 }
@@ -1013,7 +1063,7 @@ function SubpageListView({ block, editor }: ReactCustomBlockRenderProps<typeof s
     return () => abort.abort();
   }, [block.props.maxItems, refresh, runtime]);
   return <section className="knowledge-block-subpages" contentEditable={false}>
-    <header><span><BookOpen size={16} /><strong>子页面</strong><small>{pages.length} 项</small></span><span>{editor.isEditable && <label>显示<select aria-label="子页面显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 | 50 } })}><option value={5}>5 项</option><option value={10}>10 项</option><option value={20}>20 项</option><option value={50}>50 项</option></select></label>}<button type="button" aria-label="刷新子页面" title="刷新子页面" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
+    <header><span><BookOpen size={16} /><strong>子页面</strong><small>{pages.length} 项</small></span><span>{editor.isEditable && <label>显示<Select aria-label="子页面显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 | 50 } })}><option value={5}>5 项</option><option value={10}>10 项</option><option value={20}>20 项</option><option value={50}>50 项</option></Select></label>}<button type="button" aria-label="刷新子页面" title="刷新子页面" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
     {!runtime ? <p>历史快照不执行动态子页面查询。</p> : error ? <p role="alert">{error}</p> : loading && pages.length === 0 ? <p>正在读取当前页面的子页面…</p> : pages.length === 0 ? <p>当前页面还没有可见子页面。</p> : <ol>{pages.map(page => <li key={page.pageID}><button type="button" onClick={() => runtime.openPage(page.pageID)}><FileText size={15} /><span><strong>{page.title}</strong><small>{page.contentType}</small></span><ChevronRight size={14} /></button></li>)}</ol>}
   </section>;
 }
@@ -1063,7 +1113,7 @@ function KnowledgeActivityView({ block, editor }: ReactCustomBlockRenderProps<ty
     void runtime.listPageActivity(block.props.maxItems, abort.signal).then(value => { if (!abort.signal.aborted) setItems(value); }, failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "动态加载失败"); }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [block.props.maxItems, refresh, runtime]);
-  return <section className="knowledge-block-activity" contentEditable={false}><header><span><Activity size={16} /><strong>知识库动态</strong></span><span>{editor.isEditable && <select aria-label="动态显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 } })}><option value={5}>5 条</option><option value={10}>10 条</option><option value={20}>20 条</option></select>}<button type="button" aria-label="刷新知识库动态" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
+  return <section className="knowledge-block-activity" contentEditable={false}><header><span><Activity size={16} /><strong>知识库动态</strong></span><span>{editor.isEditable && <Select aria-label="动态显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 } })}><option value={5}>5 条</option><option value={10}>10 条</option><option value={20}>20 条</option></Select>}<button type="button" aria-label="刷新知识库动态" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
     {!runtime ? <p>历史快照不执行动态查询。</p> : error ? <p role="alert">{error}</p> : items.length === 0 ? <p>当前页面还没有发布、评论或任务动态。</p> : <ol>{items.map(item => <li key={item.id}><Activity size={13} /><span><strong>{item.title}</strong><small>{new Date(item.at).toLocaleString()} · {item.detail}</small></span></li>)}</ol>}
   </section>;
 }
@@ -1328,7 +1378,7 @@ function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): Knowledge
   const dynamicRuntime = knowledgeDynamicBlockRuntimeByEditor.get(editor)?.runtime.current;
   const blockItems = customBlockDefinitions.flatMap(definition => {
     const definitions = definition.slash ? Array.isArray(definition.slash) ? definition.slash : [definition.slash] : [];
-    return definitions.map(slash => ({ id: `block:${slash.id || definition.id}`, title: slash.title, subtext: slash.subtext, aliases: [...slash.aliases], group: slash.group, submenu: customSlashSubmenus[definition.id], icon: <slash.icon size={18} />, onItemClick: insert(slash.block) }));
+    return definitions.map(slash => ({ id: `block:${slash.id || definition.id}`, title: slash.title, subtext: slash.subtext, aliases: [...slash.aliases], group: slash.group, submenu: customSlashSubmenus[definition.id], icon: <slash.icon size={18} />, formulaInput: definition.id === "formula" ? { displayMode: "block" as const } : undefined, onItemClick: definition.id === "formula" ? () => undefined : insert(slash.block) }));
   });
   const pageItems = pageTypeDefinitions.filter(definition => definition.id !== "document" && definition.capabilities & pageTypeCapability.create).map(definition => ({
     id: `page:${definition.id}`, title: definition.label, subtext: definition.description, aliases: [definition.id], group: "原生应用", submenu: "原生应用", icon: <definition.icon size={18} />,
@@ -1354,7 +1404,8 @@ function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): Knowledge
     aliases: ["数学", "latex", "inline formula", "行内公式"],
     group: "内容",
     icon: <FunctionSquare size={18} />,
-    onItemClick: () => editor.insertInlineContent([{ type: "inlineFormula", content: "" }] as never, { updateSelection: true }),
+    formulaInput: { displayMode: "inline" },
+    onItemClick: () => undefined,
   };
   return [...blockItems, inlineFormulaItem, ...pageItems];
 }
@@ -1436,18 +1487,31 @@ export async function getKnowledgeMentionMenuItems(editor: BlockNoteEditor<any, 
   return [...peopleItems, ...pageItems, ...blockItems, ...dateItems];
 }
 
-export async function getKnowledgeSlashMenuItems(editor: BlockNoteEditor<any, any, any>, query: string, capabilities: { canUploadFiles: boolean } = { canUploadFiles: true }): Promise<KnowledgeSlashMenuItem[]> {
-  const mediaKeys = new Set(["image", "video", "audio", "file"]);
+export async function getKnowledgeSlashMenuItems(editor: BlockNoteEditor<any, any, any>, query: string, capabilities: {
+  canUploadFiles: boolean;
+  fileAccept?: { all: string; image: string; video: string; audio: string };
+} = { canUploadFiles: true }): Promise<KnowledgeSlashMenuItem[]> {
+  const mediaPickers = {
+    image: { blockType: "image", accept: capabilities.fileAccept?.image || "image/*", subtext: "选择本地图片并直接插入" },
+    video: { blockType: "video", accept: capabilities.fileAccept?.video || "video/*", subtext: "选择本地视频并直接插入" },
+    audio: { blockType: "audio", accept: capabilities.fileAccept?.audio || "audio/*", subtext: "选择本地音频并直接插入" },
+    file: { blockType: "file", accept: capabilities.fileAccept?.all || "*/*", subtext: "选择本地文件并直接插入" },
+  } as const;
   const defaults = getDefaultSlashMenuItems(editor)
     .filter(item => defaultIcons[String(item.key)])
-    .map(({ key, ...item }): KnowledgeSlashMenuItem => ({
-      ...item,
-      id: `default:${String(key)}`,
-      icon: defaultIcons[String(key)],
-      group: item.group || "基础",
-      submenu: mediaKeys.has(String(key)) ? "媒体与文件" : undefined,
-      disabledReason: mediaKeys.has(String(key)) && !capabilities.canUploadFiles ? "当前知识库未配置受权文件存储，无法插入媒体或文件。" : undefined,
-    }));
+    .map(({ key, ...item }): KnowledgeSlashMenuItem => {
+      const media = mediaPickers[String(key) as keyof typeof mediaPickers];
+      return {
+        ...item,
+        id: `default:${String(key)}`,
+        icon: defaultIcons[String(key)],
+        group: item.group || "基础",
+        subtext: media?.subtext || item.subtext,
+        submenu: media ? "媒体与文件" : undefined,
+        filePicker: media ? { blockType: media.blockType, accept: media.accept } : undefined,
+        disabledReason: media && !capabilities.canUploadFiles ? "当前知识库未配置受权文件存储，无法插入媒体或文件。" : undefined,
+      };
+    });
   const columns = getMultiColumnSlashMenuItems(editor).map((item, index): KnowledgeSlashMenuItem => ({ ...item, id: `layout:columns-${index + 1}`, group: "布局", submenu: "布局" }));
   return arrangeKnowledgeSlashMenuItems([...defaults, ...columns, ...customSlashMenuItems(editor)], query);
 }

@@ -3,9 +3,10 @@ import LogicFlow from "@logicflow/core";
 import { Snapshot } from "@logicflow/extension";
 import "@logicflow/core/dist/index.css";
 import { Boxes, Braces, CircleDot, CirclePlay, CircleStop, Cog, Database, Diamond, FileJson, FileText, GitBranch, Hexagon, Image, Keyboard, LayoutTemplate, Palette, PanelTop, Plus, Route, Square, StickyNote, Timer, Upload, UserRound, Workflow, type LucideIcon } from "lucide-react";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import { canonicalFlowchartContent, decodeFlowchartContent, diagramPlainText, diagramThemes, downloadDiagramBlob, flowchartEdgeTypes, flowchartLayouts, flowchartTemplates, layoutFlowchart, parseFlowchartContent, type DiagramTheme, type FlowchartContent, type FlowchartEdgeType, type FlowchartLayout, type FlowchartNode, type FlowchartNodeType } from "../diagramContent.ts";
 import { registerFlowchartNodeShapes, runtimeFlowchartNodeType } from "./flowchartNodeShapes.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 
 LogicFlow.use(Snapshot);
@@ -151,7 +152,7 @@ function restoreFlowchartSelection(lf: LogicFlow, elementID: string) {
   return { exists, isNode };
 }
 
-export function FlowchartEditor({ body, readOnly = false, documentTitle = "流程图", initialBlockID, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
+export function FlowchartEditor({ body, readOnly = false, documentTitle = "流程图", initialBlockID, pageActionHost, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const logic = useRef<LogicFlow | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -347,6 +348,10 @@ export function FlowchartEditor({ body, readOnly = false, documentTitle = "流�
   };
 
   return <div className="knowledge-open-editor is-logicflow">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}>
+      <Button onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><FileJson size={15} />JSON</Button>
+      <Button onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><Image size={15} />PNG</Button>
+    </PageActionPortal>}
     {!readOnly && <div className="diagram-editor-toolbar" aria-label="流程图工具栏">
       <div className="diagram-insert-tools">
         <details ref={insertMenu} className="flowchart-node-menu">
@@ -370,17 +375,15 @@ export function FlowchartEditor({ body, readOnly = false, documentTitle = "流�
         <Button onClick={() => add("process", "处理步骤")}><Square size={15} />步骤</Button>
         <Button onClick={() => add("decision", "判断条件")}><GitBranch size={15} />判断</Button>
       </div>
-      <label><Route size={15} />连线<select aria-label="新建连线类型" value={edgeType} onChange={event => applyEdgeType(event.target.value as FlowchartEdgeType)}>{flowchartEdgeTypes.map(item => <option key={item} value={item}>{({ polyline: "折线", line: "直线", bezier: "曲线" } as const)[item]}</option>)}</select></label>
-      <label><Palette size={15} />主题<select aria-label="流程图主题" value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: "翡翠", ocean: "海洋", sunset: "日落", mono: "中性" } as const)[item]}</option>)}</select></label>
-      <label>布局<select aria-label="流程图布局" value={layout} onChange={event => applyLayout(event.target.value as FlowchartLayout)}>{flowchartLayouts.map(item => <option key={item} value={item}>{({ free: "自由", horizontal: "横向", vertical: "纵向" } as const)[item]}</option>)}</select></label>
-      <label><LayoutTemplate size={15} />模板<select aria-label="流程图模板" defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>选择模板</option><option value="approval">审批流程</option><option value="incident">故障响应</option><option value="data_pipeline">数据管道</option><option value="customer_service">客服工单</option></select></label>
+      <label><Route size={15} />连线<Select aria-label="新建连线类型" value={edgeType} onChange={event => applyEdgeType(event.target.value as FlowchartEdgeType)}>{flowchartEdgeTypes.map(item => <option key={item} value={item}>{({ polyline: "折线", line: "直线", bezier: "曲线" } as const)[item]}</option>)}</Select></label>
+      <label><Palette size={15} />主题<Select aria-label="流程图主题" value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: "翡翠", ocean: "海洋", sunset: "日落", mono: "中性" } as const)[item]}</option>)}</Select></label>
+      <label>布局<Select aria-label="流程图布局" value={layout} onChange={event => applyLayout(event.target.value as FlowchartLayout)}>{flowchartLayouts.map(item => <option key={item} value={item}>{({ free: "自由", horizontal: "横向", vertical: "纵向" } as const)[item]}</option>)}</Select></label>
+      <label><LayoutTemplate size={15} />模板<Select aria-label="流程图模板" defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>选择模板</option><option value="approval">审批流程</option><option value="incident">故障响应</option><option value="data_pipeline">数据管道</option><option value="customer_service">客服工单</option></Select></label>
       <span className="diagram-style-tools" aria-label="节点样式">
         <button type="button" disabled={!selectedNodeID} aria-label="节点加粗" onClick={() => applySelectedStyle({ font_weight: "bold" })}><strong>B</strong></button>
         {[flowThemes[theme].fill, flowThemes[theme].text].map((item, index) => <button type="button" key={item} disabled={!selectedNodeID} className="diagram-color-swatch" style={{ background: item }} aria-label={index === 0 ? "节点背景色" : "节点文字色"} onClick={() => applySelectedStyle(index === 0 ? { background_color: item } : { color: item })} />)}
       </span>
       <Button aria-label="导入流程图 JSON" onClick={() => importInput.current?.click()}><Upload size={15} />导入</Button>
-      {authorizeContentAction && <Button onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><FileJson size={15} />JSON</Button>}
-      {authorizeContentAction && <Button onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><Image size={15} />PNG</Button>}
       <span className="diagram-toolbar-hint"><Boxes size={14} />15 种节点 · 3 种连线；拖动锚点连接，双击文字编辑</span>
       <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={event => importJSON(event.target.files?.[0])} />
     </div>}

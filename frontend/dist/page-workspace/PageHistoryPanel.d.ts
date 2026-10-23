@@ -1,0 +1,26 @@
+import type { ReactNode } from "react";
+import type { KnowledgePageEditHistoryEntry, KnowledgePageVersion, KnowledgePageVersionDiff, KnowledgePrincipal } from "../types.ts";
+export type PageHistoryPanelProps = {
+    section: "versions" | "edits";
+    versions: KnowledgePageVersion[];
+    versionsComplete: boolean;
+    editHistory: KnowledgePageEditHistoryEntry[];
+    editHistoryComplete: boolean;
+    compare: number[];
+    rollbackVersion: number | null;
+    rollbackBusy: boolean;
+    diff: KnowledgePageVersionDiff | null;
+    preview: KnowledgePageVersion | null;
+    previewContent?: ReactNode;
+    canWrite: boolean;
+    memberProfiles: Record<string, KnowledgePrincipal>;
+    onSectionChange(section: "versions" | "edits"): void;
+    onCompareChange(versions: number[]): void;
+    onCompare(): void;
+    onPreview(version: number): void;
+    onRollbackPrompt(version: number | null): void;
+    onRollback(version: number): void;
+    onLoadMoreVersions(): void;
+    onLoadMoreEdits(): void;
+};
+export declare function PageHistoryPanel(props: PageHistoryPanelProps): import("react").JSX.Element;

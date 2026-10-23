@@ -41,9 +41,6 @@ func (s *Service) TransferKnowledgeDocument(ctx context.Context, library string,
 			return prior.Document, nil
 		}
 	}
-	if _, err = s.DocumentBinding(ctx, library, a); err != nil {
-		return zero, err
-	}
 	recheck := func() error {
 		if _, e := s.DocumentAccess(ctx, in.SourceLibraryID, knowledgesdk.ActionDocumentsDownload, a); e != nil {
 			return e

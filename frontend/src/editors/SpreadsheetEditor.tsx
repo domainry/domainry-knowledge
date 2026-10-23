@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Download, LockKeyhole, Plus, TableProperties, Trash2, Upload } from "lucide-react";
-import { createUniver, LocaleType, mergeLocales, type IWorkbookData } from "@univerjs/presets";
+import { createUniver, ICommandService, LocaleType, mergeLocales, type IWorkbookData } from "@univerjs/presets";
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import coreZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
 import { UniverSheetsConditionalFormattingPreset } from "@univerjs/preset-sheets-conditional-formatting";
@@ -10,7 +10,9 @@ import dataValidationZhCN from "@univerjs/preset-sheets-data-validation/locales/
 import "@univerjs/preset-sheets-core/lib/index.css";
 import "@univerjs/preset-sheets-conditional-formatting/lib/index.css";
 import "@univerjs/preset-sheets-data-validation/lib/index.css";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
+import { stableNativeJSON } from "../nativeOperations.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import {
   emptyKnowledgeSpreadsheet,
   exportKnowledgeSpreadsheetXLSX,
@@ -33,6 +35,10 @@ type AnalysisPanel = "charts" | "pivots" | "protection" | null;
 function initialContent(body: string) {
   try { return parseKnowledgeSpreadsheet(body); }
   catch { return emptyKnowledgeSpreadsheet(); }
+}
+
+function sameSpreadsheetContent(left: KnowledgeSpreadsheetContent, right: KnowledgeSpreadsheetContent) {
+  return stableNativeJSON(left) === stableNativeJSON(right);
 }
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -94,12 +100,13 @@ function PivotPreview({ content, pivot }: { content: KnowledgeSpreadsheetContent
   return rows.length === 0 ? <p className="knowledge-subtle">该区域没有可汇总的数据。</p> : <table className="native-sheet-pivot"><thead><tr><th>分组</th><th>{aggregateLabel}</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><td>{row.label}</td><td>{Number(row.value.toFixed(4))}</td></tr>)}</tbody></table>;
 }
 
-export function SpreadsheetEditor({ body, readOnly = false, canManage = false, documentTitle = "电子表格", initialSearchLocation, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+export function SpreadsheetEditor({ body, readOnly = false, canManage = false, documentTitle = "电子表格", initialSearchLocation, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
   const [content, setContent] = useState(() => initialContent(body));
   const contentRef = useRef(content);
+  const bodyRef = useRef(body);
   const workbookRef = useRef<{ save(): IWorkbookData } | null>(null);
   const [instanceRevision, setInstanceRevision] = useState(0);
   const [panel, setPanel] = useState<AnalysisPanel>(null);
@@ -112,8 +119,20 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
 
   const commit = (next: KnowledgeSpreadsheetContent, workbook = workbookRef.current?.save()) => {
     const value = { ...next, workbook: sanitizeSpreadsheetWorkbook(workbook || next.workbook) };
-    contentRef.current = value; setContent(value); onChangeRef.current(JSON.stringify(value));
+    if (sameSpreadsheetContent(value, contentRef.current)) return;
+    const serialized = JSON.stringify(value);
+    contentRef.current = value; bodyRef.current = serialized; setContent(value); onChangeRef.current(serialized);
   };
+
+  useEffect(() => {
+    if (body === bodyRef.current) return;
+    const value = initialContent(body);
+    if (sameSpreadsheetContent(value, contentRef.current)) {
+      bodyRef.current = body;
+      return;
+    }
+    bodyRef.current = body; contentRef.current = value; setContent(value); setSheetID(value.workbook.sheetOrder[0] || ""); setInstanceRevision(current => current + 1);
+  }, [body]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -130,15 +149,30 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
         UniverSheetsConditionalFormattingPreset(),
       ],
     });
-    const workbook = univerAPI.createWorkbook(contentRef.current.workbook);
+    const workbook = univerAPI.createWorkbook(structuredClone(contentRef.current.workbook));
     workbookRef.current = workbook;
     if (workbook.getSheets().length === 0) workbook.insertSheet("工作表 1");
     workbook.setEditable(!readOnly);
     let ready = false;
-    const listener = workbook.onCommandExecuted(() => {
+    let commitTimer: number | undefined;
+    const scheduleCommit = () => {
       if (!ready || readOnly) return;
-      commit(contentRef.current, workbook.save());
-    });
+      if (commitTimer !== undefined) window.clearTimeout(commitTimer);
+      commitTimer = window.setTimeout(() => {
+        commitTimer = undefined;
+        commit(contentRef.current, workbook.save());
+      }, 40);
+    };
+    const mutationListener = univer.__getInjector().get(ICommandService).onMutationExecutedForCollab(scheduleCommit);
+    const scheduleCommitFromUI = () => scheduleCommit();
+    // Univer renders the workbook, formula bar, and sheet toolbar inside this
+    // host. Listening on ownerDocument made every click elsewhere in the page
+    // serialize the entire workbook, which presented as a constant refresh on
+    // larger sheets even though the semantic equality guard skipped the save.
+    const eventTarget = hostElement;
+    for (const eventName of ["input", "change", "keyup", "paste", "cut", "pointerup"] as const) {
+      eventTarget.addEventListener(eventName, scheduleCommitFromUI, true);
+    }
     const applyProtections = async () => {
       if (!readOnly && !canManage) {
         for (const item of contentRef.current.protected_ranges) {
@@ -159,7 +193,11 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
     };
     void applyProtections().catch(() => { ready = true; });
     return () => {
-      listener.dispose(); workbookRef.current = null; container.remove();
+      if (commitTimer !== undefined) window.clearTimeout(commitTimer);
+      for (const eventName of ["input", "change", "keyup", "paste", "cut", "pointerup"] as const) {
+        eventTarget.removeEventListener(eventName, scheduleCommitFromUI, true);
+      }
+      mutationListener.dispose(); workbookRef.current = null; container.remove();
       window.setTimeout(() => univer.dispose(), 0);
     };
   }, [canManage, initialSearchLocation, instanceRevision, readOnly]);
@@ -204,19 +242,21 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
   };
   const importXLSX = async (file: File) => {
     const value = await importKnowledgeSpreadsheetXLSX(await file.arrayBuffer());
-    contentRef.current = value; setContent(value); setSheetID(value.workbook.sheetOrder[0] || ""); onChangeRef.current(JSON.stringify(value)); setInstanceRevision(current => current + 1);
+    const serialized = JSON.stringify(value);
+    bodyRef.current = serialized; contentRef.current = value; setContent(value); setSheetID(value.workbook.sheetOrder[0] || ""); onChangeRef.current(serialized); setInstanceRevision(current => current + 1);
     onActionFeedback?.(`已从“${file.name}”导入 ${value.workbook.sheetOrder.length} 个工作表。`);
   };
 
   return <div className="knowledge-open-editor is-univer native-spreadsheet-product">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}><Button onClick={() => void exportXLSX().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导出失败。"))}><Download size={15} />XLSX</Button></PageActionPortal>}
     <div className="native-sheet-toolbar">
       <div><Button aria-pressed={panel === "charts"} onClick={() => setPanel(value => value === "charts" ? null : "charts")}><BarChart3 size={15} />图表</Button><Button aria-pressed={panel === "pivots"} onClick={() => setPanel(value => value === "pivots" ? null : "pivots")}><TableProperties size={15} />透视表</Button>{canManage && !readOnly && <Button aria-pressed={panel === "protection"} onClick={() => setPanel(value => value === "protection" ? null : "protection")}><LockKeyhole size={15} />保护范围</Button>}</div>
       <span>数据验证与条件格式位于表格工具栏</span>
-      <div>{authorizeContentAction && <Button onClick={() => void exportXLSX().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导出失败。"))}><Download size={15} />XLSX</Button>}{!readOnly && <><Button onClick={() => importRef.current?.click()}><Upload size={15} />导入</Button><input ref={importRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={event => { const file = event.target.files?.[0]; if (file) void importXLSX(file).catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导入失败。")); event.currentTarget.value = ""; }} /></>}</div>
+      <div>{!readOnly && <><Button onClick={() => importRef.current?.click()}><Upload size={15} />导入</Button><input ref={importRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={event => { const file = event.target.files?.[0]; if (file) void importXLSX(file).catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导入失败。")); event.currentTarget.value = ""; }} /></>}</div>
     </div>
     {panel && <aside className="native-sheet-analysis" aria-label={panel === "charts" ? "图表" : panel === "pivots" ? "透视表" : "保护范围"}>
       <header><div><strong>{panel === "charts" ? "图表" : panel === "pivots" ? "透视表" : "保护范围"}</strong><p>{panel === "charts" ? "首列作为分类、第二列作为数值。" : panel === "pivots" ? "首列分组、第二列汇总。" : "保护范围仅知识库管理员可以修改。"}</p></div></header>
-      {!readOnly && (panel !== "protection" || canManage) && <div className="native-sheet-feature-form"><input aria-label="名称" value={name} onChange={event => setName(event.target.value)} placeholder="名称" maxLength={128} /><select aria-label="工作表" value={sheetID} onChange={event => setSheetID(event.target.value)}>{sheetOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><input aria-label="区域" value={rangeText} onChange={event => setRangeText(event.target.value)} placeholder="A1:B10" />{panel === "charts" && <select aria-label="图表类型" value={chartType} onChange={event => setChartType(event.target.value as SpreadsheetChart["type"])}><option value="column">柱状图</option><option value="bar">条形图</option><option value="line">折线图</option><option value="area">面积图</option><option value="pie">饼图</option><option value="donut">环形图</option><option value="scatter">散点图</option><option value="radar">雷达图</option><option value="funnel">漏斗图</option><option value="waterfall">瀑布图</option></select>}{panel === "pivots" && <select aria-label="汇总方式" value={aggregate} onChange={event => setAggregate(event.target.value as SpreadsheetPivot["aggregate"])}><option value="sum">合计</option><option value="count">计数</option><option value="average">平均值</option><option value="min">最小值</option><option value="max">最大值</option></select>}<Button className="primary" onClick={panel === "charts" ? addChart : panel === "pivots" ? addPivot : addProtection}><Plus size={15} />创建</Button></div>}
+      {!readOnly && (panel !== "protection" || canManage) && <div className="native-sheet-feature-form"><input aria-label="名称" value={name} onChange={event => setName(event.target.value)} placeholder="名称" maxLength={128} /><Select aria-label="工作表" value={sheetID} onChange={event => setSheetID(event.target.value)}>{sheetOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select><input aria-label="区域" value={rangeText} onChange={event => setRangeText(event.target.value)} placeholder="A1:B10" />{panel === "charts" && <Select aria-label="图表类型" value={chartType} onChange={event => setChartType(event.target.value as SpreadsheetChart["type"])}><option value="column">柱状图</option><option value="bar">条形图</option><option value="line">折线图</option><option value="area">面积图</option><option value="pie">饼图</option><option value="donut">环形图</option><option value="scatter">散点图</option><option value="radar">雷达图</option><option value="funnel">漏斗图</option><option value="waterfall">瀑布图</option></Select>}{panel === "pivots" && <Select aria-label="汇总方式" value={aggregate} onChange={event => setAggregate(event.target.value as SpreadsheetPivot["aggregate"])}><option value="sum">合计</option><option value="count">计数</option><option value="average">平均值</option><option value="min">最小值</option><option value="max">最大值</option></Select>}<Button className="primary" onClick={panel === "charts" ? addChart : panel === "pivots" ? addPivot : addProtection}><Plus size={15} />创建</Button></div>}
       <div className="native-sheet-feature-list">{panel === "charts" ? content.charts.map(chart => <article key={chart.id}><header><div><strong>{chart.name}</strong><span>{sheetOptions.find(item => item.id === chart.sheet_id)?.name || chart.sheet_id} · {formatSpreadsheetRange(chart.range)}</span></div>{!readOnly && <Button title="删除图表" onClick={() => removeFeature("charts", chart.id)}><Trash2 size={14} /></Button>}</header><ChartPreview content={content} chart={chart} /></article>) : panel === "pivots" ? content.pivots.map(pivot => <article key={pivot.id}><header><div><strong>{pivot.name}</strong><span>{sheetOptions.find(item => item.id === pivot.sheet_id)?.name || pivot.sheet_id} · {formatSpreadsheetRange(pivot.source_range)}</span></div>{!readOnly && <Button title="删除透视表" onClick={() => removeFeature("pivots", pivot.id)}><Trash2 size={14} /></Button>}</header><PivotPreview content={content} pivot={pivot} /></article>) : content.protected_ranges.map(item => <article key={item.id}><header><div><strong>{item.name}</strong><span>{sheetOptions.find(option => option.id === item.sheet_id)?.name || item.sheet_id} · {formatSpreadsheetRange(item.range)} · 仅管理员可编辑</span></div>{canManage && !readOnly && <Button title="删除保护范围" onClick={() => removeFeature("protected_ranges", item.id)}><Trash2 size={14} /></Button>}</header></article>)}</div>
     </aside>}
     <div ref={host} className="native-spreadsheet-host" />

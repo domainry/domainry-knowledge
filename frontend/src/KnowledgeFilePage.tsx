@@ -5,6 +5,7 @@ import { documentCanDownload, documentLabel, documentStatusDetail } from "./docu
 import { FilePreviewDialog } from "./FilePreviewDialog.tsx";
 import { canPreviewFilename, downloadFile, knowledgeDocumentPreviewSource, knowledgePageDocumentDownloadSource } from "./file-preview.ts";
 import { parseFilePageContent } from "./file-page.ts";
+import { PageActionPortal } from "./editors/PageActionPortal.tsx";
 import type { KnowledgeClient, KnowledgeDocument } from "./types.ts";
 
 function formatBytes(value: number) {
@@ -13,7 +14,7 @@ function formatBytes(value: number) {
   return `${Math.max(0.1, value / 1024).toFixed(1)} KiB`;
 }
 
-export function KnowledgeFilePage({ client, libraryID, pageID, content, formatError }: { client: KnowledgeClient; libraryID: string; pageID: string; content: string; formatError(error: unknown): string }) {
+export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActionHost, formatError }: { client: KnowledgeClient; libraryID: string; pageID: string; content: string; pageActionHost?: HTMLElement | null; formatError(error: unknown): string }) {
   const reference = parseFilePageContent(content);
   const [document, setDocument] = useState<KnowledgeDocument | null>(null);
   const [loading, setLoading] = useState(!!reference), [error, setError] = useState(reference ? "" : "文件页面引用无效。");
@@ -44,6 +45,7 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, formatEr
 
   const downloadable = documentCanDownload(document);
   return <section className={`knowledge-file-page is-${document.state}`}>
+    <PageActionPortal host={pageActionHost}><Button disabled={!downloadable || downloading} onClick={() => void download()}><Download size={15} />{downloading ? "正在下载…" : "导出"}</Button></PageActionPortal>
     <div className="knowledge-file-page-icon"><span>{document.filename.split(".").at(-1)?.slice(0, 4).toUpperCase() || "FILE"}</span></div>
     <div className="knowledge-file-page-details">
       <span className={`knowledge-file-state is-${document.security_status}`}>{documentLabel(document)}</span>
@@ -54,7 +56,6 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, formatEr
       {error && <p className="knowledge-error" role="alert">{error}</p>}
       <div className="knowledge-actions">
         {canPreviewFilename(document.filename) && <Button className="primary" disabled={!downloadable} onClick={() => setPreview(true)}><Eye size={15} />在线预览</Button>}
-        <Button disabled={!downloadable || downloading} onClick={() => void download()}><Download size={15} />{downloading ? "正在下载…" : "下载原文件"}</Button>
         <Button onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} />刷新状态</Button>
       </div>
     </div>

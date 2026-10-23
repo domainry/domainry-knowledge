@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { collaborationPositionChanged } from "./collaboration.ts";
 import { createKnowledgeCollaborationTransport } from "./collaborationTransport.ts";
 import type { KnowledgeClient, KnowledgeCollaborationPresence, KnowledgeCollaborationServerEvent, KnowledgeCollaborationSnapshot, KnowledgeCollaborationSession } from "./types.ts";
 
@@ -121,6 +122,7 @@ export function useKnowledgeNativeAwareness(options: NativeAwarenessOptions) {
   }, [applyEvent, options.active, options.libraryID, options.pageID, syncPresence, transport]);
 
   const updatePresence = useCallback((cursorTargetID?: string, selectionTargetID?: string) => {
+    if (!collaborationPositionChanged(positionRef.current, cursorTargetID, selectionTargetID)) return;
     positionRef.current = { cursor: cursorTargetID || "", selection: selectionTargetID || "" };
     if (!ready) return;
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);

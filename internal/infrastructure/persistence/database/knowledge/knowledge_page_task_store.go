@@ -39,7 +39,11 @@ func normalizedTaskAssignees(values []string) ([]string, error) {
 	if len(values) > knowledgePageTaskMaximumAssignees {
 		return nil, conversationError("bad_request", "page_task_assignees_invalid")
 	}
-	result := append([]string(nil), values...)
+	// AssigneeUserIDs is a required collection in the task API. Keep an empty
+	// input as an allocated empty slice so JSON encodes it as [] instead of null;
+	// the web client intentionally treats this field as an array.
+	result := make([]string, len(values))
+	copy(result, values)
 	sort.Strings(result)
 	for index, value := range result {
 		if !validLibraryUser(value) || index > 0 && result[index-1] == value {

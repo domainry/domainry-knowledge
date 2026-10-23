@@ -75,3 +75,13 @@ func TestKnowledgePageTaskStateIsIndependentIdempotentAndMemberBound(t *testing.
 		t.Fatalf("non-member assignee was accepted: %v", err)
 	}
 }
+
+func TestNormalizeKnowledgeTaskInputKeepsEmptyAssigneesAsArray(t *testing.T) {
+	_, _, assignees, _, _, err := normalizeKnowledgeTaskInput("空负责人任务", knowledgesdk.KnowledgeTaskPriorityNone, []string{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assignees == nil || len(assignees) != 0 {
+		t.Fatalf("empty assignees must remain an allocated empty slice, got %#v", assignees)
+	}
+}

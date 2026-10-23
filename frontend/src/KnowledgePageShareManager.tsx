@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Link2, Plus, RefreshCw, ShieldCheck, X } from "lucide-react";
-import { Button } from "./components.tsx";
+import { Copy, Link2, Plus, RefreshCw, Share2, ShieldCheck, X } from "lucide-react";
+import { Button, Select } from "./components.tsx";
 import { createKnowledgePageShareLink } from "./knowledge-share-links.ts";
 import type { KnowledgeClient, KnowledgeOrganizationPrincipal, KnowledgePageShare, KnowledgePageShareKind, KnowledgePageShareScope, KnowledgePrincipal } from "./types.ts";
 
@@ -108,14 +108,13 @@ export function KnowledgePageShareManager({ client, libraryID, pageID, published
 
   if (!available) return null;
   return <section className="knowledge-share-manager">
-    <header><div><h3>受控分享</h3><p>只分享当前已发布版本；分享链接不是登录凭证，访问者必须登录并在服务端兑换。</p></div><Button aria-label="刷新分享" title="刷新分享" disabled={!!busy} onClick={() => void load()}><RefreshCw size={14} /></Button></header>
+    <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><Share2 size={17} /></span><div><h3>受控分享</h3><p>创建限定对象、范围和有效期的只读入口；分享链接本身不是登录凭证。</p></div><Button aria-label="刷新分享" title="刷新分享" disabled={!!busy} onClick={() => void load()}><RefreshCw size={14} /></Button></header>
     {!published && <p className="knowledge-access-preview">当前页面尚未发布，不能创建分享。发布后只读分享不会暴露草稿。</p>}
     <div className="knowledge-share-create">
-      <label>分享对象<select value={kind} disabled={!!busy || !published} onChange={event => setKind(event.target.value as KnowledgePageShareKind)}><option value="user">指定用户</option><option value="organization">指定组织</option><option value="external">外部用户</option></select></label>
-      {kind === "user" && <label>查找工作区用户<input value={targetQuery} disabled={!!busy || !published} onChange={event => { setTargetQuery(event.target.value); setTargetID(""); }} placeholder="输入姓名或邮箱" /></label>}
+      <label>分享对象<Select value={kind} disabled={!!busy || !published} onChange={event => setKind(event.target.value as KnowledgePageShareKind)}><option value="user">指定用户</option><option value="organization">指定组织</option><option value="external">外部用户</option></Select></label>
+      {kind === "user" && <div className="knowledge-principal-picker"><label>查找工作区用户<input value={targetQuery} disabled={!!busy || !published} onChange={event => { setTargetQuery(event.target.value); setTargetID(""); }} placeholder="输入姓名或邮箱" /></label>{principals.length > 0 && <div className="knowledge-principal-results" role="listbox">{principals.map(principal => <button key={principal.user_id} type="button" role="option" aria-selected={targetID === principal.user_id} onClick={() => { setTargetID(principal.user_id); setTargetQuery(principal.display_name || principal.email || principal.user_id); setPrincipals([]); }}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}</div>}
       {kind === "organization" && <label>Identity 组织 ID<input value={targetQuery} disabled={!!busy || !published} onChange={event => setTargetQuery(event.target.value)} placeholder="输入准确的组织 ID" /></label>}
-      {kind === "user" && principals.length > 0 && <div className="knowledge-principal-results" role="listbox">{principals.map(principal => <button key={principal.user_id} type="button" role="option" aria-selected={targetID === principal.user_id} onClick={() => { setTargetID(principal.user_id); setTargetQuery(principal.display_name || principal.email || principal.user_id); setPrincipals([]); }}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}
-      <div className="knowledge-share-options"><label>范围<select value={scope} disabled={!!busy || !published} onChange={event => setScope(event.target.value as KnowledgePageShareScope)}><option value="page">仅此页面</option><option value="subtree">页面与已发布子树</option></select></label><label>有效期<input type="datetime-local" value={expiresAt} disabled={!!busy || !published} onChange={event => setExpiresAt(event.target.value)} /></label></div>
+      <div className="knowledge-share-options"><label>范围<Select value={scope} disabled={!!busy || !published} onChange={event => setScope(event.target.value as KnowledgePageShareScope)}><option value="page">仅此页面</option><option value="subtree">页面与已发布子树</option></Select></label><label>有效期<input type="datetime-local" value={expiresAt} disabled={!!busy || !published} onChange={event => setExpiresAt(event.target.value)} /></label></div>
       <label>访问密码{kind === "external" ? "（必填，至少 8 位）" : "（可选，至少 8 位）"}<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={password} disabled={!!busy || !published} onChange={event => setPassword(event.target.value)} placeholder={kind === "external" ? "外部分享必须设置密码" : "需要二次验证时设置"} /></label>
       <Button className="primary" disabled={!canCreate} onClick={() => void create()}><Plus size={14} />{busy === "create" ? "正在创建…" : "创建分享"}</Button>
     </div>

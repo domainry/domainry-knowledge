@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, modifyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
-import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "./collaboration.ts";
+import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "./collaboration.ts";
 import { loadKnowledgeOfflineChange, removeKnowledgeOfflineChange, saveKnowledgeOfflineChange } from "./collaborationOffline.ts";
 import { createKnowledgeCollaborationTransport } from "./collaborationTransport.ts";
 import type { KnowledgeEditorChange, KnowledgeEditorCollaboration } from "./editors/types.ts";
@@ -34,6 +34,7 @@ type PendingDocument = {
 };
 
 const checkpointInterval = 32;
+const collaborationConnectTimeout = 30_000;
 const collaborationRevocationCodes = new Set([
   "knowledge.collaboration_session_revoked",
   "knowledge.collaboration_session_not_found",
@@ -355,7 +356,11 @@ export function useKnowledgeCollaboration(options: Options) {
     void loadKnowledgeOfflineChange(options.currentUserID, options.libraryID, options.pageID).catch(() => null).then(saved => {
       offline = saved;
       if (saved) clientIDRef.current = saved.clientID;
-      return transport!.connect(clientIDRef.current, abort.signal);
+      // A browser fetch can remain pending when the development server is
+      // restarted between retries. Bound the handshake so the retry state can
+      // actually advance instead of leaving the editor on "reconnecting"
+      // forever. The effect's abort still wins immediately on page changes.
+      return transport!.connect(clientIDRef.current, AbortSignal.any([abort.signal, AbortSignal.timeout(collaborationConnectTimeout)]));
     }).then(session => {
       if (abort.signal.aborted || generationRef.current !== generation) return;
       syncFailuresRef.current = 0;
@@ -425,12 +430,13 @@ export function useKnowledgeCollaboration(options: Options) {
           return;
         }
         syncFailuresRef.current++;
-        if (syncFailuresRef.current >= 5) {
-          setState("error");
-          callbacksRef.current.onError(failure);
-          return;
-        }
         setState("reconnecting");
+        // A temporary network or development-server outage must never turn
+        // into a terminal editor state. Keep retrying with a capped backoff;
+        // only an explicit authorization/revocation result above is terminal.
+        // Surface one error after the initial retry budget so the outage is
+        // visible without spamming a new banner on every later attempt.
+        if (syncFailuresRef.current === 5) callbacksRef.current.onError(failure);
         const delay = Math.min(8_000, 500 * 2 ** Math.min(syncFailuresRef.current-1, 4));
         window.setTimeout(() => {
           if (generationRef.current === generation) setRetryNonce(value => value + 1);
@@ -495,6 +501,7 @@ export function useKnowledgeCollaboration(options: Options) {
   }
 
   function updatePresence(cursorBlockID?: string, selectionBlockID?: string) {
+    if (!collaborationPositionChanged(cursorRef.current, cursorBlockID, selectionBlockID)) return;
     cursorRef.current = { cursor: cursorBlockID || "", selection: selectionBlockID || "" };
     if (!ready || state === "connecting" || state === "reconnecting" || state === "error") return;
     if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current);

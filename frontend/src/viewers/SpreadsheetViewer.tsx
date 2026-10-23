@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import type { FilePreviewLocation } from "../types.ts";
 import { loadOffice } from "./office-load.ts";
 import type { DisplaySheet } from "./office-types.ts";
@@ -59,7 +59,7 @@ export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: F
     {error && <p role="alert" className="knowledge-error">{error}</p>}
     {!sheet && !error && <p role="status">正在打开工作簿…</p>}
     {sheet && <>
-      <div className="knowledge-file-toolbar"><label>工作表 <select aria-label="工作表" value={sheetIndex} onChange={event => { setSheetIndex(Number(event.target.value)); setRowPage(0); setColumnPage(0); setSelected(""); setError(""); }}>{sheets.map((item, index) => <option value={index} key={index}>{item.name}</option>)}</select></label><form onSubmit={event => { event.preventDefault(); jump(address); }}><label>定位单元格 <input value={address} onChange={event => setAddress(event.target.value)} placeholder="B12" maxLength={10} /></label><Button type="submit">定位</Button></form></div>
+      <div className="knowledge-file-toolbar"><label>工作表 <Select aria-label="工作表" value={sheetIndex} onChange={event => { setSheetIndex(Number(event.target.value)); setRowPage(0); setColumnPage(0); setSelected(""); setError(""); }}>{sheets.map((item, index) => <option value={index} key={index}>{item.name}</option>)}</Select></label><form onSubmit={event => { event.preventDefault(); jump(address); }}><label>定位单元格 <input value={address} onChange={event => setAddress(event.target.value)} placeholder="B12" maxLength={10} /></label><Button type="submit">定位</Button></form></div>
       <p className="knowledge-subtle">{sheet.rows} 行 × {sheet.cols} 列 · 只读预览，公式显示文件保存的结果；图表与嵌入对象请下载查看。</p>
       {current && <p className="knowledge-spreadsheet-value"><strong>{columnName(current.col)}{current.row}</strong> {current.formula ? `=${current.formula} → ` : ""}{current.text}</p>}
       <div className="knowledge-sheet-scroll"><table aria-label={`${sheet.name} 工作表`}><colgroup><col style={{ width: 50 }} />{columns.map(column => <col key={column} style={{ width: sheet.widths[column] || 110 }} />)}</colgroup><thead><tr><th scope="col">行</th>{columns.map(column => <th key={column} scope="col">{columnName(column)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row} style={{ height: sheet.heights[row] }}><th scope="row">{row}</th>{columns.map(column => { const key = `${row}:${column}`, span = spans.get(key); if (span === null) return null; const cell = cells.get(span?.master || key); return <td key={column} rowSpan={span?.rowSpan} colSpan={span?.colSpan} style={cell?.style} data-selected={selected === (span?.master || key)} onClick={() => { setSelected(span?.master || key); setAddress(`${columnName(cell?.col || column)}${cell?.row || row}`); }}>{cell?.text || ""}</td>; })}</tr>)}</tbody></table></div>

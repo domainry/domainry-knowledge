@@ -22,7 +22,7 @@ func (s *Service) appendKnowledgeAudit(ctx context.Context, action, eventType, l
 		Type: eventType, Action: action, Actor: authority, LibraryID: libraryID, PageID: pageID, Version: version,
 		ResourceID: resourceID, ClientID: clientID, Before: before, After: after, OccurredAt: time.Now().UTC(),
 	}
-	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	writeContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 	if err := s.options.AuditAppender.AppendKnowledgeAudit(writeContext, event); err != nil && s.failures != nil {
 		s.failures.RecordFailure(ctx, "knowledge_audit_append_failed", err, Failure{Stage: "audit_append", Dependency: "audit"})

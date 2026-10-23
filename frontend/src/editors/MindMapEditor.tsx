@@ -3,8 +3,9 @@ import MindElixir, { type MindElixirData, type NodeObj, type Theme } from "mind-
 import { zh_CN } from "mind-elixir/i18n";
 import "mind-elixir/style.css";
 import { Download, FileJson, Image, LayoutTemplate, Link, Palette, StickyNote, Tags, Upload } from "lucide-react";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import { canonicalMindMapContent, decodeMindMapContent, diagramPlainText, diagramThemes, downloadDiagramBlob, mindMapLayouts, mindMapTemplates, parseMindMapContent, type DiagramTheme, type MindMapContent, type MindMapLayout, type MindMapNode } from "../diagramContent.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 
 const mindMapThemeColors: Record<DiagramTheme, { root: string; rootText: string; node: string; text: string; accent: string; palette: string[] }> = {
@@ -129,7 +130,7 @@ function restoreMindMapSelection(mind: MindElixir, nodeID: string) {
   }
 }
 
-export function MindMapEditor({ body, readOnly = false, documentTitle = "思维导图", initialBlockID, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
+export function MindMapEditor({ body, readOnly = false, documentTitle = "思维导图", initialBlockID, pageActionHost, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const instance = useRef<MindElixir | null>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -333,17 +334,19 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
   const selectedNode = selectedID ? findMindMapNode(content.current.root, selectedID) : null;
 
   return <div className="knowledge-open-editor is-mind-elixir">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}>
+      <Button title="导出 canonical JSON" onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><FileJson size={15} />JSON</Button>
+      <Button title="导出 PNG" onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><Image size={15} />PNG</Button>
+    </PageActionPortal>}
     {!readOnly && <div className="diagram-editor-toolbar" aria-label="思维导图工具栏">
-      <label><Palette size={15} />主题<select aria-label="思维导图主题" value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: "翡翠", ocean: "海洋", sunset: "日落", mono: "中性" } as const)[item]}</option>)}</select></label>
-      <label>布局<select aria-label="思维导图布局" value={layout} onChange={event => applyLayout(event.target.value as MindMapLayout)}>{mindMapLayouts.map(item => <option key={item} value={item}>{({ side: "双侧", left: "向左", right: "向右", down: "向下" } as const)[item]}</option>)}</select></label>
-      <label><LayoutTemplate size={15} />模板<select aria-label="思维导图模板" defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>选择模板</option><option value="brainstorming">头脑风暴</option><option value="swot">SWOT 分析</option></select></label>
+      <label><Palette size={15} />主题<Select aria-label="思维导图主题" value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: "翡翠", ocean: "海洋", sunset: "日落", mono: "中性" } as const)[item]}</option>)}</Select></label>
+      <label>布局<Select aria-label="思维导图布局" value={layout} onChange={event => applyLayout(event.target.value as MindMapLayout)}>{mindMapLayouts.map(item => <option key={item} value={item}>{({ side: "双侧", left: "向左", right: "向右", down: "向下" } as const)[item]}</option>)}</Select></label>
+      <label><LayoutTemplate size={15} />模板<Select aria-label="思维导图模板" defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>选择模板</option><option value="brainstorming">头脑风暴</option><option value="swot">SWOT 分析</option></Select></label>
       <span className="diagram-style-tools" aria-label="节点样式">
         <button type="button" disabled={!selectedID} aria-label="节点加粗" onClick={() => applySelectedStyle({ font_weight: "bold" })}><strong>B</strong></button>
         {[mindMapThemeColors[theme].node, mindMapThemeColors[theme].text].map((item, index) => <button type="button" key={item} disabled={!selectedID} className="diagram-color-swatch" style={{ background: item }} aria-label={index === 0 ? "节点背景色" : "节点文字色"} onClick={() => applySelectedStyle(index === 0 ? { background_color: item } : { color: item })} />)}
       </span>
       <Button title="导入 canonical JSON" aria-label="导入思维导图 JSON" onClick={() => importInput.current?.click()}><Upload size={15} />导入</Button>
-      {authorizeContentAction && <Button title="导出 canonical JSON" onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><FileJson size={15} />JSON</Button>}
-      {authorizeContentAction && <Button title="导出 PNG" onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><Image size={15} />PNG</Button>}
       <span className="diagram-toolbar-hint"><Download size={14} />选择节点后可同步位置与调整样式；评论请切换到评论页签</span>
       <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={event => importJSON(event.target.files?.[0])} />
     </div>}

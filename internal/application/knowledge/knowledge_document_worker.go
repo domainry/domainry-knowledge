@@ -143,6 +143,13 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		}
 		return
 	}
+	if r.SourceID == "" {
+		progress.Event = "stored"
+		progress.IndexStatus = "STORED"
+		progress.ErrorCode = ""
+		progress.RetryAt = time.Time{}
+		return
+	}
 	source, err := s.DocumentBinding(ctx, r.Document.LibraryID, r.Actor)
 	if err != nil || source.KnowledgeDocumentSourceIdentity() != r.SourceID {
 		progress.ErrorCode = "document_management_unavailable"

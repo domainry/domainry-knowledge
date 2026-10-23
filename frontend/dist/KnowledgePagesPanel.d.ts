@@ -1,6 +1,7 @@
+import type { ReactNode } from "react";
 import type { KnowledgeClient, KnowledgeLibrary, KnowledgePageSearchLocation } from "./types.ts";
 export declare function pageContentSHA256(content: string): Promise<string>;
-export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, onSelectionChange, onManage }: {
+export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, scopeTabs, teamLibraries, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: {
     client: KnowledgeClient;
     library: KnowledgeLibrary;
     currentUserID?: string;
@@ -11,6 +12,10 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
     initialBlockID?: string;
     initialSearchLocation?: KnowledgePageSearchLocation;
     initialPageMode?: "read" | "edit";
+    scopeTabs?: ReactNode;
+    teamLibraries?: KnowledgeLibrary[];
+    onLibrarySelect?: (libraryID: string) => void;
+    onCreateLibrary?: () => void;
     onSelectionChange?: (page: {
         id: string;
         title: string;

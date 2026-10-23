@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { Button, defaultErrorMessage } from "./components.tsx";
+import { Button, defaultErrorMessage, Select } from "./components.tsx";
 import { documentCanWrite, documentLabel } from "./document.ts";
 import type { KnowledgeClient, KnowledgeDocument, KnowledgeLibrary, KnowledgeLibraryPage, KnowledgeTransferSource } from "./types.ts";
 
@@ -69,7 +69,7 @@ export function KnowledgeDocumentTransferDialog({ client, source: initialSource,
   return createPortal(<div className="knowledge-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><section className="knowledge-transfer-dialog" role="dialog" aria-modal="true" aria-label="复制或移动文档"><header><div><h2>复制或移动文档</h2><p>选择目标资料库并确认可见范围；目标保存独立原文件，索引由后台处理。</p></div><Button aria-label="关闭" disabled={busy} onClick={onClose}><X size={17} /></Button></header><p><strong>{source.filename}</strong></p>
     {error && <p role="alert" className="knowledge-error">{error}</p>}
     {result ? <><p role="status">{mode === "move" ? "目标原文件已保存，原位置已停止访问。" : "独立副本已保存，原位置保留。"}当前目标状态：{documentLabel(result)}。</p><Button onClick={() => onOpenTarget(result.library_id)}>查看目标资料库</Button></> : <>
-      {pending ? <p className="knowledge-subtle">上次{pending.mode === "move" ? "移动" : "复制"}结果待确认；继续会使用原请求编号，不会重复创建目标文档。</p> : <><label>操作方式 <select disabled={busy} value={mode} onChange={event => setMode(event.target.value as "copy" | "move")}><option value="copy">复制，保留原文档</option><option value="move" disabled={!canMove}>移动，原位置停止访问</option></select></label>{!canMove && <p className="knowledge-subtle">移动需要原资料库的编辑或管理权限。</p>}
+      {pending ? <p className="knowledge-subtle">上次{pending.mode === "move" ? "移动" : "复制"}结果待确认；继续会使用原请求编号，不会重复创建目标文档。</p> : <><label>操作方式 <Select disabled={busy} value={mode} onChange={event => setMode(event.target.value as "copy" | "move")}><option value="copy">复制，保留原文档</option><option value="move" disabled={!canMove}>移动，原位置停止访问</option></Select></label>{!canMove && <p className="knowledge-subtle">移动需要原资料库的编辑或管理权限。</p>}
         {loading ? <p className="knowledge-subtle">正在读取目标知识库…</p> : <div className="knowledge-transfer-list">{page.items.map(library => <button key={library.id} aria-current={target?.id === library.id ? "true" : undefined} disabled={busy || !usable(library)} onClick={() => setTarget(library)}><strong>{library.name}</strong><small>{library.kind === "personal" ? "个人知识库 · 仅自己可见" : "团队知识库 · 阅读成员可见"}{!usable(library) ? " · 不可选择" : ""}</small></button>)}</div>}
         {(cursors.length > 1 || !page.complete) && <div className="knowledge-pagination"><Button disabled={busy || loading || cursors.length === 1} onClick={() => setCursors(value => value.slice(0, -1))}>上一页</Button><Button disabled={busy || loading || !page.next_after} onClick={() => setCursors(value => [...value, page.next_after!])}>下一页</Button></div>}
       </>}

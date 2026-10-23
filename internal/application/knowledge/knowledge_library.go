@@ -265,14 +265,14 @@ func (s *Service) LibraryResult(ctx context.Context, item agentsdk.KnowledgeLibr
 		}
 	}
 	if s.options.DocumentStorage != nil {
+		item.DocumentsConfigured = true
+		item.DocumentMaxBytes = DocumentOriginalMaximumBytes()
 		Binding, unavailable := s.DocumentBinding(ctx, item.ID, a)
-		item.DocumentsConfigured = unavailable == nil
 		if unavailable == nil {
-			formats := KnowledgeDocumentFormats(Binding)
-			item.DocumentsConfigured = len(formats) > 0
-			item.DocumentMaxBytes = DocumentOriginalMaximumBytes()
 			item.DocumentIndexMaxBytes = DocumentIndexMaximumBytes(Binding)
-			item.DocumentFormats = formats
+			item.DocumentFormats = KnowledgeDocumentUploadFormats(Binding)
+		} else {
+			item.DocumentFormats = StoredKnowledgeDocumentFormats()
 		}
 	}
 	item.SourcesManageable = item.Role == "manager" && s.options.LibraryAuthorizer != nil && s.LibraryAuthorize(ctx, knowledgesdk.ActionSourcesList, item, a) == nil

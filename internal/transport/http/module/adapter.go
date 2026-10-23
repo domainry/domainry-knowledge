@@ -1360,6 +1360,10 @@ func (a *adapter) streamPageCollaborationEvents(response http.ResponseWriter, re
 	response.Header().Set("Cache-Control", "no-cache, no-transform")
 	response.Header().Set("Connection", "keep-alive")
 	response.Header().Set("X-Accel-Buffering", "no")
+	// Streaming responses intentionally outlive the server's ordinary write
+	// timeout. Clear the per-request deadline without weakening timeouts for
+	// normal API responses.
+	_ = controller.SetWriteDeadline(time.Time{})
 	if _, err = io.WriteString(response, "retry: 1000\n\n"); err != nil {
 		return
 	}
@@ -1421,6 +1425,7 @@ func (a *adapter) streamPageLiveEvents(response http.ResponseWriter, request *ht
 		return
 	}
 	controller := http.NewResponseController(response)
+	_ = controller.SetWriteDeadline(time.Time{})
 	response.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	response.Header().Set("Cache-Control", "no-cache, no-transform")
 	response.Header().Set("Connection", "keep-alive")

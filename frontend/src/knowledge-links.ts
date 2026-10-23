@@ -6,7 +6,7 @@ export type KnowledgeDeepLink = {
   mode: "read" | "edit";
 };
 
-const libraryIDPattern = /^lib_[a-f0-9]{32}$/;
+const libraryIDPattern = /^klib_[a-f0-9]{32}$/;
 const pageIDPattern = /^kpage_[a-f0-9]{32}$/;
 const blockIDPattern = /^[A-Za-z0-9][A-Za-z0-9:_-]{0,127}$/;
 

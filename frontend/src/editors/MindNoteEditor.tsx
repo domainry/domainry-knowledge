@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { CalendarDays, Check, ChevronDown, ChevronRight, Circle, FileText, Focus, IndentDecrease, IndentIncrease, ListPlus, Plus, Tags, Trash2, X } from "lucide-react";
-import { Button } from "../components.tsx";
+import { CalendarDays, Check, ChevronDown, ChevronRight, Circle, Download, FileJson, FileText, Focus, IndentDecrease, IndentIncrease, ListPlus, Plus, Tags, Trash2, X } from "lucide-react";
+import { Button, Select } from "../components.tsx";
 import { canonicalMindNoteContent, createMindNoteNode, mindNoteToDocumentContent, parseMindNoteContent } from "../mindNoteContent.ts";
 import type { MindNoteContent, MindNoteNode } from "../mindNoteContent.ts";
+import { safeDocumentFilename } from "./documentTransfer.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 
 type NodeLocation = { node: MindNoteNode; index: number; siblings: MindNoteNode[]; parentID: string };
@@ -58,7 +60,18 @@ function nodeCounts(nodes: MindNoteNode[]) {
   return { total, completed };
 }
 
-export function MindNoteEditor({ body, readOnly = false, documentTitle = "未命名思维笔记", initialBlockID, convertPage, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+function mindNoteMarkdown(nodes: MindNoteNode[], depth = 0): string {
+  return nodes.map(node => `${"  ".repeat(depth)}- [${node.completed ? "x" : " "}] ${node.text || "未命名条目"}${node.children.length ? `\n${mindNoteMarkdown(node.children, depth + 1)}` : ""}`).join("\n");
+}
+
+function downloadMindNote(content: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export function MindNoteEditor({ body, readOnly = false, documentTitle = "未命名思维笔记", initialBlockID, convertPage, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
   const parsed = useMemo(() => parseMindNoteContent(body), [body]);
   const [content, setContent] = useState(parsed);
   const contentRef = useRef(content);
@@ -147,6 +160,15 @@ export function MindNoteEditor({ body, readOnly = false, documentTitle = "未命
     catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "转换文档失败"); }
     finally { setConverting(false); }
   };
+  const exportFile = async (format: "json" | "markdown") => {
+    try {
+      if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+      await authorizeContentAction("export");
+      if (format === "json") downloadMindNote(canonicalMindNoteContent(contentRef.current), safeDocumentFilename(documentTitle, "json"), "application/json");
+      else downloadMindNote(mindNoteMarkdown(contentRef.current.nodes), safeDocumentFilename(documentTitle, "md"), "text/markdown;charset=utf-8");
+      onActionFeedback?.(`已导出 ${format === "json" ? "JSON" : "Markdown"}。`);
+    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "思维笔记导出失败"); }
+  };
 
   const focusedPath = focusedID ? findPath(content.nodes, focusedID) : [];
   const visibleNodes = focusedPath.length ? [focusedPath[focusedPath.length - 1]] : content.nodes;
@@ -167,7 +189,7 @@ export function MindNoteEditor({ body, readOnly = false, documentTitle = "未命
         </div>
       </div>
       {metadataID === node.id && <div className="mind-note-metadata">
-        <label>优先级<select value={node.priority || "none"} disabled={readOnly} onChange={event => changeNode(node.id, item => ({ ...item, priority: event.target.value as NonNullable<MindNoteNode["priority"]> }))}><option value="none">无</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="urgent">紧急</option></select></label>
+        <label>优先级<Select value={node.priority || "none"} disabled={readOnly} onChange={event => changeNode(node.id, item => ({ ...item, priority: event.target.value as NonNullable<MindNoteNode["priority"]> }))}><option value="none">无</option><option value="low">低</option><option value="medium">中</option><option value="high">高</option><option value="urgent">紧急</option></Select></label>
         <label><CalendarDays size={13} />截止日期<input type="date" value={node.due_date || ""} disabled={readOnly} onChange={event => changeNode(node.id, item => ({ ...item, due_date: event.target.value }))} /></label>
         <label className="is-wide">标签<input value={(node.tags || []).join(", ")} disabled={readOnly} placeholder="产品, 发布" onChange={event => changeNode(node.id, item => ({ ...item, tags: [...new Set(event.target.value.split(/[,，]/).map(tag => Array.from(tag.trim()).slice(0, 20).join("")).filter(Boolean))].slice(0, 12) }))} /></label>
         <label className="is-wide">备注<textarea rows={2} maxLength={4096} value={node.note || ""} disabled={readOnly} placeholder="补充背景、判断或下一步" onChange={event => changeNode(node.id, item => ({ ...item, note: event.target.value }))} /></label>
@@ -177,6 +199,10 @@ export function MindNoteEditor({ body, readOnly = false, documentTitle = "未命
   });
 
   return <div className="knowledge-open-editor knowledge-mind-note-editor">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}>
+      <Button title="导出 Markdown" onClick={() => void exportFile("markdown")}><Download size={15} />Markdown</Button>
+      <Button title="导出 canonical JSON" onClick={() => void exportFile("json")}><FileJson size={15} />JSON</Button>
+    </PageActionPortal>}
     <header className="mind-note-toolbar">
       <div><strong>思维笔记</strong><span>{counts.completed}/{counts.total} 已完成</span></div>
       <div>{!readOnly && <Button title="添加顶层条目" onClick={addRoot}><Plus size={15} />顶层条目</Button>}{convertPage && authorizeContentAction && !readOnly && <Button title="转换为新文档" disabled={converting} onClick={() => void convertToDocument()}><FileText size={15} />{converting ? "转换中…" : "转为文档"}</Button>}</div>

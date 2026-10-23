@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { documentIndexMaxBytesForFilename } from "../src/document.ts";
+import { documentIndexMaxBytesForFilename, knowledgeDocumentAccept, knowledgeDocumentAcceptForContentType, knowledgeDocumentSupports, selectedUploadFile } from "../src/document.ts";
 import type { KnowledgeLibrary } from "../src/types.ts";
 
 const MiB = 1024 * 1024;
@@ -28,4 +28,29 @@ test("whole-file indexing uses transport and Builder ceilings but not derived bu
   assert.equal(documentIndexMaxBytesForFilename(library, "diagram.png"), 30 * MiB);
   assert.equal(documentIndexMaxBytesForFilename(library, "table.xlsx"), 30 * MiB);
   assert.equal(documentIndexMaxBytesForFilename(library, "legacy.doc"), 0);
+});
+
+test("upload format projection accepts configured file, image, audio and video formats only", () => {
+  const uploadLibrary: KnowledgeLibrary = {
+    ...library,
+    document_formats: [
+      { extension: ".txt", content_type: "text/plain", parser_route: "storage" },
+      { extension: ".png", content_type: "image/png", parser_route: "storage" },
+      { extension: ".mp3", content_type: "audio/mpeg", parser_route: "storage" },
+      { extension: ".mp4", content_type: "video/mp4", parser_route: "storage" },
+    ],
+  };
+  assert.equal(knowledgeDocumentAccept(uploadLibrary), ".txt,.png,.mp3,.mp4");
+  assert.equal(knowledgeDocumentAcceptForContentType(uploadLibrary, "image/"), ".png");
+  assert.equal(knowledgeDocumentAcceptForContentType(uploadLibrary, "audio/"), ".mp3");
+  assert.equal(knowledgeDocumentAcceptForContentType(uploadLibrary, "video/"), ".mp4");
+  for (const filename of ["notes.TXT", "photo.png", "voice.mp3", "clip.mp4"]) assert.equal(knowledgeDocumentSupports(uploadLibrary, filename), true, filename);
+  for (const filename of ["unsafe.exe", "photo.png.exe", "extensionless"]) assert.equal(knowledgeDocumentSupports(uploadLibrary, filename), false, filename);
+});
+
+test("closing the native picker without a file is a no-op and a selected file is returned exactly once", () => {
+  const selected = { name: "photo.png" } as File;
+  assert.equal(selectedUploadFile(null), null);
+  assert.equal(selectedUploadFile({ item: () => null }), null);
+  assert.equal(selectedUploadFile({ item: index => index === 0 ? selected : null }), selected);
 });

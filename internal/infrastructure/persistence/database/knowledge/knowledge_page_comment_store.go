@@ -98,6 +98,9 @@ func (s *Store) commentRecord(ctx context.Context, db conversationDB, libraryID,
 	if !found || comment.LibraryID != libraryID || comment.PageID != pageID {
 		return knowledgesdk.KnowledgePageComment{}, conversationError("not_found", "page_comment_not_found")
 	}
+	if comment.MentionedUserIDs == nil {
+		comment.MentionedUserIDs = []string{}
+	}
 	return comment, nil
 }
 
@@ -229,6 +232,9 @@ func (s *Store) KnowledgePageComments(ctx context.Context, libraryID, pageID, af
 			}
 			if e = unmarshalDurableJSON(raw, &item); e != nil {
 				return e
+			}
+			if item.MentionedUserIDs == nil {
+				item.MentionedUserIDs = []string{}
 			}
 			item.Anchor.Changed = currentAnchors[item.Anchor.NodeID] == "" || currentAnchors[item.Anchor.NodeID] != item.Anchor.BlockSHA256
 			physicalIDs = append(physicalIDs, physicalID)
@@ -440,6 +446,11 @@ func (s *Store) mutatePageComment(ctx context.Context, libraryID, pageID, commen
 		if e = s.saveComment(ctx, tx, &out, expected, a); e != nil {
 			return out, e
 		}
+		comments := []knowledgesdk.KnowledgePageComment{out}
+		if e = s.hydrateKnowledgeCommentReactions(ctx, tx, comments, a); e != nil {
+			return out, e
+		}
+		out = comments[0]
 		return out, nil
 	}, &out)
 	return
@@ -491,7 +502,7 @@ func (s *Store) DeleteKnowledgePageComment(ctx context.Context, libraryID, pageI
 		return knowledgesdk.KnowledgePageComment{}, err
 	}
 	return s.mutatePageComment(ctx, libraryID, pageID, commentID, "knowledge.page_comment.delete", knowledgesdk.ActionPageCommentsDelete, in.ClientID, in, in.ExpectedRevision, a, func(_ *sql.Tx, comment *knowledgesdk.KnowledgePageComment, _ agentsdk.KnowledgeLibrary) error {
-		comment.Deleted, comment.Body, comment.MentionedUserIDs = true, "", nil
+		comment.Deleted, comment.Body, comment.MentionedUserIDs = true, "", []string{}
 		return nil
 	})
 }

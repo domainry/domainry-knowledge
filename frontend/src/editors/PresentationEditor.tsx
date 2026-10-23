@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "katex/dist/katex.min.css";
 import { AlignCenter, AlignLeft, AlignRight, BarChart3, Braces, ChevronDown, ChevronUp, Copy, FileDown, ImagePlus, Maximize2, MonitorPlay, Plus, RectangleHorizontal, Sigma, Table2, Trash2, Type, Video, X } from "lucide-react";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import { renderSafeLatex } from "../latex.ts";
 import {
   applyPresentationTheme,
@@ -19,6 +19,7 @@ import {
 } from "../presentationContent.ts";
 import type { PresentationAsset, PresentationChart, PresentationChartType, PresentationContent, PresentationElement, PresentationLayout, PresentationMaster, PresentationShapeType, PresentationSlide, PresentationThemeID } from "../presentationContent.ts";
 import { safeDocumentFilename } from "./documentTransfer.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 import type PptxGenJS from "pptxgenjs";
 
@@ -455,7 +456,7 @@ function MasterInspector({ master, onChange }: { master: PresentationMaster; onC
     <h4>母版</h4>
     <p>统一控制整份演示的字体、色彩、页脚和页码。</p>
     {color("background_color", "背景")}{color("text_color", "正文")}{color("accent_color", "强调")}{color("muted_color", "辅助")}
-    <label className="is-wide"><span>字体</span><select value={master.font_family} onChange={event => onChange({ ...master, font_family: event.target.value })}><option>Arial</option><option>Aptos</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option></select></label>
+    <label className="is-wide"><span>字体</span><Select value={master.font_family} onChange={event => onChange({ ...master, font_family: event.target.value })}><option>Arial</option><option>Aptos</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option></Select></label>
     <label className="is-wide"><span>页脚</span><input maxLength={512} value={master.footer} onChange={event => onChange({ ...master, footer: event.target.value })} /></label>
     <label className="is-check"><input type="checkbox" checked={master.show_slide_number} onChange={event => onChange({ ...master, show_slide_number: event.target.checked })} /><span>显示页码</span></label>
   </div>;
@@ -468,19 +469,19 @@ function ElementInspector({ element, onChange, onDelete }: { element: Presentati
     <div className="presentation-inspector-grid">{number("x", "X", 0, presentationCanvasWidth)}{number("y", "Y", 0, presentationCanvasHeight)}{number("width", "宽", 1, presentationCanvasWidth)}{number("height", "高", 1, presentationCanvasHeight)}{number("rotation", "旋转", -360, 360)}</div>
     {(element.type === "text" || element.type === "shape") && <>
       <label className="is-wide"><span>内容</span><textarea value={element.text || ""} onChange={event => onChange({ ...element, text: event.target.value })} /></label>
-      <div className="presentation-inspector-grid"><label><span>字号</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>字重</span><select value={element.font_weight} onChange={event => onChange({ ...element, font_weight: event.target.value as "normal" | "bold" })}><option value="normal">常规</option><option value="bold">加粗</option></select></label><label><span>文字色</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div>
+      <div className="presentation-inspector-grid"><label><span>字号</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>字重</span><Select value={element.font_weight} onChange={event => onChange({ ...element, font_weight: event.target.value as "normal" | "bold" })}><option value="normal">常规</option><option value="bold">加粗</option></Select></label><label><span>文字色</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div>
       <div className="presentation-align-control" role="group" aria-label="文本对齐"><button type="button" aria-pressed={element.align === "left"} onClick={() => onChange({ ...element, align: "left" })}><AlignLeft size={15} /></button><button type="button" aria-pressed={element.align === "center"} onClick={() => onChange({ ...element, align: "center" })}><AlignCenter size={15} /></button><button type="button" aria-pressed={element.align === "right"} onClick={() => onChange({ ...element, align: "right" })}><AlignRight size={15} /></button></div>
     </>}
-    {element.type === "shape" && <div className="presentation-inspector-grid"><label><span>形状</span><select value={element.shape} onChange={event => onChange({ ...element, shape: event.target.value as PresentationShapeType })}>{presentationShapeTypes.map(shape => <option key={shape} value={shape}>{presentationShapeLabels[shape]}</option>)}</select></label><label><span>填充</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label><label><span>边框</span><input type="color" value={element.stroke_color} onChange={event => onChange({ ...element, stroke_color: event.target.value.toUpperCase() })} /></label></div>}
-    {(element.type === "image" || element.type === "video") && <label className="is-wide"><span>适应方式</span><select value={element.fit} onChange={event => onChange({ ...element, fit: event.target.value as "contain" | "cover" })}><option value="contain">完整显示</option><option value="cover">铺满裁剪</option></select></label>}
+    {element.type === "shape" && <div className="presentation-inspector-grid"><label><span>形状</span><Select value={element.shape} onChange={event => onChange({ ...element, shape: event.target.value as PresentationShapeType })}>{presentationShapeTypes.map(shape => <option key={shape} value={shape}>{presentationShapeLabels[shape]}</option>)}</Select></label><label><span>填充</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label><label><span>边框</span><input type="color" value={element.stroke_color} onChange={event => onChange({ ...element, stroke_color: event.target.value.toUpperCase() })} /></label></div>}
+    {(element.type === "image" || element.type === "video") && <label className="is-wide"><span>适应方式</span><Select value={element.fit} onChange={event => onChange({ ...element, fit: event.target.value as "contain" | "cover" })}><option value="contain">完整显示</option><option value="cover">铺满裁剪</option></Select></label>}
     {element.type === "table" && element.table && <><label className="is-check"><input type="checkbox" checked={element.table.header} onChange={event => onChange({ ...element, table: { ...element.table!, header: event.target.checked } })} /><span>首行为表头</span></label><label className="is-wide"><span>表格内容（Tab 分列、换行分行）</span><textarea rows={10} value={element.table.rows.map(row => row.join("\t")).join("\n")} onChange={event => { const rows = event.target.value.split("\n").slice(0, 50).map(row => row.split("\t").slice(0, 20)), width = Math.max(1, ...rows.map(row => row.length)); onChange({ ...element, table: { ...element.table!, rows: rows.map(row => [...row, ...Array(Math.max(0, width - row.length)).fill("")]) } }); }} /></label></>}
-    {element.type === "chart" && element.chart && <><label className="is-wide"><span>图表类型</span><select value={element.chart.type} onChange={event => onChange({ ...element, chart: { ...element.chart!, type: event.target.value as PresentationChartType } })}>{presentationChartTypes.map(type => <option key={type} value={type}>{presentationChartLabels[type]}</option>)}</select></label><label className="is-wide"><span>分类（逗号分隔）</span><input value={element.chart.categories.join(",")} onChange={event => { const categories = event.target.value.split(",").map(value => value.trim()).filter(Boolean).slice(0, 50); onChange({ ...element, chart: { ...element.chart!, categories, series: element.chart!.series.map(series => ({ ...series, values: categories.map((_, index) => series.values[index] || 0) })) } }); }} /></label><label className="is-wide"><span>数据系列（每行“名称:1,2,3”）</span><textarea rows={8} value={element.chart.series.map(series => `${series.name}:${series.values.join(",")}`).join("\n")} onChange={event => { const series = event.target.value.split("\n").slice(0, 12).map((row, index) => { const separator = row.indexOf(":"); const name = (separator >= 0 ? row.slice(0, separator) : `系列 ${index + 1}`).trim() || `系列 ${index + 1}`, raw = separator >= 0 ? row.slice(separator + 1) : row; return { name, values: element.chart!.categories.map((_, valueIndex) => { const value = Number(raw.split(",")[valueIndex]?.trim() || 0); return Number.isFinite(value) ? value : 0; }) }; }).filter(item => item.name); onChange({ ...element, chart: { ...element.chart!, series: series.length ? series : [{ name: "系列 1", values: element.chart!.categories.map(() => 0) }] } }); }} /></label></>}
+    {element.type === "chart" && element.chart && <><label className="is-wide"><span>图表类型</span><Select value={element.chart.type} onChange={event => onChange({ ...element, chart: { ...element.chart!, type: event.target.value as PresentationChartType } })}>{presentationChartTypes.map(type => <option key={type} value={type}>{presentationChartLabels[type]}</option>)}</Select></label><label className="is-wide"><span>分类（逗号分隔）</span><input value={element.chart.categories.join(",")} onChange={event => { const categories = event.target.value.split(",").map(value => value.trim()).filter(Boolean).slice(0, 50); onChange({ ...element, chart: { ...element.chart!, categories, series: element.chart!.series.map(series => ({ ...series, values: categories.map((_, index) => series.values[index] || 0) })) } }); }} /></label><label className="is-wide"><span>数据系列（每行“名称:1,2,3”）</span><textarea rows={8} value={element.chart.series.map(series => `${series.name}:${series.values.join(",")}`).join("\n")} onChange={event => { const series = event.target.value.split("\n").slice(0, 12).map((row, index) => { const separator = row.indexOf(":"); const name = (separator >= 0 ? row.slice(0, separator) : `系列 ${index + 1}`).trim() || `系列 ${index + 1}`, raw = separator >= 0 ? row.slice(separator + 1) : row; return { name, values: element.chart!.categories.map((_, valueIndex) => { const value = Number(raw.split(",")[valueIndex]?.trim() || 0); return Number.isFinite(value) ? value : 0; }) }; }).filter(item => item.name); onChange({ ...element, chart: { ...element.chart!, series: series.length ? series : [{ name: "系列 1", values: element.chart!.categories.map(() => 0) }] } }); }} /></label></>}
     {element.type === "formula" && <><label className="is-wide"><span>LaTeX 公式</span><textarea rows={6} value={element.formula || ""} onChange={event => onChange({ ...element, formula: event.target.value })} /></label><div className="presentation-inspector-grid"><label><span>字号</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>颜色</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div></>}
-    {element.type === "code" && <><div className="presentation-inspector-grid"><label><span>语言</span><select value={element.language} onChange={event => onChange({ ...element, language: event.target.value })}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="go">Go</option><option value="java">Java</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="json">JSON</option></select></label><label><span>字号</span><input type="number" min={8} max={120} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>背景</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label></div><label className="is-wide"><span>代码</span><textarea rows={12} value={element.source || ""} onChange={event => onChange({ ...element, source: event.target.value })} /></label></>}
+    {element.type === "code" && <><div className="presentation-inspector-grid"><label><span>语言</span><Select value={element.language} onChange={event => onChange({ ...element, language: event.target.value })}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="go">Go</option><option value="java">Java</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="json">JSON</option></Select></label><label><span>字号</span><input type="number" min={8} max={120} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>背景</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label></div><label className="is-wide"><span>代码</span><textarea rows={12} value={element.source || ""} onChange={event => onChange({ ...element, source: event.target.value })} /></label></>}
   </div>;
 }
 
-export function PresentationEditor({ body, readOnly = false, documentTitle = "未命名幻灯片", initialBlockID, uploadFile, fileUploadsEnabled, readFile, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+export function PresentationEditor({ body, readOnly = false, documentTitle = "未命名幻灯片", initialBlockID, uploadFile, fileUploadsEnabled, readFile, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
   const parsed = useMemo(() => parsePresentationContent(body), [body]);
   const [content, setContent] = useState(parsed);
   const contentRef = useRef(content);
@@ -489,6 +490,7 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
   const [slideshow, setSlideshow] = useState(false);
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
   const [exporting, setExporting] = useState("");
+  const shapePickerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ id: string; startX: number; startY: number; x: number; y: number; stageWidth: number; stageHeight: number } | null>(null);
   useEffect(() => {
     setContent(parsed);
@@ -510,6 +512,21 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
       return;
     }
   }, [initialBlockID]);
+  useEffect(() => {
+    if (!shapeMenuOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!shapePickerRef.current?.contains(event.target as Node)) setShapeMenuOpen(false);
+    };
+    const dismissWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setShapeMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismiss);
+    document.addEventListener("keydown", dismissWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", dismiss);
+      document.removeEventListener("keydown", dismissWithKeyboard);
+    };
+  }, [shapeMenuOpen]);
   const selectedIndex = Math.max(0, content.slides.findIndex(item => item.id === selectedSlideID));
   const selectedSlide = content.slides[selectedIndex];
   const selectedElement = selectedSlide.elements.find(item => item.id === selectedElementID);
@@ -627,15 +644,21 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
   };
 
   return <div className="knowledge-open-editor knowledge-presentation-editor">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}>
+      <Button title="导出 PDF" disabled={Boolean(exporting)} onClick={() => void exportFile("pdf")}><FileDown size={15} />PDF</Button>
+      <Button title="导出 PPTX" disabled={Boolean(exporting)} onClick={() => void exportFile("pptx")}><Maximize2 size={15} />PPTX</Button>
+    </PageActionPortal>}
     <div className="presentation-toolbar" aria-label="幻灯片工具栏">
       {!readOnly && <>
-        <label><span>主题</span><select value={content.theme} onChange={event => apply(applyPresentationTheme(content, event.target.value as PresentationThemeID))}>{Object.entries(presentationThemes).map(([id, theme]) => <option key={id} value={id}>{theme.label}</option>)}</select></label>
-        <label><span>版式</span><select value={selectedSlide.layout} onChange={event => setLayout(event.target.value as PresentationLayout)}>{presentationLayouts.map(layout => <option key={layout.id} value={layout.id}>{layout.label}</option>)}</select></label>
+        <label><span>主题</span><Select value={content.theme} onChange={event => apply(applyPresentationTheme(content, event.target.value as PresentationThemeID))}>{Object.entries(presentationThemes).map(([id, theme]) => <option key={id} value={id}>{theme.label}</option>)}</Select></label>
+        <label><span>版式</span><Select value={selectedSlide.layout} onChange={event => setLayout(event.target.value as PresentationLayout)}>{presentationLayouts.map(layout => <option key={layout.id} value={layout.id}>{layout.label}</option>)}</Select></label>
         <span className="presentation-toolbar-divider" />
         <Button title="插入文本" onClick={addText}><Type size={15} />文本</Button>
-        <div className="presentation-shape-picker">
-          <Button title="插入形状" aria-expanded={shapeMenuOpen} onClick={() => setShapeMenuOpen(value => !value)}><RectangleHorizontal size={15} />形状<ChevronDown size={13} /></Button>
-          {shapeMenuOpen && <div className="presentation-shape-menu" role="menu" aria-label="选择形状">{presentationShapeTypes.map(shape => <button type="button" role="menuitem" key={shape} onClick={() => addShape(shape)}><span><PresentationShapeGraphic shape={shape} fill={content.master.accent_color} stroke={content.master.accent_color} strokeWidth={2} /></span><b>{presentationShapeLabels[shape]}</b></button>)}</div>}
+        <div className="presentation-shape-picker" ref={shapePickerRef}>
+          <Button title="插入形状" aria-expanded={shapeMenuOpen} aria-haspopup="menu" onClick={() => setShapeMenuOpen(value => !value)}><RectangleHorizontal size={15} />形状<ChevronDown size={13} /></Button>
+          {shapeMenuOpen && <div className="presentation-shape-menu" role="menu" aria-label="选择形状">
+            {presentationShapeTypes.map(shape => <button type="button" role="menuitem" title={`插入${presentationShapeLabels[shape]}`} key={shape} onClick={() => addShape(shape)}><span><PresentationShapeGraphic shape={shape} fill="var(--knowledge-surface-tint)" stroke="currentColor" strokeWidth={2} /></span><b>{presentationShapeLabels[shape]}</b></button>)}
+          </div>}
         </div>
         <Button title="插入表格" onClick={addTable}><Table2 size={15} />表格</Button>
         <Button title="插入图表" onClick={addChart}><BarChart3 size={15} />图表</Button>
@@ -645,8 +668,6 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
       </>}
       <span className="presentation-toolbar-spacer" />
       <Button title="放映" onClick={() => setSlideshow(true)}><MonitorPlay size={15} />放映</Button>
-      {authorizeContentAction && <Button title="导出 PDF" disabled={Boolean(exporting)} onClick={() => void exportFile("pdf")}><FileDown size={15} />PDF</Button>}
-      {authorizeContentAction && <Button title="导出 PPTX" disabled={Boolean(exporting)} onClick={() => void exportFile("pptx")}><Maximize2 size={15} />PPTX</Button>}
     </div>
     <div className={`presentation-workspace${readOnly ? " is-readonly" : ""}`}>
       <aside className="presentation-slide-list" aria-label="幻灯片列表">

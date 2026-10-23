@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
@@ -65,8 +68,14 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 		t.Fatalf("session status=%d body=%s", session.Code, session.Body.String())
 	}
 	csp := session.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "frame-src https://www.youtube-nocookie.com https://player.bilibili.com") || strings.Contains(csp, " https://www.youtube.com") {
+	if !strings.Contains(csp, "frame-src https://www.youtube.com https://player.bilibili.com") || strings.Contains(csp, "youtube-nocookie.com") {
 		t.Fatalf("controlled embed CSP is not exact: %q", csp)
+	}
+	if policy := session.Header().Get("Referrer-Policy"); policy != "strict-origin-when-cross-origin" {
+		t.Fatalf("external players require an origin referrer policy, got %q", policy)
+	}
+	if !strings.Contains(csp, "script-src 'self' 'wasm-unsafe-eval'") || strings.Contains(csp, "script-src 'self' 'unsafe-eval'") {
+		t.Fatalf("CSP must allow WebAssembly hashing without enabling general unsafe evaluation: %q", csp)
 	}
 	created := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries", map[string]any{"kind": "shared", "name": "产品知识库", "client_id": "acceptance-library"}, loginBody.AccessToken)
 	if created.Code != http.StatusCreated {
@@ -94,6 +103,13 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 	}, loginBody.AccessToken)
 	if governance.Code != http.StatusOK {
 		t.Fatalf("set governance status=%d body=%s", governance.Code, governance.Body.String())
+	}
+	applicationCard := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/application-cards/resolve", map[string]any{
+		"provider": "web", "kind": knowledgesdk.KnowledgeApplicationCardWeb, "resource_id": "https://example.com/acceptance",
+	}, loginBody.AccessToken)
+	var card knowledgesdk.KnowledgeApplicationCard
+	if applicationCard.Code != http.StatusOK || json.Unmarshal(applicationCard.Body.Bytes(), &card) != nil || card.Provider != "web" || card.Kind != knowledgesdk.KnowledgeApplicationCardWeb || card.Title != "example.com" || card.URL != "https://example.com/acceptance" {
+		t.Fatalf("resolve default web application card status=%d body=%s", applicationCard.Code, applicationCard.Body.String())
 	}
 	if err := host.Close(context.Background()); err != nil {
 		t.Fatal(err)
@@ -167,6 +183,124 @@ func TestStandaloneProductUsesAuthenticatedKnowledgeUploadHTTPBoundary(t *testin
 	}
 	if json.Unmarshal(upload.Body.Bytes(), &progress) != nil || !progress.Complete || progress.NextOffset != int64(len(content)) || progress.Document.LibraryID != library.ID || progress.Document.SHA256 != hash {
 		t.Fatalf("invalid upload response: %s", upload.Body.String())
+	}
+}
+
+func TestStandaloneProductStoresAndServesFilesWithoutIndexProvider(t *testing.T) {
+	t.Setenv("APP_ENV", "development")
+	t.Setenv("AUTH_INITIAL_CREDENTIAL_ROTATION_REQUIRED", "false")
+	root := t.TempDir()
+	options := Options{
+		RuntimeID: "knowledge", WorkspaceID: "knowledge-workspace", ApplicationKey: "knowledge",
+		DatabasePath: filepath.Join(root, "knowledge.db"), StoragePath: filepath.Join(root, "storage"), Origin: "http://knowledge.test",
+		AdminLogin: "admin@knowledge.test", AdminName: "Knowledge Admin", AdminPassword: "Knowledge@2026",
+	}
+	host, err := Open(t.Context(), options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Close(context.Background())
+	login := callProduct(t, host.Handler(), http.MethodPost, "/auth/login", map[string]any{"workspace_id": options.WorkspaceID, "login": options.AdminLogin, "password": options.AdminPassword}, "")
+	var authenticated struct {
+		AccessToken string `json:"access_token"`
+	}
+	if login.Code != http.StatusOK || json.Unmarshal(login.Body.Bytes(), &authenticated) != nil || authenticated.AccessToken == "" {
+		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
+	}
+	created := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries", map[string]any{"kind": "personal", "name": "Local files", "client_id": "local-files-library"}, authenticated.AccessToken)
+	var library knowledgesdk.KnowledgeLibrary
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &library) != nil {
+		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())
+	}
+	if !library.DocumentsConfigured || library.DocumentMaxBytes != knowledgesdk.KnowledgeDocumentMaximumBytes {
+		t.Fatalf("local document storage was not projected: %+v", library)
+	}
+	formats := map[string]bool{}
+	for _, format := range library.DocumentFormats {
+		formats[format.Extension] = true
+	}
+	for _, extension := range []string{".png", ".mp3", ".mp4", ".txt"} {
+		if !formats[extension] {
+			t.Fatalf("local format %s missing from %+v", extension, library.DocumentFormats)
+		}
+	}
+	createdPage := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries/"+library.ID+"/pages", map[string]any{
+		"client_id": "local-files-page", "title": "附件验收", "content_type": knowledgesdk.KnowledgePageTypeDocument,
+	}, authenticated.AccessToken)
+	var page knowledgesdk.KnowledgePageView
+	if createdPage.Code != http.StatusCreated || json.Unmarshal(createdPage.Body.Bytes(), &page) != nil || page.Page.ID == "" {
+		t.Fatalf("create attachment page status=%d body=%s", createdPage.Code, createdPage.Body.String())
+	}
+
+	files := []struct {
+		name string
+		body []byte
+	}{
+		{name: "pixel.png", body: append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("safe-image")...)},
+		{name: "voice.mp3", body: []byte("ID3safe-audio")},
+		{name: "clip.mp4", body: []byte{0, 0, 0, 12, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm'}},
+		{name: "notes.txt", body: []byte("safe local text")},
+	}
+	for index, file := range files {
+		digest := sha256.Sum256(file.body)
+		hash := hex.EncodeToString(digest[:])
+		path := "/knowledge/libraries/" + library.ID + "/documents?client_id=local-file-" + fmt.Sprint(index) + "&filename=" + url.QueryEscape(file.name)
+		upload := callProductRaw(t, host.Handler(), http.MethodPost, path, file.body, map[string]string{
+			"Content-Type": "application/octet-stream", "Content-Range": fmt.Sprintf("bytes 0-%d/%d", len(file.body)-1, len(file.body)), "X-Knowledge-File-SHA256": hash, "X-Knowledge-Chunk-SHA256": hash,
+		}, authenticated.AccessToken)
+		var progress struct {
+			NextOffset int64                           `json:"next_offset"`
+			Complete   bool                            `json:"complete"`
+			Document   *knowledgesdk.KnowledgeDocument `json:"document"`
+		}
+		if upload.Code != http.StatusOK || json.Unmarshal(upload.Body.Bytes(), &progress) != nil || !progress.Complete || progress.Document == nil {
+			t.Fatalf("upload %s status=%d body=%s", file.name, upload.Code, upload.Body.String())
+		}
+		if index == 0 {
+			attachmentPath := "/knowledge/libraries/" + library.ID + "/pages/" + page.Page.ID + "/attachments/" + progress.Document.ID
+			attached := callProduct(t, host.Handler(), http.MethodPut, attachmentPath, map[string]any{"client_id": "attach-local-image", "title": "原图片", "rank": "a"}, authenticated.AccessToken)
+			if attached.Code != http.StatusOK {
+				t.Fatalf("attach local image status=%d body=%s", attached.Code, attached.Body.String())
+			}
+			replaced := callProduct(t, host.Handler(), http.MethodPut, attachmentPath, map[string]any{"client_id": "replace-local-image", "title": "替换后的图片", "rank": "b"}, authenticated.AccessToken)
+			if replaced.Code != http.StatusOK {
+				t.Fatalf("replace local image status=%d body=%s", replaced.Code, replaced.Body.String())
+			}
+			listed := callProduct(t, host.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/pages/"+page.Page.ID+"/attachments", nil, authenticated.AccessToken)
+			var attachments knowledgesdk.KnowledgePageAttachmentPage
+			if listed.Code != http.StatusOK || json.Unmarshal(listed.Body.Bytes(), &attachments) != nil || len(attachments.Items) != 1 || attachments.Items[0].Title != "替换后的图片" || attachments.Items[0].Rank != "b" {
+				t.Fatalf("replace must update one attachment status=%d body=%s", listed.Code, listed.Body.String())
+			}
+		}
+		var stored knowledgesdk.KnowledgeDocument
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			response := callProduct(t, host.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/documents/"+progress.Document.ID, nil, authenticated.AccessToken)
+			if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &stored) != nil {
+				t.Fatalf("read %s status=%d body=%s", file.name, response.Code, response.Body.String())
+			}
+			if stored.State == "ready" {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if stored.State != "ready" || stored.IndexStatus != "STORED" || stored.SecurityStatus != "clean" {
+			t.Fatalf("stored %s did not complete locally: %+v", file.name, stored)
+		}
+		download := callProduct(t, host.Handler(), http.MethodGet, "/knowledge/libraries/"+library.ID+"/documents/"+stored.ID+"/content", nil, authenticated.AccessToken)
+		if download.Code != http.StatusOK || !bytes.Equal(download.Body.Bytes(), file.body) || download.Header().Get("X-Knowledge-File-SHA256") != hash {
+			t.Fatalf("download %s status=%d body=%x headers=%v", file.name, download.Code, download.Body.Bytes(), download.Header())
+		}
+	}
+
+	unsupported := []byte("MZ executable")
+	digest := sha256.Sum256(unsupported)
+	hash := hex.EncodeToString(digest[:])
+	rejected := callProductRaw(t, host.Handler(), http.MethodPost, "/knowledge/libraries/"+library.ID+"/documents?client_id=local-file-rejected&filename=malware.exe", unsupported, map[string]string{
+		"Content-Type": "application/octet-stream", "Content-Range": fmt.Sprintf("bytes 0-%d/%d", len(unsupported)-1, len(unsupported)), "X-Knowledge-File-SHA256": hash, "X-Knowledge-Chunk-SHA256": hash,
+	}, authenticated.AccessToken)
+	if rejected.Code != http.StatusBadRequest || !strings.Contains(rejected.Body.String(), "document_type_unsupported") {
+		t.Fatalf("unsupported upload status=%d body=%s", rejected.Code, rejected.Body.String())
 	}
 }
 

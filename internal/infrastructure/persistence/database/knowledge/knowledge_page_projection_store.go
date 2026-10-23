@@ -208,6 +208,47 @@ func (s *Store) RetryKnowledgePageProjection(ctx context.Context, lease knowledg
 	})
 }
 
+// SkipKnowledgePageProjection finalizes a published page for a local-only
+// library. There is no remote document to create, so the page has no projection
+// while its local access policy is immediately authoritative.
+func (s *Store) SkipKnowledgePageProjection(ctx context.Context, lease knowledgesdk.KnowledgePageProjectionLease) error {
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		if _, err := s.currentPageProjectionJob(ctx, tx, lease); err != nil {
+			return err
+		}
+		page, err := s.pageRecord(ctx, tx, lease.LibraryID, lease.PageID, lease.Actor)
+		if err != nil {
+			return err
+		}
+		access, err := s.knowledgePageAccessPolicy(ctx, tx, lease.LibraryID, lease.PageID, lease.Actor)
+		if err != nil {
+			return err
+		}
+		if page.State != "active" || page.PublishedVersion != lease.Version || access.Revision != lease.AccessRevision || access.ProjectionStatus != "queued" {
+			return conversationError("conflict", "page_projection_stale")
+		}
+		now := time.Now().UTC().Truncate(time.Millisecond)
+		page.ProjectionStatus, page.AccessStatus = "none", "ready"
+		page.AccessRevision, page.AccessMode = access.Revision, access.Mode
+		access.ProjectionStatus, access.UpdatedAt = "ready", now
+		q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageTable).
+			Set("payload_json", conversationJSON(page)).
+			Where(query.And(pageScope(lease.Actor, lease.PageID), query.Equal("published_version", lease.Version))).Build()
+		if err = conversationCAS(ctx, tx, q, args, buildErr); err != nil {
+			return err
+		}
+		q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageAccessTable).
+			Set("projection_status", "ready").Set("updated_at", now.UnixMilli()).Set("payload_json", conversationJSON(access)).
+			Where(query.And(pageScope(lease.Actor, lease.PageID), query.Equal("revision", lease.AccessRevision))).Build()
+		if err = conversationCAS(ctx, tx, q, args, buildErr); err != nil {
+			return err
+		}
+		q, args, buildErr = query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).
+			Where(query.And(pageScope(lease.Actor, lease.PageID), query.Equal("fence", lease.Token))).Build()
+		return conversationExec(ctx, tx, q, args, buildErr)
+	})
+}
+
 func (s *Store) setPageProjectionStatus(ctx context.Context, tx *sql.Tx, page knowledgesdk.KnowledgePage, status string, accessRevision int64, authority agentsdk.Authority) error {
 	access, err := s.knowledgePageAccessPolicy(ctx, tx, page.LibraryID, page.ID, authority)
 	if err != nil {

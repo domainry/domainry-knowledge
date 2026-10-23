@@ -80,6 +80,19 @@ func (s *Service) DocumentBinding(ctx context.Context, library string, a agentsd
 	}
 	return nil, conversationFailure("unavailable", "document_management_unavailable")
 }
+
+func (s *Service) DocumentManagementConfigured(ctx context.Context, library string, a agentsdk.Authority) (bool, error) {
+	if resolver, ok := s.options.Knowledge.(*LibraryKnowledgeSource); ok {
+		return resolver.ManagedDocumentsConfigured(ctx, library, a)
+	}
+	for _, binding := range s.options.LibraryKnowledge {
+		if binding.LibraryID == library && binding.WorkspaceID == a.WorkspaceID && a.RuntimeID == s.runtimeID && binding.ManageDocuments {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Service) UploadKnowledgeDocument(ctx context.Context, library string, in agentsdk.KnowledgeDocumentUpload, a agentsdk.Authority) (agentsdk.KnowledgeDocument, error) {
 	return s.uploadDocumentContent(ctx, library, in, nil, nil, nil, a)
 }
@@ -235,18 +248,28 @@ func (s *Service) reserveDocumentContent(ctx context.Context, library, clientID,
 	if err = s.authorizeDocumentSource(ctx, sourceAccess, a); err != nil {
 		return nil, zero, err
 	}
-	source, err := s.DocumentBinding(ctx, library, a)
-	if err != nil {
-		return nil, zero, err
-	}
 	if bytes < 1 || bytes > DocumentOriginalMaximumBytes() || !validKnowledgeDocumentDigest(hash) {
 		return nil, zero, conversationFailure("bad_request", "document_size_invalid")
 	}
-	format, supported := KnowledgeDocumentFormat(source, filename)
+	format, supported := StoredKnowledgeDocumentFormat(filename)
 	if !supported {
 		return nil, zero, conversationFailure("bad_request", "document_type_unsupported")
 	}
-	record, err := repo.ReserveKnowledgeDocument(ctx, persistence.KnowledgeDocumentReserve{DocumentOrigin: documentOrigin, LibraryID: library, ClientID: clientID, Filename: filename, ContentType: format.ContentType, Bytes: bytes, SHA256: hash, SourceID: source.KnowledgeDocumentSourceIdentity(), AccessPolicySHA256: DocumentAccessPolicy(source), SourceAccess: cloneDocumentSourceAccess(sourceAccess)}, a)
+	sourceID, accessPolicy := "", ""
+	source, bindingErr := s.DocumentBinding(ctx, library, a)
+	if bindingErr == nil {
+		if indexedFormat, indexed := KnowledgeDocumentFormat(source, filename); indexed {
+			format = indexedFormat
+			sourceID = source.KnowledgeDocumentSourceIdentity()
+			accessPolicy = DocumentAccessPolicy(source)
+		}
+	} else {
+		var unavailable *agentsdk.Error
+		if !errors.As(bindingErr, &unavailable) || unavailable.Code != "knowledge.document_management_unavailable" {
+			return nil, zero, bindingErr
+		}
+	}
+	record, err := repo.ReserveKnowledgeDocument(ctx, persistence.KnowledgeDocumentReserve{DocumentOrigin: documentOrigin, LibraryID: library, ClientID: clientID, Filename: filename, ContentType: format.ContentType, Bytes: bytes, SHA256: hash, SourceID: sourceID, AccessPolicySHA256: accessPolicy, SourceAccess: cloneDocumentSourceAccess(sourceAccess)}, a)
 	if err != nil {
 		return nil, zero, err
 	}

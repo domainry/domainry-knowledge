@@ -5,9 +5,10 @@ import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform";
 import { ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, FileDown, ImageDown, Layers3, StickyNote } from "lucide-react";
 import "@excalidraw/excalidraw/index.css";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import { canonicalWhiteboardContent, parseWhiteboardContent, whiteboardElementQuote, whiteboardScene } from "./whiteboardContent.ts";
 import { safeDocumentFilename } from "./documentTransfer.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 import { pickWhiteboardElement } from "./whiteboardHitTest.ts";
 
@@ -121,7 +122,7 @@ function moveLayer(elements: readonly ExcalidrawElement[], selectedIDs: Set<stri
   return next;
 }
 
-export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画板", onChange, onPresence, onCommentAnchor, initialBlockID, blockHighlightRevision, authorizeContentAction, onActionFeedback }: KnowledgeEditorProps) {
+export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画板", onChange, onPresence, onCommentAnchor, initialBlockID, blockHighlightRevision, pageActionHost, authorizeContentAction, onActionFeedback }: KnowledgeEditorProps) {
   const content = useMemo(() => parseWhiteboardContent(body), [body]);
   const scene = useMemo(() => whiteboardScene(content), [content]);
   const canonicalBody = useMemo(() => JSON.stringify(content), [content]);
@@ -192,17 +193,18 @@ export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画�
   }, [initialBlockID, blockHighlightRevision]);
 
   return <div className="knowledge-open-editor is-excalidraw is-whiteboard">
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}>
+      <Button title="导出 PNG" disabled={!!exporting} onClick={() => void exportBoard("png")}><ImageDown size={15} />PNG</Button>
+      <Button title="导出 PDF" disabled={!!exporting} onClick={() => void exportBoard("pdf")}><FileDown size={15} />PDF</Button>
+    </PageActionPortal>}
     {!readOnly && <div className="native-whiteboard-toolbar" aria-label="画板工具">
       <Button title="添加便签" onClick={addSticky}><StickyNote size={15} />便签</Button>
-      <label><Layers3 size={15} /><select aria-label="插入画板模板" defaultValue="" onChange={event => { const value = event.target.value; event.target.value = ""; if (value) addElements(templateSkeletons(value)); }}><option value="">插入模板</option><option value="brainstorm">头脑风暴</option><option value="flow">流程梳理</option><option value="retro">团队复盘</option></select></label>
+      <label><Layers3 size={15} /><Select aria-label="插入画板模板" defaultValue="" onChange={event => { const value = event.target.value; event.target.value = ""; if (value) addElements(templateSkeletons(value)); }}><option value="">插入模板</option><option value="brainstorm">头脑风暴</option><option value="flow">流程梳理</option><option value="retro">团队复盘</option></Select></label>
       <span className="native-whiteboard-toolbar-divider" />
       <Button title="置于顶层" disabled={!selectedIDs.length} onClick={() => applyLayer("front")}><ChevronsUp size={15} /></Button>
       <Button title="上移一层" disabled={!selectedIDs.length} onClick={() => applyLayer("forward")}><ArrowUp size={15} /></Button>
       <Button title="下移一层" disabled={!selectedIDs.length} onClick={() => applyLayer("backward")}><ArrowDown size={15} /></Button>
       <Button title="置于底层" disabled={!selectedIDs.length} onClick={() => applyLayer("back")}><ChevronsDown size={15} /></Button>
-      <span className="native-whiteboard-toolbar-divider" />
-      {authorizeContentAction && <Button title="导出 PNG" disabled={!!exporting} onClick={() => void exportBoard("png")}><ImageDown size={15} />PNG</Button>}
-      {authorizeContentAction && <Button title="导出 PDF" disabled={!!exporting} onClick={() => void exportBoard("pdf")}><FileDown size={15} />PDF</Button>}
     </div>}
     <ExcalidrawCanvas
       snapshot={{ nodes: scene.elements as unknown as readonly ExcalidrawElement[], files: scene.files as unknown as BinaryFiles, appState: scene.appState as Partial<AppState> }}

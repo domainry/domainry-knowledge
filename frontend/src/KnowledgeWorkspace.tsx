@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, ChevronRight, FileSearch, FileText, Filter, FolderOpen, Plus, RefreshCw, Search, Users, X } from "lucide-react";
-import { Button, defaultErrorMessage, EmptyState } from "./components.tsx";
+import { BookOpen, ChevronRight, FileSearch, FileText, Filter, FolderOpen, RefreshCw, Search, Users, X } from "lucide-react";
+import { Button, defaultErrorMessage, EmptyState, Select } from "./components.tsx";
 import { KnowledgeSourcesPanel } from "./KnowledgeSourcesPanel.tsx";
 import { KnowledgePagesPanel } from "./KnowledgePagesPanel.tsx";
-import { parseKnowledgeDeepLink } from "./knowledge-links.ts";
+import { createKnowledgePageLink, parseKnowledgeDeepLink } from "./knowledge-links.ts";
 import { PageTypeIcon, pageTypeDefinitions, pageTypeMeta } from "./pageTypeRegistry.ts";
 import { knowledgeCitations, knowledgeDocumentHits, knowledgeSearchStatus } from "./search-results.ts";
-import type { KnowledgeAccessExplanation, KnowledgeCitation, KnowledgeClient, KnowledgeLibrary, KnowledgeLibraryMember, KnowledgeLibraryMemberPage, KnowledgeLibraryOrganizationMemberPage, KnowledgeLibraryPage, KnowledgeOrganizationPrincipal, KnowledgePageContentType, KnowledgePageIdentity, KnowledgePageSearchHit, KnowledgePageSearchInput, KnowledgePageSearchLocation, KnowledgePageSearchPage, KnowledgePrincipal, KnowledgeResult } from "./types.ts";
+import type { KnowledgeAccessExplanation, KnowledgeCitation, KnowledgeClient, KnowledgeLibrary, KnowledgeLibraryMember, KnowledgeLibraryMemberPage, KnowledgeLibraryOrganizationMemberPage, KnowledgeLibraryPage, KnowledgeOrganizationPrincipal, KnowledgePageContentType, KnowledgePageSearchHit, KnowledgePageSearchInput, KnowledgePageSearchLocation, KnowledgePageSearchPage, KnowledgePrincipal, KnowledgeResult } from "./types.ts";
+import { KnowledgeCreateMenu } from "./KnowledgeCreateMenu.tsx";
 
 export type KnowledgeWorkspaceProps = {
   client: KnowledgeClient;
   currentUserID?: string;
   formatError?: (error: unknown) => string;
+  headerSearchHost?: HTMLElement | null;
 };
 
 const roles: Record<KnowledgeLibraryMember["role"], string> = { reader: "阅读", editor: "编辑", manager: "管理" };
@@ -58,17 +61,37 @@ function citationProvenance(citation: KnowledgeCitation) {
   return parts.join(" · ");
 }
 
-export function KnowledgeWorkspace({ client, currentUserID = "", formatError = defaultErrorMessage }: KnowledgeWorkspaceProps) {
+export function KnowledgeWorkspace({ client, currentUserID = "", formatError = defaultErrorMessage, headerSearchHost }: KnowledgeWorkspaceProps) {
   const initialDeepLink = useMemo(() => typeof window === "undefined" ? null : parseKnowledgeDeepLink(window.location.href), []);
   const [libraryKind, setLibraryKind] = useState<"personal" | "shared">(initialDeepLink?.libraryKind || "personal");
   const [searchInput, setSearchInput] = useState("");
   const [searchRequest, setSearchRequest] = useState({ query: "", revision: 0 });
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const openGlobalSearch = useCallback(() => {
+    setSearchExpanded(true);
+    window.setTimeout(() => { searchInputRef.current?.focus(); searchInputRef.current?.select(); });
+  }, []);
+  useEffect(() => {
+    const focusGlobalSearch = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLocaleLowerCase() !== "k") return;
+      event.preventDefault();
+      openGlobalSearch();
+    };
+    window.addEventListener("keydown", focusGlobalSearch);
+    return () => window.removeEventListener("keydown", focusGlobalSearch);
+  }, [openGlobalSearch]);
+  const scopeNavigation = <nav className="knowledge-workspace-tabs knowledge-primary-scope-tabs" role="tablist" aria-label="知识库范围">
+    <button type="button" role="tab" aria-selected={libraryKind === "personal"} onClick={() => setLibraryKind("personal")}><BookOpen size={16} /><span><strong>个人</strong></span></button>
+    <button type="button" role="tab" aria-selected={libraryKind === "shared"} onClick={() => setLibraryKind("shared")}><Users size={16} /><span><strong>团队</strong></span></button>
+  </nav>;
+  const searchControl = <div className={`knowledge-header-search${searchExpanded ? " is-expanded" : ""}`} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget) && !searchInput.trim()) setSearchExpanded(false); }}>
+    <button type="button" className="knowledge-header-search-toggle" aria-label="展开全文检索" title="搜索（⌘/Ctrl + K）" aria-expanded={searchExpanded} onClick={openGlobalSearch}><Search size={18} aria-hidden="true" /></button>
+    <form className="knowledge-global-search" role="search" onSubmit={event => { event.preventDefault(); const query = searchInput.trim(); if (query) setSearchRequest(current => ({ query, revision: current.revision + 1 })); }}><Search size={16} aria-hidden="true" /><input ref={searchInputRef} aria-label="全文检索当前知识库" aria-keyshortcuts="Meta+K Control+K" value={searchInput} maxLength={4096} onChange={event => setSearchInput(event.target.value)} onKeyDown={event => { if (event.key === "Escape" && !searchInput.trim()) { event.currentTarget.blur(); setSearchExpanded(false); } }} placeholder="搜索当前知识库" />{searchRequest.query && <Button type="button" aria-label="清除全文检索" onClick={() => { setSearchInput(""); setSearchRequest(current => ({ query: "", revision: current.revision + 1 })); }}><X size={14} /></Button>}<Button type="submit" className="primary" disabled={!searchInput.trim()}>搜索</Button></form>
+  </div>;
   return <main className="knowledge-workspace">
-    <div className="knowledge-workspace-toolbar">
-      <div className="knowledge-workspace-tabs" role="tablist" aria-label="知识库范围"><button role="tab" aria-selected={libraryKind === "personal"} onClick={() => setLibraryKind("personal")}><BookOpen size={17} /><span>个人知识库<small>仅自己可见的知识空间</small></span></button><button role="tab" aria-selected={libraryKind === "shared"} onClick={() => setLibraryKind("shared")}><Users size={17} /><span>团队知识库<small>按成员角色共同维护</small></span></button></div>
-      <form className="knowledge-global-search" role="search" onSubmit={event => { event.preventDefault(); const query = searchInput.trim(); if (query) setSearchRequest(current => ({ query, revision: current.revision + 1 })); }}><Search size={17} aria-hidden="true" /><input aria-label="全文检索当前知识库" value={searchInput} maxLength={4096} onChange={event => setSearchInput(event.target.value)} placeholder="全文检索当前知识库" />{searchRequest.query && <Button type="button" aria-label="清除全文检索" onClick={() => { setSearchInput(""); setSearchRequest(current => ({ query: "", revision: current.revision + 1 })); }}><X size={15} /></Button>}<Button type="submit" className="primary" disabled={!searchInput.trim()}>搜索</Button></form>
-    </div>
-    <KnowledgeLibraryManager key={libraryKind} client={client} currentUserID={currentUserID} formatError={formatError} initialLibraryID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.libraryID : ""} initialPageID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.pageID : ""} initialBlockID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.blockID : undefined} initialPageMode={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.mode : "read"} libraryKind={libraryKind} searchQuery={searchRequest.query} searchRevision={searchRequest.revision} />
+    {headerSearchHost && createPortal(searchControl, headerSearchHost)}
+    <KnowledgeLibraryManager key={libraryKind} client={client} currentUserID={currentUserID} formatError={formatError} initialLibraryID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.libraryID : ""} initialPageID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.pageID : ""} initialBlockID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.blockID : undefined} initialPageMode={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.mode : "read"} libraryKind={libraryKind} scopeTabs={scopeNavigation} searchQuery={searchRequest.query} searchRevision={searchRequest.revision} />
   </main>;
 }
 
@@ -199,16 +222,16 @@ function PageSearchBrowser({ client, formatError, library, currentUserID, initia
 	}, [aclReady, appliedFilters, client, currentUserID, formatError, library.id, query, revision, subtreeRoot]);
 	const activeFilterCount = Object.entries(appliedFilters).filter(([key, value]) => key === "scope" ? value === "subtree" : !!value).length;
   return <section className="knowledge-page-search" aria-label={`全文检索「${library.name}」`}>
-    <header className="knowledge-page-search-header"><div><span><FileSearch size={19} /></span><div><h2>全文检索「{library.name}」</h2><p>只返回你当前有权读取的页面、文件和原生应用。</p></div></div><Button aria-expanded={showFilters} aria-controls="knowledge-page-search-filters" onClick={() => setShowFilters(value => !value)}><Filter size={15} />筛选{activeFilterCount ? ` ${activeFilterCount}` : ""}</Button></header>
+    <header className="knowledge-page-search-header"><div><span><FileSearch size={19} /></span><div><h2>全文检索「{library.name}」</h2><p>只返回你当前有权读取的页面、文件和原生应用。</p></div></div><div className="knowledge-page-search-header-actions"><Button aria-expanded={showFilters} aria-controls="knowledge-page-search-filters" onClick={() => setShowFilters(value => !value)}><Filter size={15} />筛选{activeFilterCount ? ` ${activeFilterCount}` : ""}</Button></div></header>
     {showFilters && <form id="knowledge-page-search-filters" className="knowledge-page-search-filters" onSubmit={event => { event.preventDefault(); setAppliedFilters({ ...filters }); setRevision(value => value + 1); }}>
-		<label><span>检索范围</span><select value={filters.scope} onChange={event => setFilters(current => ({ ...current, scope: event.target.value as PageSearchFilters["scope"] }))}><option value="library">当前知识库</option><option value="subtree" disabled={!subtreeRoot}>当前页面与子树{subtreeRoot ? `：${subtreeRoot.title}` : "（请先打开页面）"}</option></select></label>
-      <label><span>内容类型</span><select value={filters.contentType} onChange={event => setFilters(current => ({ ...current, contentType: event.target.value as PageSearchFilters["contentType"] }))}><option value="">全部类型</option>{pageTypeDefinitions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+		<label><span>检索范围</span><Select value={filters.scope} onChange={event => setFilters(current => ({ ...current, scope: event.target.value as PageSearchFilters["scope"] }))}><option value="library">当前知识库</option><option value="subtree" disabled={!subtreeRoot}>当前页面与子树{subtreeRoot ? `：${subtreeRoot.title}` : "（请先打开页面）"}</option></Select></label>
+      <label><span>内容类型</span><Select value={filters.contentType} onChange={event => setFilters(current => ({ ...current, contentType: event.target.value as PageSearchFilters["contentType"] }))}><option value="">全部类型</option>{pageTypeDefinitions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</Select></label>
       <label><span>作者账号</span><input value={filters.authorUserID} onChange={event => setFilters(current => ({ ...current, authorUserID: event.target.value }))} placeholder="用户 ID" /></label>
       <label><span>更新开始</span><input type="date" value={filters.updatedAfter} onChange={event => setFilters(current => ({ ...current, updatedAfter: event.target.value }))} /></label>
       <label><span>更新结束</span><input type="date" value={filters.updatedBefore} onChange={event => setFilters(current => ({ ...current, updatedBefore: event.target.value }))} /></label>
       <label><span>标签</span><input value={filters.tags} onChange={event => setFilters(current => ({ ...current, tags: event.target.value }))} placeholder="多个标签用逗号分隔" /></label>
       <label><span>页面路径</span><input value={filters.path} onChange={event => setFilters(current => ({ ...current, path: event.target.value }))} placeholder="例如：产品 / 运行手册" /></label>
-      <label><span>发布状态</span><select value={filters.publicationStatus} onChange={event => setFilters(current => ({ ...current, publicationStatus: event.target.value as PageSearchFilters["publicationStatus"] }))}><option value="">全部状态</option><option value="published">已发布</option><option value="unpublished">未发布</option></select></label>
+      <label><span>发布状态</span><Select value={filters.publicationStatus} onChange={event => setFilters(current => ({ ...current, publicationStatus: event.target.value as PageSearchFilters["publicationStatus"] }))}><option value="">全部状态</option><option value="published">已发布</option><option value="unpublished">未发布</option></Select></label>
       <div className="knowledge-page-search-filter-actions"><Button type="button" onClick={() => { setFilters(emptyPageSearchFilters); setAppliedFilters(emptyPageSearchFilters); setRevision(value => value + 1); }}>重置</Button><Button type="submit" className="primary">应用筛选</Button></div>
     </form>}
 		{recentSearches.length > 0 && <div className="knowledge-page-search-recent" aria-label="最近搜索"><span>最近搜索</span>{recentSearches.map(item => <button key={item} type="button" aria-pressed={query === item} onClick={() => { setQuery(item); setRevision(value => value + 1); }}>{item}</button>)}<button type="button" className="is-clear" onClick={() => { try { window.localStorage.removeItem(recentSearchKey(currentUserID, library.id)); } catch { /* ignore */ } setRecentSearches([]); }}>清除</button></div>}
@@ -264,78 +287,15 @@ function RemoteKnowledgeBrowser({ client, formatError, library, initialQuery = "
     finally { setReading(false); }
   }
   const passages = knowledgeCitations(current);
-  return <div className="knowledge-browser-body"><section className="knowledge-search-column"><div className="knowledge-page-intro"><span><FileSearch size={22} /></span><div><h2>{library ? `全文检索「${library.name}」` : "全文检索"}</h2><p>{library ? "搜索当前知识库内有权读取的页面与文档。" : "选择默认知识源或一座资料库，再输入主题、问题或关键词。"}</p></div></div>{!library && <label className="knowledge-search-scope"><span>检索范围</span><select value={libraryID} onChange={event => setLibraryID(event.target.value)}><option value="">默认知识源</option>{libraries.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? "（已归档）" : ""}</option>)}</select></label>}{scopeNotice && <p className="knowledge-subtle">{scopeNotice}</p>}{!hideSearchForm && <form className="knowledge-search-form" onSubmit={event => { event.preventDefault(); const value = input.trim(); if (value) { setQuery(value); setSearchRevision(current => current + 1); } }}><Search size={18} /><input aria-label="搜索知识库" value={input} maxLength={4096} onChange={event => setInput(event.target.value)} placeholder="输入主题、问题或关键词" /><Button type="submit" disabled={loading || !input.trim()}>{loading ? "正在检索…" : "搜索"}</Button></form>}{searchStatus?.summary && <p className="knowledge-subtle">检索策略：{searchStatus.summary}</p>}{searchStatus?.degraded && <p role="status" className="knowledge-notice">{searchStatus.degraded}</p>}{error && <p role="alert" className="knowledge-error knowledge-page-error">{error}</p>}{!query && <EmptyState><FileSearch size={30} /><h3>从一个问题开始</h3><p>知识服务只返回当前账号在所选范围内有权读取的内容。</p></EmptyState>}{query && !loading && result && hits.length === 0 && <EmptyState><FileText size={30} /><h3>没有可展示的文档</h3><p>没有命中相关内容，可以换一个更具体的关键词或检索范围。</p></EmptyState>}{hits.length > 0 && <div className="knowledge-hit-list">{hits.map(hit => <button key={`${hit.library_id || libraryID || "default"}:${hit.doc_id}`} aria-current={selected?.doc_id === hit.doc_id && (selected.library_id || libraryID || "") === (hit.library_id || libraryID || "") ? "true" : undefined} onClick={() => void read(hit)}><span className="knowledge-hit-icon"><FileText size={19} /></span><span><strong>{hit.title || hit.doc_id}</strong><small>{hit.excerpt || "打开查看文档内容"}</small><em>文档编号：{hit.doc_id}{hit.matchedPassages > 1 ? ` · 命中 ${hit.matchedPassages} 个片段` : ""}{citationLocation(hit) ? ` · ${citationLocation(hit)}` : ""}</em>{citationProvenance(hit) && <em>{citationProvenance(hit)}</em>}</span></button>)}</div>}</section><aside className="knowledge-reader" aria-label="文档阅读区">{!selected ? <EmptyState><FileText size={34} /><h3>选择一份文档查看</h3><p>搜索结果会在这里展开。</p></EmptyState> : reading ? <EmptyState><RefreshCw className="knowledge-spin" size={28} /><p>正在读取文档…</p></EmptyState> : current ? <><header><span className="knowledge-reader-icon"><FileText size={20} /></span><div><h2>{selected.title || current.doc_id || selected.doc_id}</h2><p>文档编号：{current.doc_id || selected.doc_id}{current.kb_id ? ` · 知识库 ${current.kb_id}` : ""}</p></div></header>{passages.length ? <article className="knowledge-passages">{passages.map((passage, index) => <section key={passage.id || `${passage.doc_id}:${passage.chunk_id || index}`}><small>片段 {index + 1}{citationLocation(passage) ? ` · ${citationLocation(passage)}` : ""}{passage.excerpt_truncated ? " · 内容已截断" : ""}</small>{citationProvenance(passage) && <small>{citationProvenance(passage)}</small>}<p>{passage.excerpt || "此片段没有可展示的正文。"}</p></section>)}</article> : <div className="knowledge-raw-document"><p>知识服务返回了文档，但没有生成可展示的正文片段。</p></div>}{safeURL(selected.url) && <a className="knowledge-source-link" href={safeURL(selected.url)} target="_blank" rel="noopener noreferrer">打开来源链接 ↗</a>}</> : <EmptyState><FileText size={34} /><h3>文档暂时无法显示</h3><p>请重新选择搜索结果。</p></EmptyState>}</aside></div>;
+  return <div className="knowledge-browser-body"><section className="knowledge-search-column"><div className="knowledge-page-intro"><span><FileSearch size={22} /></span><div><h2>{library ? `全文检索「${library.name}」` : "全文检索"}</h2><p>{library ? "搜索当前知识库内有权读取的页面与文档。" : "选择默认知识源或一座资料库，再输入主题、问题或关键词。"}</p></div></div>{!library && <label className="knowledge-search-scope"><span>检索范围</span><Select value={libraryID} onChange={event => setLibraryID(event.target.value)}><option value="">默认知识源</option>{libraries.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? "（已归档）" : ""}</option>)}</Select></label>}{scopeNotice && <p className="knowledge-subtle">{scopeNotice}</p>}{!hideSearchForm && <form className="knowledge-search-form" onSubmit={event => { event.preventDefault(); const value = input.trim(); if (value) { setQuery(value); setSearchRevision(current => current + 1); } }}><Search size={18} /><input aria-label="搜索知识库" value={input} maxLength={4096} onChange={event => setInput(event.target.value)} placeholder="输入主题、问题或关键词" /><Button type="submit" disabled={loading || !input.trim()}>{loading ? "正在检索…" : "搜索"}</Button></form>}{searchStatus?.summary && <p className="knowledge-subtle">检索策略：{searchStatus.summary}</p>}{searchStatus?.degraded && <p role="status" className="knowledge-notice">{searchStatus.degraded}</p>}{error && <p role="alert" className="knowledge-error knowledge-page-error">{error}</p>}{!query && <EmptyState><FileSearch size={30} /><h3>从一个问题开始</h3><p>知识服务只返回当前账号在所选范围内有权读取的内容。</p></EmptyState>}{query && !loading && result && hits.length === 0 && <EmptyState><FileText size={30} /><h3>没有可展示的文档</h3><p>没有命中相关内容，可以换一个更具体的关键词或检索范围。</p></EmptyState>}{hits.length > 0 && <div className="knowledge-hit-list">{hits.map(hit => <button key={`${hit.library_id || libraryID || "default"}:${hit.doc_id}`} aria-current={selected?.doc_id === hit.doc_id && (selected.library_id || libraryID || "") === (hit.library_id || libraryID || "") ? "true" : undefined} onClick={() => void read(hit)}><span className="knowledge-hit-icon"><FileText size={19} /></span><span><strong>{hit.title || hit.doc_id}</strong><small>{hit.excerpt || "打开查看文档内容"}</small><em>文档编号：{hit.doc_id}{hit.matchedPassages > 1 ? ` · 命中 ${hit.matchedPassages} 个片段` : ""}{citationLocation(hit) ? ` · ${citationLocation(hit)}` : ""}</em>{citationProvenance(hit) && <em>{citationProvenance(hit)}</em>}</span></button>)}</div>}</section><aside className="knowledge-reader" aria-label="文档阅读区">{!selected ? <EmptyState><FileText size={34} /><h3>选择一份文档查看</h3><p>搜索结果会在这里展开。</p></EmptyState> : reading ? <EmptyState><RefreshCw className="knowledge-spin" size={28} /><p>正在读取文档…</p></EmptyState> : current ? <><header><span className="knowledge-reader-icon"><FileText size={20} /></span><div><h2>{selected.title || current.doc_id || selected.doc_id}</h2><p>文档编号：{current.doc_id || selected.doc_id}{current.kb_id ? ` · 知识库 ${current.kb_id}` : ""}</p></div></header>{passages.length ? <article className="knowledge-passages">{passages.map((passage, index) => <section key={passage.id || `${passage.doc_id}:${passage.chunk_id || index}`}><small>片段 {index + 1}{citationLocation(passage) ? ` · ${citationLocation(passage)}` : ""}{passage.excerpt_truncated ? " · 内容已截断" : ""}</small>{citationProvenance(passage) && <small>{citationProvenance(passage)}</small>}<p>{passage.excerpt || "此片段没有可展示的正文。"}</p></section>)}</article> : <div className="knowledge-raw-document"><p>知识服务返回了文档，但没有生成可展示的正文片段。</p></div>}{safeURL(selected.url) && <a className="knowledge-source-link" href={safeURL(selected.url)} target="_blank" rel="noopener noreferrer">打开来源链接 ↗</a>}</> : <EmptyState><FileText size={34} /><h3>文档暂时无法显示</h3><p>请重新选择搜索结果。</p></EmptyState>}</aside></div>;
 }
 
-function PageQuickOpen({ client, library, open, onClose, onOpen }: { client: KnowledgeClient; library: KnowledgeLibrary; open: boolean; onClose: () => void; onOpen: (page: KnowledgePageIdentity) => void }) {
-	const [query, setQuery] = useState(""), [items, setItems] = useState<KnowledgePageIdentity[]>([]);
-	const [loading, setLoading] = useState(false), [activeIndex, setActiveIndex] = useState(0);
-	const [aclReady, setACLReady] = useState(!client.streamKnowledgePageSearchEvents), [aclRevision, setACLRevision] = useState(0);
-	const inputRef = useRef<HTMLInputElement | null>(null);
-	useEffect(() => {
-		if (!open) { setQuery(""); setItems([]); return; }
-		window.setTimeout(() => inputRef.current?.focus());
-	}, [open]);
-	useEffect(() => {
-		if (!open || !client.streamKnowledgePageSearchEvents) { setACLReady(true); return; }
-		const abort = new AbortController();
-		let afterRevision = 0, failures = 0, stopped = false;
-		setACLReady(false); setItems([]);
-		const reconnect = async () => {
-			while (!abort.signal.aborted && !stopped) {
-				try {
-					await client.streamKnowledgePageSearchEvents!(library.id, afterRevision, event => {
-						afterRevision = event.revision;
-						if (event.type === "revoked") { stopped = true; setACLReady(false); setItems([]); abort.abort(); onClose(); return; }
-						setACLReady(true);
-						if (event.type === "changed") { setItems([]); setACLRevision(value => value + 1); }
-					}, abort.signal);
-					if (!abort.signal.aborted) { setACLReady(false); setItems([]); }
-					failures = 0;
-				} catch {
-					if (abort.signal.aborted) return;
-					setACLReady(false); setItems([]); failures += 1; afterRevision = 0;
-					await new Promise(resolve => window.setTimeout(resolve, Math.min(5000, 250 * 2 ** Math.min(failures - 1, 5))));
-				}
-			}
-		};
-		void reconnect();
-		return () => abort.abort();
-	}, [client, library.id, onClose, open]);
-	useEffect(() => {
-		if (!open || !aclReady) return;
-		const abort = new AbortController();
-		const timer = window.setTimeout(() => {
-			setLoading(true);
-			void client.searchPageIdentities(library.id, query.trim(), 30, abort.signal)
-				.then(page => { if (!abort.signal.aborted) { setItems(page.items); setActiveIndex(0); } })
-				.catch(() => { if (!abort.signal.aborted) setItems([]); })
-				.finally(() => { if (!abort.signal.aborted) setLoading(false); });
-		}, 120);
-		return () => { window.clearTimeout(timer); abort.abort(); };
-	}, [aclReady, aclRevision, client, library.id, open, query]);
-	if (!open || typeof document === "undefined") return null;
-	const choose = (item?: KnowledgePageIdentity) => { if (item) { onOpen(item); onClose(); } };
-	return createPortal(<div className="knowledge-modal-backdrop knowledge-quick-open-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
-		<section className="knowledge-quick-open" role="dialog" aria-modal="true" aria-label={`快速打开「${library.name}」中的页面`} onKeyDown={event => {
-			if (event.key === "Escape") { event.preventDefault(); onClose(); }
-			else if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex(index => items.length ? (index + 1) % items.length : 0); }
-			else if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex(index => items.length ? (index - 1 + items.length) % items.length : 0); }
-			else if (event.key === "Enter") { event.preventDefault(); choose(items[activeIndex]); }
-		}}>
-			<header><Search size={19} /><input ref={inputRef} value={query} maxLength={128} onChange={event => setQuery(event.target.value)} placeholder="输入页面标题、别名或路径" aria-activedescendant={items[activeIndex] ? `quick-page-${items[activeIndex].page_id}` : undefined} /><kbd>Esc</kbd></header>
-			<div className="knowledge-quick-open-results" role="listbox" aria-label="可打开页面">{items.map((item, index) => <button id={`quick-page-${item.page_id}`} key={item.page_id} type="button" role="option" aria-selected={index === activeIndex} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(item)}><PageTypeIcon type={item.content_type} size={17} /><span><strong>{item.title}</strong><small>{item.path.map(path => path.title).join(" / ")}{item.aliases.length ? ` · 别名 ${item.aliases.join("、")}` : ""}</small></span><kbd>↵</kbd></button>)}{!aclReady && <p><RefreshCw className="knowledge-spin" size={15} />正在确认实时访问权限…</p>}{aclReady && loading && <p><RefreshCw className="knowledge-spin" size={15} />正在查找…</p>}{aclReady && !loading && items.length === 0 && <p>没有可打开的页面</p>}</div>
-			<footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 打开</span><span>结果始终执行当前页面 ACL</span></footer>
-		</section>
-	</div>, document.body);
-}
-
-export function KnowledgeLibraryManager({ client, currentUserID = "", formatError = defaultErrorMessage, initialLibraryID = "", initialPageID = "", initialBlockID, initialPageMode = "read", libraryKind, searchQuery = "", searchRevision = 0 }: { client: KnowledgeClient; currentUserID?: string; formatError?: (error: unknown) => string; initialLibraryID?: string; initialPageID?: string; initialBlockID?: string; initialPageMode?: "read" | "edit"; libraryKind?: "personal" | "shared"; searchQuery?: string; searchRevision?: number }) {
+export function KnowledgeLibraryManager({ client, currentUserID = "", formatError = defaultErrorMessage, initialLibraryID = "", initialPageID = "", initialBlockID, initialPageMode = "read", libraryKind, scopeTabs, searchQuery = "", searchRevision = 0 }: { client: KnowledgeClient; currentUserID?: string; formatError?: (error: unknown) => string; initialLibraryID?: string; initialPageID?: string; initialBlockID?: string; initialPageMode?: "read" | "edit"; libraryKind?: "personal" | "shared"; scopeTabs?: ReactNode; searchQuery?: string; searchRevision?: number }) {
   const [page, setPage] = useState<KnowledgeLibraryPage>({ items: [], complete: true });
   const [libraryCursors, setLibraryCursors] = useState([""]);
   const [selectedID, setSelectedID] = useState(initialLibraryID), [selected, setSelected] = useState<KnowledgeLibrary | null>(null);
   const [refresh, setRefresh] = useState(0), [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
-  const [createName, setCreateName] = useState(""), [name, setName] = useState(""), [description, setDescription] = useState("");
+  const [name, setName] = useState(""), [description, setDescription] = useState("");
   const [members, setMembers] = useState<KnowledgeLibraryMemberPage | null>(null), [memberCursors, setMemberCursors] = useState([""]);
   const [organizationMembers, setOrganizationMembers] = useState<KnowledgeLibraryOrganizationMemberPage | null>(null), [organizationMemberCursors, setOrganizationMemberCursors] = useState([""]);
   const [userID, setUserID] = useState(""), [role, setRole] = useState<KnowledgeLibraryMember["role"]>("reader"), [removeUserID, setRemoveUserID] = useState("");
@@ -347,13 +307,11 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   const [libraryView, setLibraryView] = useState<"content" | "search">("content");
   const [searchTarget, setSearchTarget] = useState<{ pageID: string; mode: "read" | "edit"; location: KnowledgePageSearchLocation; revision: number } | null>(null);
 	const [currentPage, setCurrentPage] = useState<{ pageID: string; title: string } | null>(null);
-	const [quickOpen, setQuickOpen] = useState(false);
   const [libraryDialog, setLibraryDialog] = useState<"manage" | null>(null);
   const createReceipt = useRef<{ kind: "personal" | "shared"; name: string; clientID: string } | null>(null), lock = useRef(false);
   const blocked = busy || sourceBusy, libraryCursor = libraryCursors.at(-1) || "", memberCursor = memberCursors.at(-1) || "", organizationMemberCursor = organizationMemberCursors.at(-1) || "";
   const visibleLibraries = libraryKind ? page.items.filter(library => library.kind === libraryKind) : page.items;
   const canCreatePersonal = libraryKind !== "shared" && !loading && !page.items.some(item => item.kind === "personal");
-  const canCreateTeam = libraryKind !== "personal";
 
   useEffect(() => {
     const abort = new AbortController(); setLoading(true); setError("");
@@ -417,15 +375,6 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
     setLibraryView(searchQuery ? "search" : "content");
   }, [searchQuery, searchRevision]);
 
-	useEffect(() => {
-		const handleShortcut = (event: KeyboardEvent) => {
-			if (!selected || !(event.metaKey || event.ctrlKey) || event.altKey || event.key.toLocaleLowerCase() !== "k") return;
-			event.preventDefault(); setQuickOpen(true);
-		};
-		window.addEventListener("keydown", handleShortcut);
-		return () => window.removeEventListener("keydown", handleShortcut);
-	}, [selected]);
-
   useEffect(() => {
     const query = principalQuery.trim();
     if (!query || !selected || selected.role !== "manager") { setPrincipalResults([]); return; }
@@ -451,15 +400,20 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
     finally { lock.current = false; setBusy(false); setRefresh(value => value + 1); }
   }
   function selectResult(value: KnowledgeLibrary, message: string) { setSelectedID(value.id); setSelected(value); setMemberCursors([""]); setOrganizationMemberCursors([""]); setNotice(message); }
-  async function create(kind: "personal" | "shared", signal: AbortSignal) {
-    const title = kind === "personal" ? "个人知识库" : createName.trim();
-    if (!title) return;
+  async function createPersonalLibrary(signal: AbortSignal) {
+    const title = "个人知识库";
     const pending = createReceipt.current;
-    if (pending && (pending.kind !== kind || pending.name !== title)) throw Error("上次创建结果待确认；重试时需保持资料库名称不变。");
-    const input = pending || { kind, name: title, clientID: crypto.randomUUID() };
+    const input = pending?.kind === "personal" ? pending : { kind: "personal" as const, name: title, clientID: crypto.randomUUID() };
     createReceipt.current = input;
     const value = await client.createLibrary(input, signal);
-    createReceipt.current = null; setCreateName(""); selectResult(value, kind === "personal" ? "个人知识库已创建。" : "团队知识库已创建，当前只有你一位成员。");
+    createReceipt.current = null; selectResult(value, "个人知识库已创建。");
+  }
+  async function createSharedLibrary(signal: AbortSignal) {
+    const pending = createReceipt.current;
+    const input = pending?.kind === "shared" ? pending : { kind: "shared" as const, name: "未命名知识库", clientID: crypto.randomUUID() };
+    createReceipt.current = input;
+    const value = await client.createLibrary(input, signal);
+    createReceipt.current = null; selectResult(value, "团队知识库已创建，可在设置中修改名称。");
   }
   async function save(signal: AbortSignal) {
     if (!selected) return;
@@ -498,50 +452,55 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
     setLibraryView("content");
     setLibraryDialog(null);
 		setCurrentPage(null);
-		setQuickOpen(false);
   }
-	const updateCurrentPage = useCallback((page: { id: string; title: string } | null) => setCurrentPage(page ? { pageID: page.id, title: page.title } : null), []);
-	const openPageIdentity = useCallback((page: KnowledgePageIdentity) => {
-		setSearchTarget(current => ({ pageID: page.page_id, mode: "read", location: { kind: "page" }, revision: (current?.revision || 0) + 1 }));
-		setLibraryView("content");
-	}, []);
-	const closeQuickOpen = useCallback(() => setQuickOpen(false), []);
+	const updateCurrentPage = useCallback((page: { id: string; title: string; mode: "read" | "edit" } | null) => {
+		setCurrentPage(page ? { pageID: page.id, title: page.title } : null);
+		if (!page || !selected || typeof window === "undefined") return;
+		const href = createKnowledgePageLink(window.location.href, {
+			libraryID: selected.id,
+			libraryKind: selected.kind,
+			pageID: page.id,
+			mode: page.mode,
+		});
+		if (href !== window.location.href) window.history.replaceState(window.history.state, "", href);
+	}, [selected]);
 
   function renderLibrary(library: KnowledgeLibrary) {
     return <button key={library.id} aria-current={selectedID === library.id ? "true" : undefined} disabled={blocked} onClick={() => selectLibrary(library)}><BookOpen size={18} /><span><strong>{library.name}</strong><small>{library.kind === "personal" ? "仅自己可见" : `${roles[library.role as KnowledgeLibraryMember["role"]] || library.role}权限`}{library.archived ? " · 已归档" : ""}</small></span></button>;
   }
 
-  return <div className={`managed-library-browser${libraryKind === "personal" ? " is-personal" : ""}`}>
+  const revealLibraryRail = (!loading && !selected) || libraryView === "search";
+  const scopeTabsInLibraryRail = revealLibraryRail;
+  const selectableTeamLibraries = libraryKind === "shared" && selected && !visibleLibraries.some(item => item.id === selected.id) ? [selected, ...visibleLibraries] : visibleLibraries;
+  const emptySharedLibraryPicker = libraryKind === "shared" && !loading && !selected && visibleLibraries.length === 0;
+
+  return <div className={`managed-library-browser${revealLibraryRail ? " has-library-rail" : ""}`}>
     <aside className="managed-library-list">
-      <div><h2>{libraryKind === "personal" ? "个人知识库" : libraryKind === "shared" ? "团队知识库" : "知识库"}</h2><Button aria-label="刷新知识库" disabled={blocked || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} /></Button></div>
-      {(canCreatePersonal || canCreateTeam) && <div className="knowledge-library-create">
-        {canCreatePersonal && <Button disabled={blocked} onClick={() => void perform(signal => create("personal", signal))}><BookOpen size={15} />创建个人知识库</Button>}
-        {canCreateTeam && <div><input aria-label="新团队知识库名称" maxLength={128} value={createName} disabled={blocked} onChange={event => setCreateName(event.target.value)} placeholder="新团队知识库名称" /><Button aria-label="创建团队知识库" disabled={blocked || !createName.trim()} onClick={() => void perform(signal => create("shared", signal))}><Plus size={15} /></Button></div>}
-      </div>}
+      {scopeTabsInLibraryRail && scopeTabs}
+      {emptySharedLibraryPicker ? <div className="knowledge-team-library-picker knowledge-empty-team-library-picker"><Select aria-label="团队知识库" disabled><option>团队知识库</option></Select><KnowledgeCreateMenu disabled={blocked} canCreatePage={false} onCreateLibrary={() => void perform(createSharedLibrary)} /></div> : <div className="knowledge-library-list-header"><h2>{libraryKind === "personal" ? "个人知识库" : libraryKind === "shared" ? "团队知识库" : "知识库"}</h2><Button aria-label="刷新知识库" disabled={blocked || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} /></Button></div>}
+      {canCreatePersonal && <div className="knowledge-library-create"><Button disabled={blocked} onClick={() => void perform(createPersonalLibrary)}><BookOpen size={15} />创建个人知识库</Button></div>}
       {selected && !page.items.some(item => item.id === selected.id) && <button aria-current="true" disabled={blocked}><BookOpen size={18} /><span><strong>{selected.name}</strong><small>当前知识库 · 不在本页</small></span></button>}
       {loading ? <p className="knowledge-subtle">正在读取知识库…</p> : visibleLibraries.length ? visibleLibraries.map(renderLibrary) : <p className="knowledge-library-group-empty">{libraryKind === "personal" ? "尚未创建个人知识库" : libraryKind === "shared" ? "尚未加入团队知识库" : "暂无可访问的知识库"}</p>}
       {(libraryCursors.length > 1 || !page.complete) && <nav className="knowledge-pagination"><Button disabled={blocked || loading || libraryCursors.length === 1} onClick={() => { setSelectedID(""); setLibraryCursors(value => value.slice(0, -1)); }}>上一页</Button><Button disabled={blocked || loading || !page.next_after} onClick={() => { setSelectedID(""); setLibraryCursors(value => [...value, page.next_after!]); }}>下一页</Button></nav>}
       {error && <p role="alert" className="knowledge-error">{error}</p>}
     </aside>
     <section className="managed-library-content">{notice && <p role="status" className="knowledge-notice">{notice}</p>}{selected ? <>
-		<Button className="knowledge-quick-open-trigger" title="快速打开页面（⌘/Ctrl + K）" onClick={() => setQuickOpen(true)}><Search size={14} />快速打开<kbd>⌘K</kbd></Button>
       <div className={`knowledge-library-surface${libraryView === "search" ? " is-search" : " is-pages"}`}>
-				{libraryView === "search" ? <PageSearchBrowser key={`${selected.id}:${searchRevision}`} client={client} formatError={formatError} library={selected} currentUserID={currentUserID} initialQuery={searchQuery} subtreeRoot={currentPage} onOpen={hit => { setSearchTarget(current => ({ pageID: hit.page_id, mode: hit.publication_status === "unpublished" ? "edit" : "read", location: hit.location, revision: (current?.revision || 0) + 1 })); setLibraryView("content"); }} /> : <KnowledgePagesPanel key={`${selected.id}:${searchTarget?.revision || 0}`} client={client} library={selected} currentUserID={currentUserID} disabled={blocked} formatError={formatError} embedded initialPageID={searchTarget?.pageID || (selected.id === initialLibraryID ? initialPageID : "")} initialBlockID={!searchTarget && selected.id === initialLibraryID ? initialBlockID : undefined} initialSearchLocation={searchTarget?.location} initialPageMode={searchTarget?.mode || (selected.id === initialLibraryID ? initialPageMode : "read")} onSelectionChange={updateCurrentPage} onManage={selected.role === "manager" ? () => setLibraryDialog("manage") : undefined} />}
+          {libraryView === "search" ? <PageSearchBrowser key={`${selected.id}:${searchRevision}`} client={client} formatError={formatError} library={selected} currentUserID={currentUserID} initialQuery={searchQuery} subtreeRoot={currentPage} onOpen={hit => { setSearchTarget(current => ({ pageID: hit.page_id, mode: hit.publication_status === "unpublished" ? "edit" : "read", location: hit.location, revision: (current?.revision || 0) + 1 })); setLibraryView("content"); }} /> : <KnowledgePagesPanel key={`${selected.id}:${searchTarget?.revision || 0}`} client={client} library={selected} currentUserID={currentUserID} disabled={blocked} formatError={formatError} embedded initialPageID={searchTarget?.pageID || (selected.id === initialLibraryID ? initialPageID : "")} initialBlockID={!searchTarget && selected.id === initialLibraryID ? initialBlockID : undefined} initialSearchLocation={searchTarget?.location} initialPageMode={searchTarget?.mode || (selected.id === initialLibraryID ? initialPageMode : "read")} scopeTabs={!scopeTabsInLibraryRail ? scopeTabs : undefined} teamLibraries={libraryKind === "shared" ? selectableTeamLibraries : undefined} onLibrarySelect={libraryID => { const library = selectableTeamLibraries.find(item => item.id === libraryID); if (library) selectLibrary(library); }} onCreateLibrary={libraryKind === "shared" ? () => void perform(createSharedLibrary) : undefined} onSelectionChange={updateCurrentPage} onManage={selected.role === "manager" ? () => setLibraryDialog("manage") : undefined} />}
       </div>
-			<PageQuickOpen client={client} library={selected} open={quickOpen} onClose={closeQuickOpen} onOpen={openPageIdentity} />
       {libraryDialog === "manage" && selected.role === "manager" && createPortal(<div className="knowledge-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !blocked) setLibraryDialog(null); }}><section className="knowledge-manager-dialog knowledge-library-management-dialog" role="dialog" aria-modal="true" aria-label="知识库管理"><header><div><h2>管理“{selected.name}”</h2><p>维护知识库信息、成员权限与外部内容连接。</p></div><Button aria-label="关闭知识库管理" disabled={blocked} onClick={() => setLibraryDialog(null)}><X size={17} /></Button></header><div className="knowledge-dialog-scroll knowledge-management-sections">
         <section className="knowledge-settings"><header><div><h3>基本信息</h3><p>名称和说明会展示给所有知识库成员。</p></div></header><div className="knowledge-form-grid"><label>名称<input value={name} maxLength={128} disabled={blocked} onChange={event => setName(event.target.value)} /></label><label>说明<textarea value={description} maxLength={1024} disabled={blocked} onChange={event => setDescription(event.target.value)} /></label></div><div className="knowledge-actions"><Button className="primary" disabled={blocked || !name.trim()} onClick={() => void perform(save)}>保存信息</Button><Button className={selected.archived ? undefined : "danger"} disabled={blocked} onClick={() => void perform(setArchived)}>{selected.archived ? "恢复知识库" : "归档知识库"}</Button></div></section>
-        {selected.kind === "shared" && <section className="knowledge-members"><header><div><h3>成员与角色</h3><p>阅读者可查看与评论，编辑者可维护内容，管理者负责成员及配置。至少保留一位管理者。</p></div></header><div className="knowledge-member-list">{members?.items.map(member => { const profile = memberProfiles[member.user_id]; return <div className="knowledge-member" key={member.user_id}><span className="knowledge-member-avatar" aria-hidden="true">{(profile?.display_name || "?").slice(0, 1)}</span><span>{profile?.display_name || "账号不可用"}<small>{profile?.email || member.user_id} · {roles[member.role]}</small></span><Button disabled={blocked} onClick={() => { setUserID(member.user_id); setPrincipalQuery(profile?.display_name || member.user_id); setRole(member.role); setRemoveUserID(""); }}>调整</Button><Button className="danger" disabled={blocked} onClick={() => setRemoveUserID(member.user_id)}>移除</Button></div>; })}</div>{members && (memberCursors.length > 1 || !members.complete) && <nav className="knowledge-pagination"><Button disabled={blocked || memberCursors.length === 1} onClick={() => setMemberCursors(value => value.slice(0, -1))}>上一页</Button><Button disabled={blocked || !members.next_after} onClick={() => setMemberCursors(value => [...value, members.next_after!])}>下一页</Button></nav>}<div className="knowledge-member-editor"><label>搜索工作区成员<input value={principalQuery} maxLength={255} disabled={blocked} onChange={event => { setPrincipalQuery(event.target.value); setUserID(""); }} placeholder="输入姓名或邮箱" /></label>{principalResults.length > 0 && <div className="knowledge-principal-results" role="listbox">{principalResults.map(principal => <button key={principal.user_id} role="option" aria-selected={userID === principal.user_id} onClick={() => { setUserID(principal.user_id); setPrincipalQuery(principal.display_name || principal.email || principal.user_id); setPrincipalResults([]); }}>{principal.avatar_url ? <img src={principal.avatar_url} alt="" /> : <span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span>}<strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}<label>角色<select value={role} disabled={blocked} onChange={event => setRole(event.target.value as KnowledgeLibraryMember["role"])}>{Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><Button className="primary" disabled={blocked || !userID} onClick={() => void perform(saveMember)}>保存成员角色</Button></div>{accessPreview && <div className="knowledge-access-preview"><strong>邀请前访问预览</strong><p>Identity 功能权限：{accessPreview.identity.allowed ? "允许" : "拒绝"}；拟授予知识库角色：{roles[role]}；影响 {accessPreview.impact_pages} 个活动页面。</p><p>最终页面阅读：{accessPreview.final.allowed ? "允许" : "拒绝"}。页面权限继承自知识库，不存在前端自算 ACL。</p></div>}{removeUserID && <div className="knowledge-confirm"><p>将“{memberProfiles[removeUserID]?.display_name || "账号不可用"}”移出“{selected.name}”？该成员将失去知识库访问权限。</p><div className="knowledge-actions"><Button className="danger" disabled={blocked} onClick={() => void perform(removeMember)}>确认移除</Button><Button disabled={blocked} onClick={() => setRemoveUserID("")}>保留成员</Button></div></div>}</section>}
+        {selected.kind === "shared" && <section className="knowledge-members"><header><div><h3>成员与角色</h3><p>阅读者可查看与评论，编辑者可维护内容，管理者负责成员及配置。至少保留一位管理者。</p></div></header><div className="knowledge-member-list">{members?.items.map(member => { const profile = memberProfiles[member.user_id]; return <div className="knowledge-member" key={member.user_id}><span className="knowledge-member-avatar" aria-hidden="true">{(profile?.display_name || "?").slice(0, 1)}</span><span>{profile?.display_name || "账号不可用"}<small>{profile?.email || member.user_id} · {roles[member.role]}</small></span><Button disabled={blocked} onClick={() => { setUserID(member.user_id); setPrincipalQuery(profile?.display_name || member.user_id); setRole(member.role); setRemoveUserID(""); }}>调整</Button><Button className="danger" disabled={blocked} onClick={() => setRemoveUserID(member.user_id)}>移除</Button></div>; })}</div>{members && (memberCursors.length > 1 || !members.complete) && <nav className="knowledge-pagination"><Button disabled={blocked || memberCursors.length === 1} onClick={() => setMemberCursors(value => value.slice(0, -1))}>上一页</Button><Button disabled={blocked || !members.next_after} onClick={() => setMemberCursors(value => [...value, members.next_after!])}>下一页</Button></nav>}<div className="knowledge-member-editor"><label>搜索工作区成员<input value={principalQuery} maxLength={255} disabled={blocked} onChange={event => { setPrincipalQuery(event.target.value); setUserID(""); }} placeholder="输入姓名或邮箱" /></label>{principalResults.length > 0 && <div className="knowledge-principal-results" role="listbox">{principalResults.map(principal => <button key={principal.user_id} role="option" aria-selected={userID === principal.user_id} onClick={() => { setUserID(principal.user_id); setPrincipalQuery(principal.display_name || principal.email || principal.user_id); setPrincipalResults([]); }}>{principal.avatar_url ? <img src={principal.avatar_url} alt="" /> : <span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span>}<strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}<label>角色<Select value={role} disabled={blocked} onChange={event => setRole(event.target.value as KnowledgeLibraryMember["role"])}>{Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label><Button className="primary" disabled={blocked || !userID} onClick={() => void perform(saveMember)}>保存成员角色</Button></div>{accessPreview && <div className="knowledge-access-preview"><strong>邀请前访问预览</strong><p>Identity 功能权限：{accessPreview.identity.allowed ? "允许" : "拒绝"}；拟授予知识库角色：{roles[role]}；影响 {accessPreview.impact_pages} 个活动页面。</p><p>最终页面阅读：{accessPreview.final.allowed ? "允许" : "拒绝"}。页面权限继承自知识库，不存在前端自算 ACL。</p></div>}{removeUserID && <div className="knowledge-confirm"><p>将“{memberProfiles[removeUserID]?.display_name || "账号不可用"}”移出“{selected.name}”？该成员将失去知识库访问权限。</p><div className="knowledge-actions"><Button className="danger" disabled={blocked} onClick={() => void perform(removeMember)}>确认移除</Button><Button disabled={blocked} onClick={() => setRemoveUserID("")}>保留成员</Button></div></div>}</section>}
         {selected.kind === "shared" && <section className="knowledge-members knowledge-organization-members"><header><div><h3>组织与角色</h3><p>Knowledge 只保存 Identity 组织 ID 与知识库角色；成员归属、组织名称和停用状态始终从 Identity 实时读取。</p></div></header>
           <div className="knowledge-member-list">{organizationMembers?.items.map(member => { const profile = organizationProfiles[member.organization_id]; return <div className="knowledge-member" key={member.organization_id}><span className="knowledge-member-avatar" aria-hidden="true">{(profile?.display_name || "组").slice(0, 1)}</span><span>{profile?.display_name || "组织不可用"}<small>{member.organization_id} · {profile?.node_type || "组织"} · {roles[member.role]}</small></span><Button disabled={blocked} onClick={() => { setOrganizationID(member.organization_id); setOrganizationRole(member.role); setRemoveOrganizationID(""); }}>调整</Button><Button className="danger" disabled={blocked} onClick={() => setRemoveOrganizationID(member.organization_id)}>移除</Button></div>; })}</div>
           {organizationMembers && (organizationMemberCursors.length > 1 || !organizationMembers.complete) && <nav className="knowledge-pagination"><Button disabled={blocked || organizationMemberCursors.length === 1} onClick={() => setOrganizationMemberCursors(value => value.slice(0, -1))}>上一页</Button><Button disabled={blocked || !organizationMembers.next_after} onClick={() => setOrganizationMemberCursors(value => [...value, organizationMembers.next_after!])}>下一页</Button></nav>}
-          <div className="knowledge-member-editor"><label>Identity 组织 ID<input value={organizationID} maxLength={255} disabled={blocked} onChange={event => setOrganizationID(event.target.value)} placeholder="输入准确的组织 ID" /></label><label>角色<select value={organizationRole} disabled={blocked} onChange={event => setOrganizationRole(event.target.value as KnowledgeLibraryMember["role"])}>{Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><Button className="primary" disabled={blocked || !organizationID.trim()} onClick={() => void perform(saveOrganizationMember)}>验证并保存组织角色</Button></div>
+          <div className="knowledge-member-editor"><label>Identity 组织 ID<input value={organizationID} maxLength={255} disabled={blocked} onChange={event => setOrganizationID(event.target.value)} placeholder="输入准确的组织 ID" /></label><label>角色<Select value={organizationRole} disabled={blocked} onChange={event => setOrganizationRole(event.target.value as KnowledgeLibraryMember["role"])}>{Object.entries(roles).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label><Button className="primary" disabled={blocked || !organizationID.trim()} onClick={() => void perform(saveOrganizationMember)}>验证并保存组织角色</Button></div>
           {removeOrganizationID && <div className="knowledge-confirm"><p>将“{organizationProfiles[removeOrganizationID]?.display_name || removeOrganizationID}”移出“{selected.name}”？该组织成员将失去知识库访问，相关页面授权会同时删除。</p><div className="knowledge-actions"><Button className="danger" disabled={blocked} onClick={() => void perform(removeOrganizationMember)}>确认移除</Button><Button disabled={blocked} onClick={() => setRemoveOrganizationID("")}>保留组织</Button></div></div>}
         </section>}
         {selected.sources_manageable && <KnowledgeSourcesPanel client={client} library={selected} disabled={busy} formatError={formatError} onBusyChange={setSourceBusy} onBound={value => { setSelected(value); setRefresh(current => current + 1); }} />}
         {error && <p role="alert" className="knowledge-error">{error}</p>}
       </div></section></div>, window.document.body)}
-    </> : !loading ? <EmptyState><FolderOpen size={32} /><h3>{visibleLibraries.length > 0 ? "请选择知识库" : libraryKind === "personal" ? "还没有个人知识库" : "还没有可访问的团队知识库"}</h3><p>{libraryKind === "personal" ? "打开个人知识库后，可在自己的空间内检索、编辑和整理内容。" : "创建团队知识库，或请团队管理员将你添加为成员。"}</p>{canCreatePersonal && <Button className="primary" disabled={blocked} onClick={() => void perform(signal => create("personal", signal))}><BookOpen size={15} />创建个人知识库</Button>}</EmptyState> : null}</section>
+    </> : !loading ? <EmptyState><FolderOpen size={32} /><h3>{visibleLibraries.length > 0 ? "请选择知识库" : libraryKind === "personal" ? "还没有个人知识库" : "还没有可访问的团队知识库"}</h3><p>{libraryKind === "personal" ? "打开个人知识库后，可在自己的空间内检索、编辑和整理内容。" : "可从左侧新增团队知识库，或请团队管理员将你添加为成员。"}</p>{canCreatePersonal && <Button className="primary" disabled={blocked} onClick={() => void perform(createPersonalLibrary)}><BookOpen size={15} />创建个人知识库</Button>}</EmptyState> : null}</section>
   </div>;
 }
 

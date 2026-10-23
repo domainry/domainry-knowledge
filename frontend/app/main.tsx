@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { BookOpenText, Eye, EyeOff, FileText, LockKeyhole, LogIn, LogOut, Search, ShieldCheck, UserRound, UsersRound } from "lucide-react";
+import { BookOpenText, Eye, EyeOff, LockKeyhole, LogIn, LogOut, Search, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { KnowledgeWorkspace } from "../src/KnowledgeWorkspace.tsx";
 import { KnowledgeSharedPage } from "../src/KnowledgeSharedPage.tsx";
 import { parseKnowledgePageShareLocation } from "../src/knowledge-share-links.ts";
@@ -18,6 +18,7 @@ function ProductApp() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [headerSearchHost, setHeaderSearchHost] = useState<HTMLDivElement | null>(null);
   const sharedLocation = parseKnowledgePageShareLocation(window.location.href);
 
   useEffect(() => {
@@ -55,8 +56,8 @@ function ProductApp() {
   if (!session) return <LoginView busy={busy} error={error} onSubmit={authenticate} />;
   if (session.must_change_password) return <PasswordChangeView busy={busy} error={error} onSubmit={rotatePassword} />;
   return <div className="product-shell">
-    <header className="product-header"><div><strong>Knowledge</strong><span>知识库</span></div><div className="product-user"><span>{session.name || session.user_id}</span><button className="product-logout" aria-label="退出登录" title="退出登录" onClick={() => void logout().then(() => setSession(null))}><LogOut size={17} aria-hidden="true" /></button></div></header>
-    {sharedLocation ? <KnowledgeSharedPage client={knowledgeClient} shareID={sharedLocation.shareID} pageID={sharedLocation.pageID} formatError={formatError} /> : <KnowledgeWorkspace client={knowledgeClient} currentUserID={session.user_id} formatError={formatError} />}
+    <header className="product-header"><div className="product-brand"><strong>Knowledge</strong><span>知识库</span></div><div className="product-header-actions">{!sharedLocation && <div className="product-header-search" ref={setHeaderSearchHost} aria-label="知识库搜索" />}<div className="product-user"><span className="product-avatar" role="img" aria-label={`当前账号：${session.name || session.user_id}`} title={session.name || session.user_id}><UserRound size={18} aria-hidden="true" /></span><button className="product-logout" aria-label="退出登录" title="退出登录" onClick={() => void logout().then(() => setSession(null))}><LogOut size={17} aria-hidden="true" /></button></div></div></header>
+    {sharedLocation ? <KnowledgeSharedPage client={knowledgeClient} shareID={sharedLocation.shareID} pageID={sharedLocation.pageID} formatError={formatError} /> : <KnowledgeWorkspace client={knowledgeClient} currentUserID={session.user_id} formatError={formatError} headerSearchHost={headerSearchHost} />}
   </div>;
 }
 
@@ -128,26 +129,7 @@ function AuthShell({ eyebrow, title, description, children }: { eyebrow: string;
         <h2>让团队知识，<br />始终在同一页</h2>
         <span>从资料沉淀、协作编辑到权限发布，把团队事实收拢在一个可追踪的工作空间里。</span>
       </div>
-      <div className="product-preview" aria-hidden="true">
-        <header><span><BookOpenText size={15} />产品知识库</span><em><i />3 人在线</em></header>
-        <div className="product-preview-body">
-          <nav>
-            <b><Search size={14} />搜索知识条目</b>
-            <span className="is-active"><FileText size={15} />协作编辑规范</span>
-            <span><FileText size={15} />产品发布流程</span>
-            <span><FileText size={15} />客户交付手册</span>
-          </nav>
-          <article>
-            <small>产品规范 / 协作编辑</small>
-            <h3>内容设计与发布流程</h3>
-            <p>建立清晰、可信、可追踪的团队知识。</p>
-            <div className="product-preview-rule is-wide" />
-            <div className="product-preview-rule" />
-            <div className="product-preview-rule is-short" />
-            <footer><span>所有更改已同步</span><b>K&nbsp;&nbsp;L&nbsp;&nbsp;M</b></footer>
-          </article>
-        </div>
-      </div>
+      <img className="product-knowledge-scene" src="/knowledge-graph.svg" alt="" aria-hidden="true" />
       <div className="product-auth-capabilities" aria-label="Knowledge 核心能力">
         <span><Search size={16} aria-hidden="true" />全文检索</span>
         <span><UsersRound size={16} aria-hidden="true" />实时协作</span>

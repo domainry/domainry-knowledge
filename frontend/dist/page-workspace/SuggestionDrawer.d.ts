@@ -1,0 +1,27 @@
+import type { KnowledgeCommentAnchorSelection } from "../editors/types.ts";
+import type { KnowledgePageSuggestion, KnowledgePrincipal } from "../types.ts";
+export type SuggestionDrawerProps = {
+    open: boolean;
+    suggestions: KnowledgePageSuggestion[];
+    anchor: KnowledgeCommentAnchorSelection | null;
+    canCreate: boolean;
+    canWrite: boolean;
+    currentUserID: string;
+    memberProfiles: Record<string, KnowledgePrincipal>;
+    kind: "insert" | "delete";
+    proposedText: string;
+    comment: string;
+    mentionedUserIDs: string[];
+    busy: string;
+    searchMembers(query: string, signal: AbortSignal): Promise<KnowledgePrincipal[]>;
+    onMemberResolved(member: KnowledgePrincipal): void;
+    onClose(): void;
+    onFocusAnchor(nodeID: string): void;
+    onKindChange(kind: "insert" | "delete"): void;
+    onProposedTextChange(value: string): void;
+    onCommentChange(value: string): void;
+    onMentionedUserIDsChange(value: string[]): void;
+    onCreate(): void;
+    onDecide(suggestion: KnowledgePageSuggestion, decision: "accept" | "reject" | "withdraw"): void;
+};
+export declare function SuggestionDrawer(props: SuggestionDrawerProps): import("react").ReactPortal | null;

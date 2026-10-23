@@ -749,9 +749,20 @@ func (s *Store) CloseKnowledgeCollaboration(ctx context.Context, libraryID, page
 		if _, _, _, authorizeErr := s.authorizeKnowledgeCollaboration(ctx, tx, libraryID, pageID, a); authorizeErr != nil {
 			return authorizeErr
 		}
-		record, readErr := s.collaborationSession(ctx, tx, libraryID, pageID, sessionID, a)
+		if !personalMemoryKey(sessionID) {
+			return conversationError("bad_request", "collaboration_session_invalid")
+		}
+		var record knowledgeCollaborationSessionRecord
+		found, readErr := s.executionRead(ctx, tx, knowledgePageCollaborationSessionTable, knowledgeCollaborationSessionScope(a, sessionID), &record)
 		if readErr != nil {
 			return readErr
+		}
+		// Closing a transport is cleanup, so it must stay idempotent when a page
+		// switch, policy change, or a second teardown already revoked/closed the
+		// durable session. The scoped lookup and page authorization above keep a
+		// caller from learning about or mutating another user's session.
+		if !found || record.LibraryID != libraryID || record.PageID != pageID || record.UserID != a.UserID || record.State != "connected" {
+			return nil
 		}
 		record.State = "closed"
 		record.AwarenessUpdate, record.CursorBlockID, record.SelectionBlockID = "", "", ""

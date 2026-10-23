@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -194,6 +195,30 @@ func TestSourceBackedDocumentUploadPersistsAndRechecksRecordAccess(t *testing.T)
 			t.Fatalf("error=%v reserve=%d commit=%d puts=%d authorizations=%d", err, repo.reserveCalls, repo.commitCalls, storage.puts, authorizer.calls)
 		}
 	})
+}
+
+func TestPublicDocumentUploadUsesLocalStorageWithoutManagedSource(t *testing.T) {
+	authority := sdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "owner", RoleKey: "editor"}
+	library := sdk.KnowledgeLibrary{ID: "library-a", Kind: "personal", Role: "editor"}
+	repo := &sourceUploadRepo{library: library}
+	storage := &sourceUploadStorage{}
+	service := NewService(repo, authority.RuntimeID, Options{DocumentStorage: storage, LibraryAuthorizer: &sourceUploadLibraryPolicy{}}, nil)
+	content := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("image")...)
+	document, err := service.UploadKnowledgeDocument(t.Context(), library.ID, sdk.KnowledgeDocumentUpload{
+		ClientID: "local-image", Filename: "image.png", Bytes: int64(len(content)), SHA256: testContentHash(content), Content: bytes.NewReader(content),
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.State != "queued" || document.ContentType != "image/png" || repo.reserved.SourceID != "" || repo.reserved.AccessPolicySHA256 != "" || storage.puts != 1 {
+		t.Fatalf("document=%+v reserve=%+v puts=%d", document, repo.reserved, storage.puts)
+	}
+	unsupported := []byte("executable")
+	if _, err = service.UploadKnowledgeDocument(t.Context(), library.ID, sdk.KnowledgeDocumentUpload{
+		ClientID: "local-executable", Filename: "unsafe.exe", Bytes: int64(len(unsupported)), SHA256: testContentHash(unsupported), Content: bytes.NewReader(unsupported),
+	}, authority); err == nil || !strings.Contains(err.Error(), "document_type_unsupported") {
+		t.Fatalf("unsupported local upload err=%v", err)
+	}
 }
 
 func TestPublicDocumentChunkUploadCommitsOnlyAfterFinalVerifiedPart(t *testing.T) {

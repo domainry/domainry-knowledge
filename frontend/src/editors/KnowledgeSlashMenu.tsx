@@ -1,11 +1,7 @@
 import { ChevronRight, LockKeyhole, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SuggestionMenuProps } from "@blocknote/react";
-import type { KnowledgeSlashMenuItem } from "./slashMenu.ts";
-
-type MenuEntry =
-  | { kind: "item"; item: KnowledgeSlashMenuItem; index: number }
-  | { kind: "submenu"; label: string; items: { item: KnowledgeSlashMenuItem; index: number }[] };
+import { groupKnowledgeSlashMenuItems, type KnowledgeSlashMenuItem } from "./slashMenu.ts";
 
 function itemClass(selected: boolean, disabled: boolean) {
   return `knowledge-slash-item${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}`;
@@ -33,25 +29,7 @@ export function KnowledgeSlashMenu({ items, loadingState, selectedIndex, onItemC
   const [hoveredSubmenu, setHoveredSubmenu] = useState("");
   const selectedItem = selectedIndex === undefined ? undefined : items[selectedIndex];
   const activeSubmenu = hoveredSubmenu || selectedItem?.submenu || "";
-  const groups = useMemo(() => {
-    const result: { label: string; entries: MenuEntry[] }[] = [];
-    for (const item of items) {
-      let group = result.at(-1);
-      if (!group || group.label !== (item.group || "其他")) {
-        group = { label: item.group || "其他", entries: [] };
-        result.push(group);
-      }
-      const index = items.indexOf(item);
-      if (!item.submenu) {
-        group.entries.push({ kind: "item", item, index });
-        continue;
-      }
-      const existing = group.entries.find((entry): entry is Extract<MenuEntry, { kind: "submenu" }> => entry.kind === "submenu" && entry.label === item.submenu);
-      if (existing) existing.items.push({ item, index });
-      else group.entries.push({ kind: "submenu", label: item.submenu, items: [{ item, index }] });
-    }
-    return result;
-  }, [items]);
+  const groups = useMemo(() => groupKnowledgeSlashMenuItems(items), [items]);
   const submenuItems = useMemo(() => groups.flatMap(group => group.entries).flatMap(entry => entry.kind === "submenu" && entry.label === activeSubmenu ? entry.items : []), [activeSubmenu, groups]);
 
   useEffect(() => {
@@ -61,7 +39,10 @@ export function KnowledgeSlashMenu({ items, loadingState, selectedIndex, onItemC
 
   return <div id="bn-suggestion-menu" className={`knowledge-slash-menu${activeSubmenu ? " has-submenu" : ""}`} role="listbox" aria-label="插入内容" onMouseLeave={() => setHoveredSubmenu("")}>
     <section className="knowledge-slash-main">
-      <header><span><Search size={14} aria-hidden="true" />输入关键词筛选</span><kbd>↑↓</kbd><kbd>Enter</kbd></header>
+      <header>
+        <span><Search size={14} aria-hidden="true" />继续输入以筛选</span>
+        <span className="knowledge-slash-shortcuts" aria-hidden="true"><kbd>↑↓</kbd><kbd>Enter</kbd></span>
+      </header>
       <div className="knowledge-slash-scroll">
         {groups.map(group => <div className="knowledge-slash-group" key={group.label}>
           <div className="knowledge-slash-group-label">{group.label}</div>

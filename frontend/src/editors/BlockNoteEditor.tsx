@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Block, BlockNoteEditor } from "@blocknote/core";
-import { defaultToggledState, isToggleOpen } from "@blocknote/core";
+import { defaultToggledState, insertOrUpdateBlockForSlashMenu, isToggleOpen } from "@blocknote/core";
 import { zh } from "@blocknote/core/locales";
 import { withCollaboration } from "@blocknote/core/yjs";
 import { SideMenuExtension, SyntaxHighlightingExtension } from "@blocknote/core/extensions";
-import { BlockColorsItem, DragHandleButton, FilePanelController, FormattingToolbar, FormattingToolbarController, getFormattingToolbarItems, SideMenu, SideMenuController, SuggestionMenuController, TableColumnHeaderItem, TableRowHeaderItem, UploadTab, useBlockNoteEditor, useComponentsContext, useCreateBlockNote, useEditorState, useExtensionState, usePortalElement } from "@blocknote/react";
-import type { FilePanelProps, FormattingToolbarProps, SideMenuProps } from "@blocknote/react";
+import { BlockColorsItem, DragHandleButton, FormattingToolbar, FormattingToolbarController, getFormattingToolbarItems, SideMenu, SideMenuController, SuggestionMenuController, TableColumnHeaderItem, TableRowHeaderItem, useBlockNoteEditor, useComponentsContext, useCreateBlockNote, useEditorState, useExtensionState, usePortalElement } from "@blocknote/react";
+import type { FormattingToolbarProps, SideMenuProps } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/ariakit";
 import { locales as multiColumnLocales } from "@blocknote/xl-multi-column";
-import { ChevronDown, ChevronRight, Clipboard, Copy, Crop, Download, FileJson, FileText, Link2, ListTree, Printer, RefreshCw, RotateCcw, Scissors, Trash2, Type } from "lucide-react";
+import { ChevronDown, ChevronRight, Clipboard, Copy, Crop, Download, FileJson, FileText, FunctionSquare, Link2, ListTree, Printer, RefreshCw, RotateCcw, Scissors, Trash2, Type, X } from "lucide-react";
 import "@blocknote/ariakit/style.css";
+import { renderSafeLatex } from "../latex.ts";
 import { documentBlockCommentQuote, parseDocumentBlocks, serializeDocumentBlocks } from "../documentContent.ts";
 import { canonicalMindNoteContent, documentBlocksToMindNote } from "../mindNoteContent.ts";
 import type { KnowledgeEditorProps } from "./types.ts";
@@ -59,24 +61,42 @@ async function createKnowledgeCodeHighlighter(): Promise<any> {
   });
 }
 
-function KnowledgeUploadFilePanel({ blockId }: FilePanelProps) {
-  const Components = useComponentsContext()!;
-  const [loading, setLoading] = useState(false);
-  const tabName = "上传";
-  const tabs = [{ name: tabName, tabPanel: <UploadTab blockId={blockId} setLoading={setLoading} /> }];
-  return <Components.FilePanel.Root
-    className="bn-panel knowledge-upload-file-panel"
-    tabs={tabs}
-    defaultOpenTab={tabName}
-    openTab={tabName}
-    setOpenTab={() => undefined}
-    loading={loading}
-  />;
+type KnowledgeFileBlockType = "image" | "video" | "audio" | "file";
+type KnowledgeFilePickerRequest = {
+  action: "insert" | "replace";
+  blockID: string;
+  blockType: KnowledgeFileBlockType;
+  accept: string;
+  recentID?: string;
+};
+type KnowledgeFormulaInputRequest = { displayMode: "block" | "inline"; recentID: string };
+
+function createCollaborationSyncGate(awareness: NonNullable<NonNullable<KnowledgeEditorProps["collaboration"]>["provider"]>["awareness"]) {
+  const listeners = new Set<(synced: boolean) => void>();
+  return {
+    awareness,
+    synced: false,
+    on(event: string, listener: (synced: boolean) => void) {
+      if (event === "synced") listeners.add(listener);
+    },
+    off(event: string, listener: (synced: boolean) => void) {
+      if (event === "synced") listeners.delete(listener);
+    },
+    release() {
+      if (this.synced) return;
+      this.synced = true;
+      for (const listener of listeners) listener(true);
+    },
+  };
 }
 
-function KnowledgeAuthorizedFileReplaceButton() {
+function knowledgeFileAccept(editor: BlockNoteEditor<any, any, any>, blockType: string) {
+  const accepts = editor.schema.blockSpecs[blockType]?.implementation.meta.fileBlockAccept;
+  return accepts?.length ? accepts.join(",") : "*/*";
+}
+
+function KnowledgeAuthorizedFileReplaceButton({ busy, onPick }: { busy: boolean; onPick(request: KnowledgeFilePickerRequest): void }) {
   const Components = useComponentsContext()!;
-  const portalElement = usePortalElement();
   const editor = useBlockNoteEditor<any, any, any>();
   const block = useEditorState({
     editor,
@@ -87,15 +107,15 @@ function KnowledgeAuthorizedFileReplaceButton() {
       return selected[0];
     },
   });
-  if (!block) return null;
-  return <Components.Generic.Popover.Root onOpenChange={open => { if (!open) editor.focus(); }} portalElement={portalElement}>
-    <Components.Generic.Popover.Trigger>
-      <Components.FormattingToolbar.Button className="bn-button" label="替换文件" mainTooltip="通过受权上传替换文件" icon={<RefreshCw size={16} />} />
-    </Components.Generic.Popover.Trigger>
-    <Components.Generic.Popover.Content className="bn-popover-content bn-panel-popover" variant="panel-popover">
-      <KnowledgeUploadFilePanel blockId={block.id} />
-    </Components.Generic.Popover.Content>
-  </Components.Generic.Popover.Root>;
+  if (!block || !editor.uploadFile) return null;
+  return <Components.FormattingToolbar.Button
+    className="bn-button"
+    label="替换文件"
+    mainTooltip={busy ? "文件正在上传" : "选择本地文件并直接替换"}
+    icon={<RefreshCw size={16} />}
+    isDisabled={busy}
+    onClick={() => onPick({ action: "replace", blockID: block.id, blockType: block.type as KnowledgeFileBlockType, accept: knowledgeFileAccept(editor, block.type) })}
+  />;
 }
 
 type KnowledgeImageProps = {
@@ -295,7 +315,7 @@ function KnowledgeSideMenu({ blockLink, authorizeContentAction, onFeedback, ...p
   return <SideMenu {...props} dragHandleMenu={DragMenu}><DragHandleButton dragHandleMenu={DragMenu} /></SideMenu>;
 }
 
-function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedback, ...props }: FormattingToolbarProps & KnowledgeBlockActionProps) {
+function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedback, filePickerBusy, onFilePick, ...props }: FormattingToolbarProps & KnowledgeBlockActionProps & { filePickerBusy: boolean; onFilePick(request: KnowledgeFilePickerRequest): void }) {
   const editor = useBlockNoteEditor<any, any, any>();
   const selectedBlocks = useEditorState({ editor, selector: ({ editor }) => editor.getSelection()?.blocks || [] });
   const copySelection = async (cut: boolean) => {
@@ -312,7 +332,7 @@ function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedb
   };
   return <FormattingToolbar {...props}>
     {getFormattingToolbarItems(props.blockTypeSelectItems).filter(item => item.key !== "replaceFileButton")}
-    <KnowledgeAuthorizedFileReplaceButton />
+    <KnowledgeAuthorizedFileReplaceButton busy={filePickerBusy} onPick={onFilePick} />
     <KnowledgeImagePropertiesButton />
     {selectedBlocks.length > 1 && <>
       <span className="knowledge-block-selection-count">已选 {selectedBlocks.length} 个 Block</span>
@@ -349,7 +369,7 @@ function KnowledgeDocumentTransfer({ editor, title, authorizeContentAction, onFe
   if (!authorizeContentAction) return null;
   return <div className="knowledge-document-transfer no-print">
     <details ref={details}>
-      <summary aria-label="导出文档"><Download size={15} />导出</summary>
+      <summary className="knowledge-page-header-action" aria-label="导出文档"><Download size={14} />导出</summary>
       <div role="menu" aria-label="文档导出格式">
         <button type="button" role="menuitem" onClick={() => void run("json")}><FileJson size={16} /><span><strong>Block JSON</strong><small>完整保留结构、稳定 ID 与属性</small></span></button>
         <button type="button" role="menuitem" onClick={() => void run("markdown")}><FileText size={16} /><span><strong>Markdown</strong><small>导出为可移植的纯文本格式</small></span></button>
@@ -378,10 +398,14 @@ function changedDocumentBlockIDs(before: string, after: string) {
   return [...changed].slice(0, 2048);
 }
 
-function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, blockLink, insertMarkdownRequest, authorizeContentAction, onActionFeedback, uploadFile, fileUploadsEnabled, readFile, convertPage, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
+function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, commentMarkers = [], onCommentMarkerOpen, blockLink, insertMarkdownRequest, pageActionHost, authorizeContentAction, onActionFeedback, uploadFile, fileUploadsEnabled, fileUploadAccept, readFile, convertPage, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
   const applying = useRef(false), emitted = useRef(body), seeded = useRef(false);
   const revealedBlockID = useRef("");
   const uploadFileRef = useRef(uploadFile), readFileRef = useRef(readFile);
+  const filePickerInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingFilePickerRef = useRef<KnowledgeFilePickerRequest | null>(null);
+  const [filePickerBusy, setFilePickerBusy] = useState(false);
+  const [formulaInput, setFormulaInput] = useState<KnowledgeFormulaInputRequest | null>(null), [formulaSource, setFormulaSource] = useState("");
   const mentionRuntimeRef = useRef(mentions);
   const taskRuntimeRef = useRef(tasks);
   const pollRuntimeRef = useRef(polls);
@@ -422,7 +446,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     schema: knowledgeDocumentSchema,
     dictionary: { ...zh, multi_column: multiColumnLocales.zh },
     pasteHandler: (context: Parameters<typeof handleKnowledgeDocumentPaste>[0]) => handleKnowledgeDocumentPaste({ ...context, onFeedback: message => actionFeedbackRef.current?.(message) }),
-    uploadFile: !readOnly && uploadFile ? uploadKnowledgeFile : undefined,
+    uploadFile: !readOnly && fileUploadsEnabled && uploadFile ? uploadKnowledgeFile : undefined,
     resolveFileUrl: readFile ? resolveKnowledgeFileURL : undefined,
     tables: {
       splitCells: true,
@@ -432,13 +456,33 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     },
     extensions: [SyntaxHighlightingExtension({ createHighlighter: createKnowledgeCodeHighlighter })],
   };
-  const editor = useCreateBlockNote(collaboration ? withCollaboration({
+  const initialBlocks = parseDocumentBlocks(body);
+  const collaborationSyncGate = useMemo(() => collaboration?.provider?.awareness
+    ? createCollaborationSyncGate(collaboration.provider.awareness)
+    : undefined, [collaboration?.fragment]);
+  const editor = useCreateBlockNote(collaboration ? {
+    ...withCollaboration({
+      ...baseOptions,
+      collaboration: { fragment: collaboration.fragment, user: collaboration.user, provider: collaborationSyncGate, showCursorLabels: "activity" },
+    }),
+    // Match the hydrated Yjs document exactly. The sync gate below delays the
+    // Yjs binding until the initial cursor has been moved to an inline-content
+    // block; y-prosemirror otherwise restores its default cursor onto a leading
+    // image/file blockContainer and emits an invalid TextSelection warning.
+    initialContent: initialBlocks.length ? initialBlocks as never : [{ id: "initialBlockId", type: "paragraph", content: "" }] as never,
+  } : {
     ...baseOptions,
-    collaboration: { fragment: collaboration.fragment, user: collaboration.user, provider: collaboration.provider, showCursorLabels: "activity" },
-  }) : {
-    ...baseOptions,
-    initialContent: parseDocumentBlocks(body).length ? parseDocumentBlocks(body) as never : undefined,
+    initialContent: initialBlocks.length ? initialBlocks as never : undefined,
   }, [collaboration?.fragment]);
+  const preparedCollaborationEditor = useRef<typeof editor | null>(null);
+  if (collaboration && preparedCollaborationEditor.current !== editor) {
+    preparedCollaborationEditor.current = editor;
+    const textBlock = editor.document.find(block => Array.isArray((block as { content?: unknown }).content));
+    if (textBlock) editor.setTextCursorPosition(textBlock, "start");
+  }
+  useEffect(() => {
+    collaborationSyncGate?.release();
+  }, [collaborationSyncGate, editor]);
   registerKnowledgeMentionRuntime(editor, mentionRuntimeRef);
   registerKnowledgeContentAction(editor, authorizeContentAction);
   registerKnowledgeTaskRuntime(editor, taskRuntimeRef);
@@ -449,16 +493,88 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
   useEffect(() => notifyKnowledgePollRuntime(editor), [editor, polls]);
   useEffect(() => notifyKnowledgeDynamicBlockRuntime(editor), [dynamicBlocks, editor]);
   const getMentionItems = useCallback((query: string) => getKnowledgeMentionMenuItems(editor, mentionRuntimeRef.current, query), [editor]);
-  const getSlashItems = useCallback((query: string) => getKnowledgeSlashMenuItems(editor, query, { canUploadFiles: fileUploadsEnabled ?? Boolean(uploadFile) }), [editor, fileUploadsEnabled, uploadFile]);
+  const getSlashItems = useCallback((query: string) => getKnowledgeSlashMenuItems(editor, query, {
+    canUploadFiles: Boolean(!readOnly && fileUploadsEnabled && uploadFile),
+    fileAccept: fileUploadAccept,
+  }), [editor, fileUploadAccept, fileUploadsEnabled, readOnly, uploadFile]);
+  const requestFilePick = useCallback((request: KnowledgeFilePickerRequest) => {
+    if (filePickerBusy) {
+      actionFeedbackRef.current?.("文件正在上传，请稍候。");
+      return;
+    }
+    const input = filePickerInputRef.current;
+    if (!input) return;
+    pendingFilePickerRef.current = request;
+    input.value = "";
+    input.accept = request.accept;
+    input.click();
+  }, [filePickerBusy]);
+  const uploadPickedFile = useCallback(async (file: File) => {
+    const request = pendingFilePickerRef.current;
+    pendingFilePickerRef.current = null;
+    if (!request) return;
+    setFilePickerBusy(true);
+    try {
+      const uploaded = await uploadKnowledgeFile(file, request.blockID);
+      const target = editor.getBlock(request.blockID);
+      if (!target) throw new Error("原内容位置已变化，请重新选择文件。");
+      const update = typeof uploaded === "string" ? { props: { name: file.name, url: uploaded } } : uploaded;
+      if (request.action === "replace") {
+        editor.updateBlock(target, update as never);
+      } else {
+        editor.setTextCursorPosition(target, "end");
+        insertOrUpdateBlockForSlashMenu(editor, { type: request.blockType, ...update } as never);
+        if (request.recentID) recordKnowledgeSlashRecentID(request.recentID);
+      }
+    } catch (failure) {
+      if (failure instanceof Error && failure.message === "原内容位置已变化，请重新选择文件。") actionFeedbackRef.current?.(failure.message);
+    } finally {
+      setFilePickerBusy(false);
+    }
+  }, [editor, uploadKnowledgeFile]);
   const insertSlashItem = useCallback((item: KnowledgeSlashMenuItem) => {
     if (item.disabledReason) {
       actionFeedbackRef.current?.(item.disabledReason);
       return;
     }
+    if (item.filePicker) {
+      let blockID = "";
+      try { blockID = editor.getTextCursorPosition().block.id; } catch { /* The menu cannot insert without an active editor cursor. */ }
+      if (!blockID) {
+        actionFeedbackRef.current?.("无法确定文件插入位置，请重新定位光标。");
+        return;
+      }
+      requestFilePick({ action: "insert", blockID, recentID: item.id, ...item.filePicker });
+      return;
+    }
+    if (item.formulaInput) {
+      try { editor.getTextCursorPosition(); } catch {
+        actionFeedbackRef.current?.("无法确定公式插入位置，请重新定位光标。");
+        return;
+      }
+      setFormulaSource("");
+      setFormulaInput({ ...item.formulaInput, recentID: item.id });
+      return;
+    }
     recordKnowledgeSlashRecentID(item.id);
     item.onItemClick();
-  }, []);
-  const formattingToolbar = useCallback((props: FormattingToolbarProps) => <KnowledgeFormattingToolbar {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} />, [authorizeContentAction, blockLink, onActionFeedback]);
+  }, [editor, requestFilePick]);
+  const formulaResult = useMemo(() => renderSafeLatex(formulaSource, formulaInput?.displayMode === "block"), [formulaInput?.displayMode, formulaSource]);
+  const closeFormulaInput = useCallback(() => { setFormulaInput(null); setFormulaSource(""); editor.focus(); }, [editor]);
+  const insertFormula = useCallback(() => {
+    if (!formulaInput || !formulaSource.trim() || formulaResult.error) return;
+    try {
+      if (formulaInput.displayMode === "block") insertOrUpdateBlockForSlashMenu(editor, { type: "formula", content: formulaSource.trim() } as never);
+      else editor.insertInlineContent([{ type: "inlineFormula", content: formulaSource.trim() }] as never, { updateSelection: true });
+      recordKnowledgeSlashRecentID(formulaInput.recentID);
+      setFormulaInput(null);
+      setFormulaSource("");
+      editor.focus();
+    } catch {
+      actionFeedbackRef.current?.("公式插入位置已变化，请重新插入。");
+    }
+  }, [editor, formulaInput, formulaResult.error, formulaSource]);
+  const formattingToolbar = useCallback((props: FormattingToolbarProps) => <KnowledgeFormattingToolbar {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} filePickerBusy={filePickerBusy} onFilePick={requestFilePick} />, [authorizeContentAction, blockLink, filePickerBusy, onActionFeedback, requestFilePick]);
   const sideMenu = useCallback((props: SideMenuProps) => <KnowledgeSideMenu {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} />, [authorizeContentAction, blockLink, onActionFeedback]);
 
   const currentPresence = () => {
@@ -574,8 +690,66 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     return () => { cancelled = true; window.clearTimeout(retryTimer); window.clearTimeout(highlightTimer); };
   }, [body, blockHighlightRevision, editor, initialBlockID, readOnly]);
 
-  return <div className="knowledge-open-editor is-blocknote is-document">
-    <KnowledgeDocumentTransfer editor={editor} title={documentTitle} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} onConvertToMindNote={!readOnly && convertPage ? (nextTitle, nextBody) => convertPage("mind_note", nextTitle, nextBody) : undefined} />
+  useEffect(() => {
+    const root = editor.domElement;
+    if (!root) return;
+    const clearMarkers = () => {
+      root.querySelectorAll<HTMLElement>(".knowledge-block-comment-anchor").forEach(element => element.classList.remove("knowledge-block-comment-anchor", "is-active", "is-resolved"));
+      root.querySelectorAll<HTMLElement>(".knowledge-block-comment-marker").forEach(element => element.remove());
+    };
+    const renderMarkers = () => {
+      clearMarkers();
+      const blocks = [...root.querySelectorAll<HTMLElement>('[data-node-type="blockContainer"][data-id]')];
+      for (const marker of commentMarkers) {
+        const block = blocks.find(candidate => candidate.dataset.id === marker.nodeID);
+        if (!block) continue;
+        block.classList.add("knowledge-block-comment-anchor");
+        if (marker.active) block.classList.add("is-active");
+        if (!marker.unresolved) block.classList.add("is-resolved");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "knowledge-block-comment-marker";
+        button.textContent = String(marker.count);
+        button.title = `${marker.count} 条评论 · ${marker.quote}`;
+        button.setAttribute("aria-label", `打开此内容块的 ${marker.count} 条评论`);
+        button.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCommentMarkerOpen?.(marker.nodeID);
+        });
+        block.append(button);
+      }
+    };
+    const timers = [0, 80, 240].map(delay => window.setTimeout(renderMarkers, delay));
+    return () => {
+      timers.forEach(timer => window.clearTimeout(timer));
+      clearMarkers();
+    };
+  }, [body, commentMarkers, editor, onCommentMarkerOpen]);
+
+  const documentTransfer = <KnowledgeDocumentTransfer editor={editor} title={documentTitle} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} onConvertToMindNote={!readOnly && convertPage ? (nextTitle, nextBody) => convertPage("mind_note", nextTitle, nextBody) : undefined} />;
+  return <div className={`knowledge-open-editor is-blocknote is-document${pageActionHost ? " has-page-action-host" : ""}`}>
+    {pageActionHost ? createPortal(documentTransfer, pageActionHost) : documentTransfer}
+    {formulaInput && <div className="knowledge-ai-dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeFormulaInput(); }}><section className="knowledge-ai-dialog" style={{ width: "min(560px, 100%)" }} role="dialog" aria-modal="true" aria-labelledby="knowledge-formula-input-title">
+      <header><div><span className="knowledge-ai-icon" aria-hidden="true"><FunctionSquare size={18} /></span><div><h3 id="knowledge-formula-input-title">{formulaInput.displayMode === "block" ? "插入公式块" : "插入行内公式"}</h3><p>输入 LaTeX，确认后才会写入正文。</p></div></div><button type="button" className="knowledge-button" aria-label="关闭公式输入" title="关闭" onClick={closeFormulaInput}><X size={16} /></button></header>
+      <div className="knowledge-ai-form"><label className="knowledge-ai-prompt"><span>LaTeX 公式</span><textarea autoFocus rows={3} value={formulaSource} onChange={event => setFormulaSource(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeFormulaInput(); } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); insertFormula(); } }} placeholder={formulaInput.displayMode === "block" ? String.raw`例如：\sum_{i=1}^{n} i = \frac{n(n+1)}{2}` : String.raw`例如：E = mc^2`} /></label></div>
+      {(formulaResult.html || formulaResult.error) && <article className="knowledge-ai-execution"><header><strong>预览</strong><span>{formulaInput.displayMode === "block" ? "独立公式" : "行内公式"}</span></header>{formulaResult.html ? <div className={`knowledge-formula-preview ${formulaInput.displayMode === "block" ? "is-block" : "is-inline"}`} dangerouslySetInnerHTML={{ __html: formulaResult.html }} /> : <p className="knowledge-ai-error" role="alert">{formulaResult.error}</p>}</article>}
+      <footer><p>支持标准 KaTeX 语法，按 Ctrl/⌘ + Enter 可直接插入。</p><div><button type="button" className="knowledge-button" onClick={closeFormulaInput}>取消</button><button type="button" className="knowledge-button primary" disabled={!formulaSource.trim() || !!formulaResult.error} onClick={insertFormula}>插入公式</button></div></footer>
+    </section></div>}
+    {!readOnly && <input
+      ref={filePickerInputRef}
+      hidden
+      type="file"
+      disabled={filePickerBusy}
+      aria-hidden="true"
+      tabIndex={-1}
+      onChange={event => {
+        const file = event.currentTarget.files?.[0];
+        event.currentTarget.value = "";
+        if (file) void uploadPickedFile(file);
+        else pendingFilePickerRef.current = null;
+      }}
+    />}
     <BlockNoteView
       editor={editor}
       editable={!readOnly}
@@ -590,7 +764,6 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
       {!readOnly && <SideMenuController sideMenu={sideMenu} />}
       {!readOnly && <SuggestionMenuController triggerCharacter="/" getItems={getSlashItems} suggestionMenuComponent={KnowledgeSlashMenu} onItemClick={insertSlashItem} />}
       {!readOnly && <SuggestionMenuController triggerCharacter="@" getItems={getMentionItems} />}
-      {!readOnly && <FilePanelController filePanel={KnowledgeUploadFilePanel} />}
     </BlockNoteView>
   </div>;
 }

@@ -1,26 +1,36 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Activity, Bell, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, Clock3, Cloud, Copy, FilePlus2, GitMerge, GitPullRequest, LayoutTemplate, Link2, ListTree, LoaderCircle, LockKeyhole, MessageSquare, MoreHorizontal, Paperclip, Pencil, Pin, Plus, RefreshCw, Save, Search, Send, Settings, Share2, ShieldCheck, Sparkles, Star, Tags, Trash2, Upload, Users, Wifi, X } from "lucide-react";
-import { Button, EmptyState } from "./components.tsx";
-import { documentUploadMaxBytes, knowledgeDocumentAccept, knowledgeDocumentSupports, sha256 } from "./document.ts";
+import { Bell, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, Clock3, Cloud, FilePlus2, GitMerge, GitPullRequest, LayoutTemplate, Link2, LoaderCircle, Paperclip, Pencil, Pin, Plus, RefreshCw, Save, ScanSearch, Search, Send, Settings, Share2, ShieldCheck, Sparkles, Star, Tags, Trash2, Upload, UserRoundCog, Users, Wifi, X } from "lucide-react";
+import { Button, EmptyState, Select } from "./components.tsx";
+import { documentUploadMaxBytes, knowledgeDocumentAccept, knowledgeDocumentAcceptForContentType, knowledgeDocumentSupports, selectedUploadFile, sha256 } from "./document.ts";
 import type { KnowledgeAccessExplanation, KnowledgeAccessSubject, KnowledgeAIExecution, KnowledgeAIOperation, KnowledgeAISourceScope, KnowledgeClient, KnowledgeGovernanceEvent, KnowledgeLibrary, KnowledgeOrganizationPrincipal, KnowledgePage, KnowledgePageAccessGrant, KnowledgePageAccessPolicy, KnowledgePageAttachment, KnowledgePageCollectionItem, KnowledgePageCollectionKind, KnowledgePageComment, KnowledgePageConflict, KnowledgePageCustomProperty, KnowledgePageEditHistoryEntry, KnowledgePageIdentity, KnowledgePageMetadata, KnowledgePageMoveImpact, KnowledgePageNativeOperation, KnowledgePagePersonalState, KnowledgePagePollView, KnowledgePagePropertyType, KnowledgePageReferenceLink, KnowledgePageRelationshipGraph, KnowledgePageSearchLocation, KnowledgePageStatus, KnowledgePageSuggestion, KnowledgePageTask, KnowledgePageTemplate, KnowledgePageTemplateVersionSummary, KnowledgePageVersion, KnowledgePageVersionDiff, KnowledgePageView, KnowledgePrincipal } from "./types.ts";
 import { useKnowledgeCollaboration } from "./useKnowledgeCollaboration.ts";
 import { useKnowledgeNativeAwareness } from "./useKnowledgeNativeAwareness.ts";
-import { importPageTypes, nativePageTypes, pageTypeMeta, PageTypeIcon } from "./pageTypeRegistry.ts";
+import { collaborationPresenceUserIDs } from "./collaboration.ts";
+import { pageTypeMeta, PageTypeIcon } from "./pageTypeRegistry.ts";
 import { KnowledgeEditor } from "./editors/KnowledgeEditor.tsx";
-import type { KnowledgeCommentAnchorSelection, KnowledgeDynamicBlockRuntime, KnowledgeEditorChange, KnowledgeFormRuntime, KnowledgeMentionRuntime, KnowledgePollRuntime, KnowledgeTaskRuntime } from "./editors/types.ts";
+import type { KnowledgeCommentAnchorSelection, KnowledgeCommentMarker, KnowledgeDynamicBlockRuntime, KnowledgeEditorChange, KnowledgeFormRuntime, KnowledgeMentionRuntime, KnowledgePollRuntime, KnowledgeTaskRuntime } from "./editors/types.ts";
 import type { KnowledgePageContentType } from "./types.ts";
 import { appendDocumentImage, documentOutline, documentStats } from "./documentContent.ts";
 import { KnowledgeFilePage } from "./KnowledgeFilePage.tsx";
 import { KnowledgePageShareManager } from "./KnowledgePageShareManager.tsx";
 import { KnowledgePageContentPolicyManager } from "./KnowledgePageContentPolicyManager.tsx";
-import { KnowledgeClassificationBadge, KnowledgeDynamicWatermark } from "./KnowledgePageGovernance.tsx";
+import { KnowledgeDynamicWatermark } from "./KnowledgePageGovernance.tsx";
+import { PageActivityPanel } from "./page-workspace/PageActivityPanel.tsx";
+import { PageOutline } from "./page-workspace/PageOutline.tsx";
+import { CommentDrawer } from "./page-workspace/CommentDrawer.tsx";
+import { SuggestionDrawer } from "./page-workspace/SuggestionDrawer.tsx";
+import { PageHistoryPanel } from "./page-workspace/PageHistoryPanel.tsx";
+import { PageToolbar } from "./page-workspace/PageToolbar.tsx";
+import type { PageWorkspaceMode } from "./page-workspace/PageToolbar.tsx";
+import { PageHeader } from "./page-workspace/PageHeader.tsx";
 import { filePageContent, parseFilePageContent } from "./file-page.ts";
 import { createKnowledgeBlockLink, createKnowledgePageLink } from "./knowledge-links.ts";
 import { nativePageOperations } from "./nativeOperations.ts";
 import { gridAutomationExecutions } from "./gridContent.ts";
 import { parseFormContent } from "./formContent.ts";
+import { KnowledgeCreateMenu } from "./KnowledgeCreateMenu.tsx";
 
 const pageSchemaVersion = 2;
 
@@ -40,7 +50,6 @@ type PendingPagePublish = {
   pageID: string;
   expectedDraftRevision: number;
   expectedPageRevision: number;
-  publishNote?: string;
 };
 
 type PendingNativePageSave = {
@@ -168,8 +177,6 @@ function projectionLabel(page: KnowledgePage) {
 }
 
 const collaboratorColors = ["#176b52", "#315f9d", "#9a5a17", "#7a4b9d", "#a13f5b"];
-const commentReactionEmojis = ["👍", "❤️", "🎉", "👀", "😄", "🚀"] as const;
-
 function collaboratorColor(userID: string) {
   return collaboratorColors[[...userID].reduce((sum, character) => sum + character.codePointAt(0)!, 0) % collaboratorColors.length];
 }
@@ -410,8 +417,9 @@ function currentPageTextRanges(root: HTMLElement, query: string) {
 	return ranges;
 }
 
-export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", onSelectionChange, onManage }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; onSelectionChange?: (page: { id: string; title: string } | null) => void; onManage?: () => void }) {
+export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", scopeTabs, teamLibraries, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; scopeTabs?: ReactNode; teamLibraries?: KnowledgeLibrary[]; onLibrarySelect?: (libraryID: string) => void; onCreateLibrary?: () => void; onSelectionChange?: (page: { id: string; title: string; mode: "read" | "edit" } | null) => void; onManage?: () => void }) {
   const canWrite = !library.archived && (library.role === "editor" || library.role === "manager");
+  const hasTeamLibraryPicker = library.kind === "shared" && !!teamLibraries?.length && !!onLibrarySelect;
   const [children, setChildren] = useState<Record<string, KnowledgePage[]>>({}), [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [childrenCursor, setChildrenCursor] = useState<Record<string, string>>({}), [childrenComplete, setChildrenComplete] = useState<Record<string, boolean>>({});
   const [navigationSection, setNavigationSection] = useState<PageNavigationSection>("all");
@@ -432,37 +440,45 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const [selectedID, setSelectedID] = useState(initialPageID), [view, setView] = useState<KnowledgePageView | null>(null), [loading, setLoading] = useState(true);
   const [editorEpoch, setEditorEpoch] = useState(0);
 	const [localFilter, setLocalFilter] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
+	const [collaborationFailure, setCollaborationFailure] = useState("");
 	const [pageFindOpen, setPageFindOpen] = useState(false), [pageFindQuery, setPageFindQuery] = useState("");
 	const [pageFindCount, setPageFindCount] = useState(0), [pageFindActive, setPageFindActive] = useState(0);
-  const [createMenuOpen, setCreateMenuOpen] = useState(false);
-  const [createMenuPosition, setCreateMenuPosition] = useState({ top: 0, left: 0, maxHeight: 560 });
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false), [templates, setTemplates] = useState<KnowledgePageTemplate[]>([]);
   const [templateVersions, setTemplateVersions] = useState<Record<string, KnowledgePageTemplateVersionSummary[]>>({}), [templateVersionOpen, setTemplateVersionOpen] = useState("");
   const [templateTitle, setTemplateTitle] = useState(""), [templateDescription, setTemplateDescription] = useState(""), [templateBusy, setTemplateBusy] = useState("");
   const [dragged, setDragged] = useState<KnowledgePage | null>(null);
   const [treeDropTarget, setTreeDropTarget] = useState<TreeDropTarget | null>(null);
-  const [importingFile, setImportingFile] = useState(false);
-  const [mode, setMode] = useState<"read" | "edit" | "suggestions" | "history" | "outline" | "comments" | "activity" | "metadata" | "references" | "relationships" | "access" | "permissions" | "governance">("read");
+  const [mode, setMode] = useState<PageWorkspaceMode>("read");
   const [title, setTitle] = useState(""), [body, setBody] = useState(""), [dirty, setDirty] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [pageActionHost, setPageActionHost] = useState<HTMLDivElement | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
   const [publishState, setPublishState] = useState<"idle" | "publishing" | "error">("idle");
   const [saveConflict, setSaveConflict] = useState<KnowledgePageConflict | null>(null);
-  const [publishNote, setPublishNote] = useState("");
   const [versions, setVersions] = useState<KnowledgePageVersion[]>([]), [diff, setDiff] = useState<KnowledgePageVersionDiff | null>(null), [compare, setCompare] = useState<number[]>([]);
   const [versionBefore, setVersionBefore] = useState(0), [versionsComplete, setVersionsComplete] = useState(true);
   const [editHistory, setEditHistory] = useState<KnowledgePageEditHistoryEntry[]>([]), [editHistoryBefore, setEditHistoryBefore] = useState(0), [editHistoryComplete, setEditHistoryComplete] = useState(true);
   const [historyPreview, setHistoryPreview] = useState<KnowledgePageVersion | null>(null);
+  const [historySection, setHistorySection] = useState<"versions" | "edits">("versions");
+  const [rollbackVersion, setRollbackVersion] = useState<number | null>(null), [rollbackBusy, setRollbackBusy] = useState(false);
   const [comments, setComments] = useState<KnowledgePageComment[]>([]), [commentBody, setCommentBody] = useState(""), [unresolvedOnly, setUnresolvedOnly] = useState(false);
   const [commentAfter, setCommentAfter] = useState(""), [commentsComplete, setCommentsComplete] = useState(true);
-  const [editingCommentID, setEditingCommentID] = useState(""), [editingCommentBody, setEditingCommentBody] = useState("");
-  const [memberQuery, setMemberQuery] = useState(""), [mentionCandidates, setMentionCandidates] = useState<KnowledgePrincipal[]>([]), [mentionedUserIDs, setMentionedUserIDs] = useState<string[]>([]);
+  const [editingCommentID, setEditingCommentID] = useState(""), [editingCommentBody, setEditingCommentBody] = useState(""), [editingCommentMentionedUserIDs, setEditingCommentMentionedUserIDs] = useState<string[]>([]);
+  const [mentionedUserIDs, setMentionedUserIDs] = useState<string[]>([]), [commentComposerFocusRequest, setCommentComposerFocusRequest] = useState(0);
   const [memberProfiles, setMemberProfiles] = useState<Record<string, KnowledgePrincipal>>({}), [replyingTo, setReplyingTo] = useState("");
   const [organizationProfiles, setOrganizationProfiles] = useState<Record<string, KnowledgeOrganizationPrincipal>>({});
+  const memberProfilesRef = useRef<Record<string, KnowledgePrincipal>>({});
+  const principalResolutionInFlightRef = useRef(new Set<string>());
+  memberProfilesRef.current = memberProfiles;
   const [commentAnchor, setCommentAnchor] = useState<KnowledgeCommentAnchorSelection | null>(null);
   const [commentFocus, setCommentFocus] = useState({ nodeID: "", revision: 0 });
+  const [activeCommentThreadID, setActiveCommentThreadID] = useState("");
+  const commentThreadRefs = useRef<Record<string, HTMLElement | null>>({});
   const [suggestions, setSuggestions] = useState<KnowledgePageSuggestion[]>([]), [suggestionKind, setSuggestionKind] = useState<"insert" | "delete">("insert");
   const [suggestionText, setSuggestionText] = useState(""), [suggestionComment, setSuggestionComment] = useState(""), [suggestionMentionedUserIDs, setSuggestionMentionedUserIDs] = useState<string[]>([]), [suggestionBusy, setSuggestionBusy] = useState("");
+  const [suggestionPanelOpen, setSuggestionPanelOpen] = useState(false);
   const [attachments, setAttachments] = useState<KnowledgePageAttachment[]>([]), [attaching, setAttaching] = useState(false);
+  const [importingFilePage, setImportingFilePage] = useState(false);
   const [tasks, setTasks] = useState<KnowledgePageTask[]>([]), [tasksReady, setTasksReady] = useState(false);
   const [polls, setPolls] = useState<KnowledgePagePollView[]>([]), [pollsReady, setPollsReady] = useState(false);
   const [accessQuery, setAccessQuery] = useState(""), [accessPrincipals, setAccessPrincipals] = useState<KnowledgePrincipal[]>([]), [accessUserID, setAccessUserID] = useState("");
@@ -482,12 +498,20 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const activeAttachmentUploadsRef = useRef(0);
   const aiRequestAbortRef = useRef<AbortController | null>(null);
   const treeButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const createMenuAnchorRef = useRef<HTMLDivElement | null>(null), createMenuRef = useRef<HTMLDivElement | null>(null);
+	const libraryRef = useRef(library), formatErrorRef = useRef(formatError);
+	const loadChildrenRef = useRef<(parentPageID?: string, signal?: AbortSignal, append?: boolean) => Promise<void>>(async () => undefined);
+	libraryRef.current = library;
+	formatErrorRef.current = formatError;
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
 	const pageFindInputRef = useRef<HTMLInputElement | null>(null), pageFindSurfaceRef = useRef<HTMLElement | null>(null), pageFindRangesRef = useRef<Range[]>([]);
-  const filePageInputRef = useRef<HTMLInputElement | null>(null);
   const tasksRef = useRef<KnowledgePageTask[]>([]), taskCreatesRef = useRef(new Map<string, Promise<KnowledgePageTask>>());
   const pollsRef = useRef<KnowledgePagePollView[]>([]), pollCreatesRef = useRef(new Map<string, Promise<KnowledgePagePollView>>());
+  const fileUploadAccept = useMemo(() => ({
+    all: knowledgeDocumentAccept(library),
+    image: knowledgeDocumentAcceptForContentType(library, "image/"),
+    video: knowledgeDocumentAcceptForContentType(library, "video/"),
+    audio: knowledgeDocumentAcceptForContentType(library, "audio/"),
+  }), [library]);
   const collaboration = useKnowledgeCollaboration({
     active: mode === "edit" && canWrite && !!selectedID && !!view?.draft && view.page.content_type === "document",
     client,
@@ -503,8 +527,14 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       if (synced && nextTitle.trim()) syncVisiblePageTitle(selectedID, nextTitle);
       setDirty(!synced); setSaveState(synced ? "saved" : "saving"); setSaveConflict(null);
     },
-    onError(failure) { setError(formatError(failure)); },
+    onError(failure) { setCollaborationFailure(formatError(failure)); },
   });
+  const collaborationRef = useRef(collaboration);
+  collaborationRef.current = collaboration;
+	useEffect(() => {
+		if (collaboration.state === "connected") setCollaborationFailure("");
+	}, [collaboration.state]);
+	useEffect(() => setCollaborationFailure(""), [selectedID]);
   const nativeAwareness = useKnowledgeNativeAwareness({
     active: mode === "edit" && canWrite && !!selectedID && !!view?.draft && ["whiteboard", "mind_map", "flowchart"].includes(view.page.content_type),
     client,
@@ -522,13 +552,15 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     onError(failure) { setError(formatError(failure)); },
   });
   const activePresence = collaboration.available ? collaboration.presence : nativeAwareness.presence;
+  const activePresenceUserIDs = useMemo(() => collaborationPresenceUserIDs(activePresence), [activePresence]);
+  const activePresenceUserKey = activePresenceUserIDs.join("\u0000");
   const activeOnlineUsers = collaboration.available ? collaboration.onlineUsers : nativeAwareness.onlineUsers;
   const presenceAvailable = collaboration.available || nativeAwareness.available;
   const presenceUserID = collaboration.userID || currentUserID;
 
 	useEffect(() => {
-		onSelectionChange?.(view ? { id: view.page.id, title: view.page.title } : null);
-	}, [onSelectionChange, view?.page.id, view?.page.title]);
+		onSelectionChange?.(view ? { id: view.page.id, title: view.page.title, mode: mode === "edit" ? "edit" : "read" } : null);
+	}, [mode, onSelectionChange, view?.page.id, view?.page.title]);
 
   useEffect(() => {
     aiRequestAbortRef.current?.abort();
@@ -609,13 +641,20 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }
 
   async function resolveProfiles(userIDs: string[], signal: AbortSignal) {
-    const unique = [...new Set(userIDs.filter(Boolean))];
+    const unique = [...new Set(userIDs.filter(Boolean))].filter(userID => !memberProfilesRef.current[userID] && !principalResolutionInFlightRef.current.has(userID));
     if (unique.length === 0) return;
+    unique.forEach(userID => principalResolutionInFlightRef.current.add(userID));
     try {
       const profiles = await client.resolvePrincipals(unique, signal);
-      if (!signal.aborted) setMemberProfiles(current => ({ ...current, ...Object.fromEntries(profiles.filter(profile => profile.status === "active").map(profile => [profile.user_id, profile])) }));
+      if (!signal.aborted) {
+        const resolved = Object.fromEntries(profiles.filter(profile => profile.status === "active").map(profile => [profile.user_id, profile]));
+        memberProfilesRef.current = { ...memberProfilesRef.current, ...resolved };
+        setMemberProfiles(current => ({ ...current, ...resolved }));
+      }
     } catch {
       // The content remains readable; unavailable identities render as such.
+    } finally {
+      unique.forEach(userID => principalResolutionInFlightRef.current.delete(userID));
     }
   }
 
@@ -644,6 +683,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     }
     if (parentPageID === "" && page.items[0]) setSelectedID(current => current || page.items[0].id);
   }
+  loadChildrenRef.current = loadChildren;
 
   useEffect(() => {
     const abort = new AbortController();
@@ -651,7 +691,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     setNavigationSection("all"); setCollectionItems([]); setCollectionAfter(""); setCollectionComplete(true); setPersonalState(null); setPersonalStateSaving(false);
     setMetadata(null); setMetadataTagsInput(""); setMetadataAliasesInput(""); setMetadataDirty(false); setMetadataSaving(false); setMetadataMemberQuery(""); setMetadataMembers([]);
     setRelationshipGraph(null); setRelationshipLoading(false); setRelationshipQuery(""); setRelationshipResults([]); setRelationshipSearchLoading(false);
-    setCreateMenuOpen(false); setTemplateDialogOpen(false); setTemplates([]); setTemplateVersions({}); setTemplateVersionOpen(""); editAfterSelectRef.current = "";
+    setTemplateDialogOpen(false); setTemplates([]); setTemplateVersions({}); setTemplateVersionOpen(""); editAfterSelectRef.current = "";
     void loadChildren("", abort.signal).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [client, formatError, initialPageID, library.id]);
@@ -680,8 +720,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       const editAfterSelect = editAfterSelectRef.current === value.page.id;
       if (editAfterSelect) editAfterSelectRef.current = "";
       const linkedEdit = value.page.id === initialPageID && initialPageMode === "edit" && canWrite;
-      setDirty(false); setSaveState("idle"); setPublishState("idle"); setSaveConflict(null); setMode(editAfterSelect || linkedEdit ? "edit" : "read"); setDiff(null); setCompare([]); setHistoryPreview(null);
-      setVersions([]); setVersionBefore(0); setVersionsComplete(true); setEditHistory([]); setEditHistoryBefore(0); setEditHistoryComplete(true); setComments([]); setCommentAfter(""); setCommentsComplete(true); setCommentBody(""); setCommentAnchor(null); setCommentFocus({ nodeID: "", revision: 0 }); setReplyingTo(""); setSuggestions([]); setSuggestionText(""); setSuggestionComment(""); setSuggestionMentionedUserIDs([]); setSuggestionBusy(""); setPageAccess(null); setPermissionGrants([]); setPendingMove(null);
+      setDirty(false); setSaveState("idle"); setPublishState("idle"); setSaveConflict(null); setTitleEditing(editAfterSelect); setMode(editAfterSelect || linkedEdit ? "edit" : "read"); setDiff(null); setCompare([]); setHistoryPreview(null); setHistorySection("versions"); setRollbackVersion(null); setRollbackBusy(false);
+      setVersions([]); setVersionBefore(0); setVersionsComplete(true); setEditHistory([]); setEditHistoryBefore(0); setEditHistoryComplete(true); setComments([]); setCommentAfter(""); setCommentsComplete(true); setCommentBody(""); setCommentAnchor(null); setCommentFocus({ nodeID: "", revision: 0 }); setActiveCommentThreadID(""); setReplyingTo(""); setSuggestions([]); setSuggestionText(""); setSuggestionComment(""); setSuggestionMentionedUserIDs([]); setSuggestionBusy(""); setSuggestionPanelOpen(false); setPageAccess(null); setPermissionGrants([]); setPendingMove(null);
       void resolveProfiles([value.published?.published_by_user_id || "", pageMetadata.owner_user_id || "", ...pageMetadata.content_admin_user_ids, pageMetadata.last_reviewed_by_user_id || "", pageMetadata.updated_by_user_id || "", ...pageMetadata.properties.filter(property => property.type === "person").map(property => property.value)], abort.signal);
       if (editAfterSelect) window.setTimeout(() => titleInputRef.current?.select());
       void client.recordPageView(library.id, value.page.id, { client_id: crypto.randomUUID() }, abort.signal).then(state => {
@@ -690,6 +730,11 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     }).catch(failure => { if (!abort.signal.aborted) { setView(null); setError(formatError(failure)); } }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [canWrite, client, formatError, initialPageID, initialPageMode, library.id, selectedID]);
+
+  useEffect(() => {
+    if (mode !== "edit") setTitleEditing(false);
+    if (mode !== "suggestions") setSuggestionPanelOpen(false);
+  }, [mode]);
 
   async function refreshCollection(kind: KnowledgePageCollectionKind, signal = AbortSignal.timeout(30_000)) {
     setCollectionLoading(true);
@@ -857,53 +902,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }, [body, collaboration.available, dirty, disabled, mode, title]);
 
   useEffect(() => {
-    const userIDs = activePresence.map(item => item.user_id);
-    if (userIDs.length === 0) return;
+    if (activePresenceUserIDs.length === 0) return;
     const abort = new AbortController();
-    void resolveProfiles(userIDs, abort.signal);
+    void resolveProfiles(activePresenceUserIDs, abort.signal);
     return () => abort.abort();
-  }, [activePresence]);
+  }, [activePresenceUserKey]);
 
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent) => { if (dirty || saveState === "saving" || metadataDirty || metadataSaving || governanceDirty || governanceSaving) event.preventDefault(); };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
   }, [dirty, governanceDirty, governanceSaving, metadataDirty, metadataSaving, saveState]);
-
-  useEffect(() => {
-    if (!createMenuOpen) return;
-    const position = () => {
-      const anchor = createMenuAnchorRef.current;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect(), width = 280, gap = 7, viewportMargin = 8;
-      const left = Math.max(viewportMargin, Math.min(rect.right - width, window.innerWidth - width - viewportMargin));
-      const spaceBelow = window.innerHeight - rect.bottom - gap - viewportMargin;
-      const spaceAbove = rect.top - gap - viewportMargin;
-      const openAbove = spaceBelow < 320 && spaceAbove > spaceBelow;
-      const maxHeight = Math.max(180, Math.min(560, openAbove ? spaceAbove : spaceBelow));
-      setCreateMenuPosition({ top: openAbove ? rect.top - gap - maxHeight : rect.bottom + gap, left, maxHeight });
-    };
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!createMenuAnchorRef.current?.contains(target) && !createMenuRef.current?.contains(target)) setCreateMenuOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setCreateMenuOpen(false);
-      createMenuAnchorRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    };
-    position();
-    window.addEventListener("resize", position);
-    window.addEventListener("scroll", position, true);
-    document.addEventListener("pointerdown", dismiss);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.removeEventListener("resize", position);
-      window.removeEventListener("scroll", position, true);
-      document.removeEventListener("pointerdown", dismiss);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [createMenuOpen]);
 
   useEffect(() => {
     if ((mode !== "history" && mode !== "activity") || !selectedID) return;
@@ -913,18 +922,24 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }, [client, formatError, library.id, mode, selectedID]);
 
   useEffect(() => {
-    if (mode !== "history" || !selectedID) return;
+    if (mode !== "history" || historySection !== "edits" || !selectedID) return;
     const abort = new AbortController();
     void client.listPageEditHistory(library.id, selectedID, 0, 50, abort.signal).then(page => { if (!abort.signal.aborted) { setEditHistory(page.items); setEditHistoryBefore(page.next_before || 0); setEditHistoryComplete(page.complete); void resolveProfiles(page.items.map(item => item.user_id), abort.signal); } }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
     return () => abort.abort();
-  }, [client, formatError, library.id, mode, selectedID]);
+  }, [client, formatError, historySection, library.id, mode, selectedID]);
 
   useEffect(() => {
-    if ((mode !== "comments" && mode !== "activity") || !selectedID) return;
+    if ((mode !== "read" && mode !== "outline" && mode !== "comments" && mode !== "activity") || !selectedID) return;
     const abort = new AbortController();
-    void client.listPageComments(library.id, selectedID, "", 50, mode === "comments" && unresolvedOnly, abort.signal).then(page => { if (!abort.signal.aborted) { setComments(page.items); setCommentAfter(page.next_after || ""); setCommentsComplete(page.complete); void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.resolved_by_user_id || "", ...item.mentioned_user_ids]), abort.signal); } }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
+    void client.listPageComments(library.id, selectedID, "", 50, mode === "comments" && unresolvedOnly, abort.signal).then(page => { if (!abort.signal.aborted) { setComments(page.items); setCommentAfter(page.next_after || ""); setCommentsComplete(page.complete); void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.resolved_by_user_id || "", ...(item.mentioned_user_ids || [])]), abort.signal); } }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
     return () => abort.abort();
   }, [client, formatError, library.id, mode, selectedID, unresolvedOnly]);
+
+  useEffect(() => {
+    if (mode !== "comments" || !activeCommentThreadID) return;
+    const frame = window.requestAnimationFrame(() => commentThreadRefs.current[activeCommentThreadID]?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeCommentThreadID, mode]);
 
   useEffect(() => {
     if (mode !== "suggestions" || !selectedID) return;
@@ -933,7 +948,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       if (abort.signal.aborted) return;
       setView(pageView); viewRef.current = pageView; setTitle(pageView.draft?.title || pageView.page.title); setBody(pageView.draft?.body.content || "");
       setSuggestions(page.items);
-      void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.decided_by_user_id || "", ...item.mentioned_user_ids]), abort.signal);
+      void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.decided_by_user_id || "", ...(item.mentioned_user_ids || [])]), abort.signal);
     }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
     return () => abort.abort();
   }, [client, formatError, library.id, mode, selectedID]);
@@ -1017,17 +1032,6 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }, [client, formatError, library.id, selectedID]);
 
   useEffect(() => {
-    if (mode !== "comments" && mode !== "suggestions") return;
-    const abort = new AbortController();
-    const timer = window.setTimeout(() => void client.searchLibraryMembers(library.id, memberQuery.trim(), "", 100, abort.signal).then(page => {
-      if (abort.signal.aborted) return;
-      setMentionCandidates(page.items);
-      setMemberProfiles(current => ({ ...current, ...Object.fromEntries(page.items.map(item => [item.user_id, item])) }));
-    }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); }), 200);
-    return () => { window.clearTimeout(timer); abort.abort(); };
-  }, [client, formatError, library.id, memberQuery, mode]);
-
-  useEffect(() => {
     if (mode !== "metadata" && mode !== "governance") return;
     const abort = new AbortController();
     const timer = window.setTimeout(() => void client.searchLibraryMembers(library.id, metadataMemberQuery.trim(), "", 100, abort.signal).then(page => {
@@ -1098,9 +1102,18 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }
 
   function rows(parent = "", depth = 0): { page?: KnowledgePage; parent: string; depth: number; loadMore?: boolean }[] {
-    const items = (children[parent] || []).filter(page => !localFilter || page.title.toLocaleLowerCase().includes(localFilter.toLocaleLowerCase()));
-    const visible: { page?: KnowledgePage; parent: string; depth: number; loadMore?: boolean }[] = items.flatMap(page => [{ page, parent, depth }, ...(expanded.has(page.id) ? rows(page.id, depth + 1) : [])]);
-    if (!localFilter && children[parent] && childrenComplete[parent] === false) visible.push({ parent, depth, loadMore: true });
+    const query = localFilter.trim().toLocaleLowerCase();
+    const visible: { page?: KnowledgePage; parent: string; depth: number; loadMore?: boolean }[] = [];
+    for (const page of children[parent] || []) {
+      const descendants = rows(page.id, depth + 1);
+      if (query) {
+        if (page.title.toLocaleLowerCase().includes(query) || descendants.length > 0) visible.push({ page, parent, depth }, ...descendants);
+      } else {
+        visible.push({ page, parent, depth });
+        if (expanded.has(page.id)) visible.push(...descendants);
+      }
+    }
+    if (!query && children[parent] && childrenComplete[parent] === false) visible.push({ parent, depth, loadMore: true });
     return visible;
   }
 
@@ -1114,6 +1127,51 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       setNotice(`已在当前节点下创建${meta.label}，正在编辑。`); editAfterSelectRef.current = value.page.id;
       await loadChildren(value.page.parent_page_id || ""); setSelectedID(value.page.id);
     } catch (failure) { setError(formatError(failure)); }
+  }
+
+  async function importFilePage(file: File) {
+    if (!canWrite || importingFilePage) return;
+    setError("");
+    if (!library.documents_configured) { setError("当前知识库尚未配置文件存储。"); return; }
+    if (!file.size || file.size > documentUploadMaxBytes(library)) { setError("文件大小超过当前知识库上传上限。"); return; }
+    if (!knowledgeDocumentSupports(library, file.name)) { setError("当前文件格式不支持入库。"); return; }
+    const parentPageID = selectedID;
+    const signal = AbortSignal.timeout(2 * 60 * 60 * 1000);
+    setImportingFilePage(true);
+    try {
+      const digest = await sha256(file, signal);
+      const document = await client.uploadDocument({ libraryID: library.id, file, clientID: crypto.randomUUID(), sha256: digest, signal });
+      const created = await client.createPage(library.id, {
+        client_id: crypto.randomUUID(),
+        parent_page_id: parentPageID || undefined,
+        title: file.name.slice(0, 256),
+        content_type: "file",
+      }, signal);
+      if (!created.draft) throw Error("文件页面没有可写草稿。");
+      await client.setPageAttachment(library.id, created.page.id, document.id, {
+        client_id: crypto.randomUUID(),
+        title: file.name,
+        rank: `${Date.now()}:${document.id}`,
+      }, signal);
+      const content = filePageContent(document.id, file.name);
+      const saved = await client.savePageDraft(library.id, created.page.id, {
+        client_id: crypto.randomUUID(),
+        expected_draft_revision: created.draft.draft_revision,
+        expected_page_revision: created.page.revision,
+        title: file.name.slice(0, 256),
+        parent_page_id: created.page.parent_page_id || undefined,
+        rank: created.page.rank,
+        content_schema_version: pageSchemaVersion,
+        content,
+        content_sha256: await pageContentSHA256(content),
+      }, signal);
+      if (parentPageID) setExpanded(current => new Set(current).add(parentPageID));
+      editAfterSelectRef.current = saved.page.id;
+      await loadChildren(saved.page.parent_page_id || "");
+      setSelectedID(saved.page.id);
+      setNotice(`“${file.name}”已上传并创建为文件页面。`);
+    } catch (failure) { setError(formatError(failure)); }
+    finally { setImportingFilePage(false); }
   }
 
   async function convertCurrentPage(targetType: "document" | "mind_note", nextTitle: string, nextBody: string) {
@@ -1151,13 +1209,6 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     if (!client.listPageTemplates) return;
     const result = await client.listPageTemplates(library.id, "", 100, signal);
     setTemplates(result.items);
-  }
-
-  async function openTemplateDialog() {
-    if (!client.listPageTemplates || !client.instantiatePageTemplate) return;
-    setCreateMenuOpen(false); setTemplateDialogOpen(true); setTemplateVersionOpen("");
-    setTemplateTitle(`${view?.page.title || "当前页面"} 模板`); setTemplateDescription(""); setTemplateBusy("list"); setError("");
-    try { await loadTemplates(); } catch (failure) { setError(formatError(failure)); } finally { setTemplateBusy(""); }
   }
 
   async function saveCurrentAsTemplate() {
@@ -1201,50 +1252,6 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       await loadChildren(parentPageID); editAfterSelectRef.current = instance.root.page.id; setSelectedID(instance.root.page.id); setTemplateDialogOpen(false);
       setNotice(`已从“${template.title}”版本 ${version} 创建 ${instance.created_page_ids.length} 个独立页面。`);
     } catch (failure) { setError(formatError(failure)); } finally { setTemplateBusy(""); }
-  }
-
-  async function createFilePage(file: File) {
-    if (!canWrite || importingFile) return;
-    const parentPageID = selectedID;
-    const title = [...file.name.trim()].slice(0, 256).join("");
-    let uploaded: Awaited<ReturnType<KnowledgeClient["uploadDocument"]>> | null = null;
-    let created: KnowledgePageView | null = null;
-    let saved = false;
-    setImportingFile(true); setCreateMenuOpen(false); setError(""); setNotice("正在校验并上传原文件…");
-    const signal = AbortSignal.timeout(2 * 60 * 60 * 1000);
-    try {
-      if (!library.documents_configured) throw Error("当前知识库尚未配置文件存储。");
-      if (!title) throw Error("文件名不能为空。");
-      if (!file.size || file.size > documentUploadMaxBytes(library)) throw Error("文件大小超过当前知识库上传上限。");
-      if (!knowledgeDocumentSupports(library, file.name)) throw Error("当前文件格式不支持入库。");
-      const digest = await sha256(file, signal);
-      uploaded = await client.uploadDocument({ libraryID: library.id, file, clientID: crypto.randomUUID(), sha256: digest, signal });
-      setNotice("原文件已保存，正在创建知识页面…");
-      created = await client.createPage(library.id, { client_id: crypto.randomUUID(), parent_page_id: parentPageID || undefined, title, content_type: "file" }, signal);
-      await client.setPageAttachment(library.id, created.page.id, uploaded.id, { client_id: crypto.randomUUID(), title, rank: "a" }, signal);
-      const content = filePageContent(uploaded.id, title);
-      const current = created.draft!;
-      created = await client.savePageDraft(library.id, created.page.id, {
-        client_id: crypto.randomUUID(), expected_draft_revision: current.draft_revision, expected_page_revision: created.page.revision,
-        title, parent_page_id: created.page.parent_page_id, rank: created.page.rank,
-        content_schema_version: pageSchemaVersion, content, content_sha256: await pageContentSHA256(content),
-      }, signal);
-      saved = true;
-      if (parentPageID) setExpanded(currentExpanded => new Set(currentExpanded).add(parentPageID));
-      await loadChildren(parentPageID, signal);
-      setSelectedID(created.page.id); setNotice(`“${title}”已作为${parentPageID ? "当前节点的子" : "根"}知识条目创建。`);
-    } catch (failure) {
-      if (created && !saved) {
-        try { await client.setPageArchived(library.id, created.page.id, true, { client_id: crypto.randomUUID(), expected_revision: created.page.revision }, AbortSignal.timeout(30_000)); } catch { /* Preserve the original error. */ }
-      }
-      if (uploaded && !saved) {
-        try { await client.deleteDocument(library.id, uploaded.id, uploaded.revision, AbortSignal.timeout(30_000)); } catch { /* Background cleanup can reconcile this new upload. */ }
-      }
-      setNotice(""); setError(formatError(failure));
-    } finally {
-      setImportingFile(false);
-      if (filePageInputRef.current) filePageInputRef.current.value = "";
-    }
   }
 
   function saveDraft() {
@@ -1325,8 +1332,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     if (collaboration.available) {
       setPublishState("publishing"); setError("");
       try {
-        const published = await collaboration.publish(publishNote.trim() || undefined);
-        viewRef.current = published; setView(published); setPublishNote(""); setDirty(false); setPublishState("idle"); setMode("read"); setNotice("协作快照已冻结并发布；所有在线成员看到的是同一版本。"); await loadChildren(published.page.parent_page_id || "");
+        const published = await collaboration.publish();
+        viewRef.current = published; setView(published); setDirty(false); setPublishState("idle"); setMode("read"); setNotice("协作快照已冻结并发布；所有在线成员看到的是同一版本。"); await loadChildren(published.page.parent_page_id || "");
       } catch (failure) {
         setPublishState("error"); setError(formatError(failure));
       }
@@ -1340,12 +1347,11 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       const pending = pendingPublishRef.current || {
         clientID: crypto.randomUUID(), pageID: latest.page.id,
         expectedPageRevision: latest.page.revision, expectedDraftRevision: latest.draft.draft_revision,
-        publishNote: publishNote.trim() || undefined,
       };
       pendingPublishRef.current = pending;
-      const published = await client.publishPage(library.id, pending.pageID, { client_id: pending.clientID, expected_page_revision: pending.expectedPageRevision, expected_draft_revision: pending.expectedDraftRevision, publish_note: pending.publishNote }, AbortSignal.timeout(60_000));
+      const published = await client.publishPage(library.id, pending.pageID, { client_id: pending.clientID, expected_page_revision: pending.expectedPageRevision, expected_draft_revision: pending.expectedDraftRevision }, AbortSignal.timeout(60_000));
       pendingPublishRef.current = null;
-      viewRef.current = published; setView(published); setPublishNote(""); setDirty(false); setPublishState("idle"); setMode("read"); setNotice("页面已发布；页面可以立即阅读，检索状态以页面标记为准。"); await loadChildren(published.page.parent_page_id || "");
+      viewRef.current = published; setView(published); setDirty(false); setPublishState("idle"); setMode("read"); setNotice("页面已发布；页面可以立即阅读，检索状态以页面标记为准。"); await loadChildren(published.page.parent_page_id || "");
     } catch (failure) {
       setPublishState("error");
       if (errorStatus(failure) === 409) { setSaveState("conflict"); setSaveConflict(pageConflict(failure)); }
@@ -1569,7 +1575,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       const page = await client.listPageComments(library.id, selectedID, commentAfter, 50, mode === "comments" && unresolvedOnly, AbortSignal.timeout(30_000));
       setComments(current => [...current, ...page.items.filter(item => !current.some(saved => saved.id === item.id))]);
       setCommentAfter(page.next_after || ""); setCommentsComplete(page.complete);
-      void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.resolved_by_user_id || "", ...item.mentioned_user_ids]), AbortSignal.timeout(30_000));
+      void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.resolved_by_user_id || "", ...(item.mentioned_user_ids || [])]), AbortSignal.timeout(30_000));
     } catch (failure) { setError(formatError(failure)); }
   }
 
@@ -1595,7 +1601,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     if (!pageID) return;
     const page = await client.listPageSuggestions(library.id, pageID, AbortSignal.timeout(30_000));
     setSuggestions(page.items);
-    void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.decided_by_user_id || "", ...item.mentioned_user_ids]), AbortSignal.timeout(30_000));
+    void resolveProfiles(page.items.flatMap(item => [item.author_user_id, item.decided_by_user_id || "", ...(item.mentioned_user_ids || [])]), AbortSignal.timeout(30_000));
   }
 
   async function createSuggestion() {
@@ -1606,9 +1612,9 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       await client.createPageSuggestion(library.id, current.page.id, {
         client_id: crypto.randomUUID(), kind: suggestionKind, base_draft_revision: current.draft.draft_revision,
         anchor: { node_id: commentAnchor.nodeID, quote: commentAnchor.quote }, proposed_text: suggestionKind === "insert" ? suggestionText.trim() : undefined,
-        comment: suggestionComment.trim() || undefined, mentioned_user_ids: suggestionMentionedUserIDs,
+        comment: suggestionKind === "delete" ? suggestionComment.trim() || undefined : undefined, mentioned_user_ids: suggestionMentionedUserIDs,
       }, AbortSignal.timeout(30_000));
-      setSuggestionText(""); setSuggestionComment(""); setSuggestionMentionedUserIDs([]); setNotice("修订提议已提交，正文还没有被改动。");
+      setSuggestionText(""); setSuggestionComment(""); setSuggestionMentionedUserIDs([]); setCommentAnchor(null); setNotice("修改建议已提交，接受前不会改动草稿。");
       await reloadSuggestions(current.page.id);
     } catch (failure) { setError(formatError(failure)); }
     finally { setSuggestionBusy(""); }
@@ -1625,18 +1631,20 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       const refreshed = await client.getPage(library.id, current.page.id, true, AbortSignal.timeout(30_000));
       setView(refreshed); viewRef.current = refreshed; setTitle(refreshed.draft?.title || refreshed.page.title); setBody(refreshed.draft?.body.content || "");
       await reloadSuggestions(current.page.id);
-      setNotice(decision === "accept" ? "修订已接受并原子写入当前草稿。" : decision === "reject" ? "修订已拒绝。" : "修订已撤回。");
+      setNotice(decision === "accept" ? "建议已接受并原子写入当前草稿。" : decision === "reject" ? "建议已拒绝。" : "建议已撤回。");
     } catch (failure) { setError(formatError(failure)); }
     finally { setSuggestionBusy(""); }
   }
 
-  async function restore(version: number) {
+  async function rollback(version: number) {
     const current = viewRef.current;
     if (!current?.draft) return;
     try {
+      setRollbackBusy(true); setError("");
       const restored = await client.restorePageVersion(library.id, current.page.id, version, { client_id: crypto.randomUUID(), expected_page_revision: current.page.revision, expected_draft_revision: current.draft.draft_revision }, AbortSignal.timeout(30_000));
-      viewRef.current = restored; setView(restored); setTitle(restored.draft!.title); setBody(restored.draft!.body.content); editRef.current = { title: restored.draft!.title, body: restored.draft!.body.content }; setMode("edit"); setNotice(`版本 ${version} 已恢复为草稿，历史版本未修改。`);
+      viewRef.current = restored; setView(restored); setTitle(restored.draft!.title); setBody(restored.draft!.body.content); editRef.current = { title: restored.draft!.title, body: restored.draft!.body.content }; setRollbackVersion(null); setHistoryPreview(null); setDiff(null); setCompare([]); setMode("edit"); setNotice(`已回滚到版本 ${version} 并生成当前草稿，原发布版本保持不变。`);
     } catch (failure) { setError(formatError(failure)); }
+    finally { setRollbackBusy(false); }
   }
 
   async function addComment() {
@@ -1652,7 +1660,21 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
 
   function focusComment(comment: KnowledgePageComment) {
     if (comment.anchor.changed || !comment.anchor.node_id) return;
+    const rootID = comment.parent_comment_id || comment.id;
+    setActiveCommentThreadID(rootID);
     setCommentFocus(current => ({ nodeID: comment.anchor.node_id!, revision: current.revision + 1 }));
+    window.requestAnimationFrame(() => commentThreadRefs.current[rootID]?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+  }
+
+  function openCommentThread(nodeID: string) {
+    const anchored = comments.filter(comment => !comment.deleted && !comment.anchor.changed && comment.anchor.node_id === nodeID);
+    const first = anchored.find(comment => !comment.parent_comment_id) || anchored[0];
+    if (!first) return;
+    const rootID = first.parent_comment_id || first.id;
+    setUnresolvedOnly(false);
+    setMode("comments");
+    setActiveCommentThreadID(rootID);
+    setCommentFocus(current => ({ nodeID, revision: current.revision + 1 }));
   }
 
   function beginReply(comment: KnowledgePageComment) {
@@ -1662,6 +1684,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     if (!root.anchor.changed && root.anchor.node_id && root.anchor.quote) {
       setCommentAnchor({ nodeID: root.anchor.node_id, quote: root.anchor.quote });
     }
+    setCommentComposerFocusRequest(current => current + 1);
   }
 
   async function resolveComment(comment: KnowledgePageComment) {
@@ -1675,8 +1698,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     const next = editingCommentBody.trim();
     if (!next) return;
     try {
-      const updated = await client.updatePageComment(library.id, comment.page_id, comment.id, { client_id: crypto.randomUUID(), expected_revision: comment.revision, body: next, mentioned_user_ids: comment.mentioned_user_ids }, AbortSignal.timeout(30_000));
-      setComments(items => items.map(item => item.id === updated.id ? updated : item)); setEditingCommentID(""); setEditingCommentBody("");
+      const updated = await client.updatePageComment(library.id, comment.page_id, comment.id, { client_id: crypto.randomUUID(), expected_revision: comment.revision, body: next, mentioned_user_ids: editingCommentMentionedUserIDs }, AbortSignal.timeout(30_000));
+      setComments(items => items.map(item => item.id === updated.id ? updated : item)); setEditingCommentID(""); setEditingCommentBody(""); setEditingCommentMentionedUserIDs([]);
     } catch (failure) { setError(formatError(failure)); }
   }
 
@@ -1697,7 +1720,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
 
   async function assignCommentTask(comment: KnowledgePageComment) {
     if (!comment.anchor.node_id || comment.anchor.changed || !canWrite) return;
-    const proposedAssignees = [...new Set(comment.mentioned_user_ids.length > 0 ? comment.mentioned_user_ids : currentUserID ? [currentUserID] : [])];
+    const mentionedUserIDs = comment.mentioned_user_ids || [];
+    const proposedAssignees = [...new Set(mentionedUserIDs.length > 0 ? mentionedUserIDs : currentUserID ? [currentUserID] : [])];
     const existing = tasks.find(task => task.source_block_id === comment.anchor.node_id);
     try {
       const updated = existing ? await client.updatePageTask(library.id, comment.page_id, existing.id, {
@@ -1836,6 +1860,21 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
 
   const treeRows = useMemo(() => rows(), [children, expanded, localFilter]);
   const visibleCollectionItems = useMemo(() => collectionItems.filter(item => !localFilter || item.page.title.toLocaleLowerCase().includes(localFilter.toLocaleLowerCase())), [collectionItems, localFilter]);
+  const commentMarkers = useMemo<KnowledgeCommentMarker[]>(() => {
+    const grouped = new Map<string, KnowledgeCommentMarker>();
+    for (const comment of comments) {
+      const nodeID = comment.anchor.node_id;
+      if (comment.deleted || comment.anchor.changed || !nodeID) continue;
+      const rootID = comment.parent_comment_id || comment.id;
+      const current = grouped.get(nodeID) || { nodeID, quote: comment.anchor.quote || "内容块", count: 0, unresolved: false, active: false };
+      current.count += 1;
+      current.unresolved ||= !comment.resolved;
+      current.active ||= mode === "comments" && rootID === activeCommentThreadID;
+      grouped.set(nodeID, current);
+    }
+    return [...grouped.values()];
+  }, [activeCommentThreadID, comments, mode]);
+  const showCommentMarkers = view?.page.content_type === "document" && (mode === "read" || mode === "outline" || mode === "comments");
   function collectionItemDetail(item: KnowledgePageCollectionItem) {
     const timestamp = navigationSection === "favorites" ? item.state.favorite_at
       : navigationSection === "subscribed" ? item.state.subscribed_at
@@ -1846,10 +1885,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     return timestamp && Date.parse(timestamp) > 0 ? `${label} · ${new Date(timestamp).toLocaleString()}` : label;
   }
   const activities = useMemo(() => [
-    ...versions.map(version => ({ key: `version-${version.version}`, at: version.published_at, title: `发布了版本 ${version.version}`, detail: `${memberProfiles[version.published_by_user_id]?.display_name || "账号不可用"} · ${version.publish_note || version.body.summary || "无发布说明"}` })),
+    ...versions.map(version => ({ key: `version-${version.version}`, at: version.published_at, title: `发布了版本 ${version.version}`, detail: `${memberProfiles[version.published_by_user_id]?.display_name || "账号不可用"} · ${version.body.summary || "无摘要"}` })),
     ...comments.map(comment => ({ key: `comment-${comment.id}-${comment.revision}`, at: comment.updated_at, title: comment.deleted ? "删除了评论" : comment.resolved ? "解决了评论" : comment.revision > 1 ? "更新了评论" : comment.parent_comment_id ? "回复了评论" : "发表了评论", detail: `${memberProfiles[comment.author_user_id]?.display_name || "账号不可用"} · 版本 ${comment.published_version}` })),
     ...tasks.map(task => ({ key: `task-${task.id}-${task.revision}`, at: task.updated_at, title: task.status === "done" ? "完成了任务" : task.status === "canceled" ? "取消了任务" : task.revision > 1 ? "更新了任务" : "创建了任务", detail: `${task.title} · ${task.assignee_user_ids.map(id => memberProfiles[id]?.display_name || id).join("、") || "未指派"}` })),
   ].sort((left, right) => right.at.localeCompare(left.at)), [comments, memberProfiles, tasks, versions]);
+  const searchMentionMembers = useCallback(async (query: string, signal: AbortSignal) => {
+    const page = await client.searchLibraryMembers(library.id, query, "", 100, signal);
+    return page.items;
+  }, [client, library.id]);
+  const rememberMentionMember = useCallback((member: KnowledgePrincipal) => {
+    setMemberProfiles(current => ({ ...current, [member.user_id]: member }));
+  }, []);
   const collaborators = useMemo(() => {
     const users = new Map<string, { userID: string; sessions: number; cursorBlockID: string; selectionBlockID: string; lastSeenAt: string }>();
     for (const item of activePresence) {
@@ -1899,6 +1945,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       }
     },
   }), [canWrite, client, library.id, metadata?.aliases, selectedID, title, view]);
+  const mentionRuntimeRef = useRef(mentionRuntime);
+  mentionRuntimeRef.current = mentionRuntime;
   const taskRuntime = useMemo<KnowledgeTaskRuntime>(() => {
     const replaceTask = (task: KnowledgePageTask) => {
       const next = [...tasksRef.current.filter(item => item.id !== task.id), task].sort((left, right) => left.id.localeCompare(right.id));
@@ -1950,12 +1998,25 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       async searchMembers(query, signal) {
         const page = await client.searchLibraryMembers(library.id, query, "", 20, signal);
         const active = page.items.filter(item => item.status === "active");
-        setMemberProfiles(current => ({ ...current, ...Object.fromEntries(active.map(item => [item.user_id, item])) }));
+        setMemberProfiles(current => {
+          let changed = false;
+          const next = { ...current };
+          for (const item of active) {
+            const saved = current[item.user_id];
+            if (saved?.display_name === item.display_name
+              && saved.email === item.email
+              && saved.avatar_url === item.avatar_url
+              && saved.status === item.status) continue;
+            next[item.user_id] = item;
+            changed = true;
+          }
+          return changed ? next : current;
+        });
         return active;
       },
-      memberName: userID => memberProfiles[userID]?.display_name || userID,
+      memberName: userID => memberProfilesRef.current[userID]?.display_name || userID,
     };
-  }, [canWrite, client, currentUserID, formatError, library.id, memberProfiles, mode, selectedID, tasks, tasksReady, view?.page.state]);
+  }, [canWrite, client, currentUserID, formatError, library.id, mode, selectedID, tasksReady, view?.page.state]);
   const pollRuntime = useMemo<KnowledgePollRuntime>(() => {
     const replacePoll = (poll: KnowledgePagePollView) => {
       const next = [...pollsRef.current.filter(item => item.poll.id !== poll.poll.id), poll].sort((left, right) => left.poll.id.localeCompare(right.poll.id));
@@ -2014,15 +2075,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       },
     };
   }, [canWrite, client, formatError, library.id, mode, polls, pollsReady, selectedID, view?.page.state]);
+  const canCreateDynamicChild = Boolean(canWrite && mode === "edit" && view?.draft && view.page.content_type === "document" && client.createPageReference);
   const dynamicBlockRuntime = useMemo<KnowledgeDynamicBlockRuntime>(() => ({
     currentPageID: selectedID,
-    canCreateChild: Boolean(canWrite && mode === "edit" && view?.draft && view.page.content_type === "document" && client.createPageReference),
+    canCreateChild: canCreateDynamicChild,
     async listChildPages(limit, signal) {
       const page = await client.listPages(library.id, selectedID, "", Math.max(1, Math.min(limit, 50)), false, signal);
-      return page.items.map(item => ({ pageID: item.id, title: item.title, contentType: item.content_type, aliases: [], path: [{ pageID: selectedID, title: view?.page.title || "当前页面" }, { pageID: item.id, title: item.title }] }));
+      const currentTitle = viewRef.current?.page.title || "当前页面";
+      return page.items.map(item => ({ pageID: item.id, title: item.title, contentType: item.content_type, aliases: [], path: [{ pageID: selectedID, title: currentTitle }, { pageID: item.id, title: item.title }] }));
     },
-    searchPages: mentionRuntime.searchPages,
-    resolvePage: mentionRuntime.resolvePage,
+    searchPages: (query, signal) => mentionRuntimeRef.current.searchPages(query, signal),
+    resolvePage: (pageID, signal) => mentionRuntimeRef.current.resolvePage(pageID, signal),
     async listPageVersions(pageID, signal) {
       return (await client.listPageVersions(library.id, pageID, 0, 100, signal)).items;
     },
@@ -2033,8 +2096,9 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       try {
         let expectedDraftRevision = current.draft.draft_revision;
         let parentContent = input.parentContent;
-        if (collaboration.available) {
-          const confirmed = await collaboration.flush();
+        const activeCollaboration = collaborationRef.current;
+        if (activeCollaboration.available) {
+          const confirmed = await activeCollaboration.flush();
           expectedDraftRevision = confirmed.draftRevision;
           parentContent = confirmed.content;
         }
@@ -2059,17 +2123,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         setDirty(false); setSaveState("saved"); setSaveConflict(null); setPublishState("idle");
         setChildren(currentChildren => Object.fromEntries(Object.entries(currentChildren).map(([parentID, pages]) => [parentID, pages.map(page => page.id === current.page.id ? { ...page, has_children: true } : page)])));
         setExpanded(currentExpanded => new Set(currentExpanded).add(current.page.id));
-        await loadChildren(current.page.id, AbortSignal.timeout(30_000));
+        await loadChildrenRef.current(current.page.id, AbortSignal.timeout(30_000));
         setEditorEpoch(value => value + 1);
-        if (collaboration.available) collaboration.reconnect();
+        if (activeCollaboration.available) activeCollaboration.reconnect();
         setNotice(`已创建子${pageTypeMeta[input.contentType].label}并插入当前文档。`);
       } catch (failure) {
-        setError(formatError(failure));
+        setError(formatErrorRef.current(failure));
         throw failure;
       }
     },
     renderReference(reference) {
-      return <KnowledgeEmbeddedReference client={client} library={library} currentUserID={currentUserID} canWrite={canWrite} formatError={formatError} reference={reference} onOpen={pageID => { setMode("read"); setSelectedID(pageID); }} />;
+      return <KnowledgeEmbeddedReference client={client} library={libraryRef.current} currentUserID={currentUserID} canWrite={canWrite} formatError={formatErrorRef.current} reference={reference} onOpen={pageID => { setMode("read"); setSelectedID(pageID); }} />;
     },
     async listPageActivity(limit, signal) {
       const [pageVersions, pageComments, pageTasks] = await Promise.all([
@@ -2078,7 +2142,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         client.listPageTasks(library.id, selectedID, signal),
       ]);
       return [
-        ...pageVersions.items.map(item => ({ id: `version-${item.version}`, title: `发布了版本 ${item.version}`, detail: `${item.published_by_user_id} · ${item.publish_note || item.body.summary || "无发布说明"}`, at: item.published_at })),
+        ...pageVersions.items.map(item => ({ id: `version-${item.version}`, title: `发布了版本 ${item.version}`, detail: `${item.published_by_user_id} · ${item.body.summary || "无摘要"}`, at: item.published_at })),
         ...pageComments.items.map(item => ({ id: `comment-${item.id}-${item.revision}`, title: item.deleted ? "删除了评论" : item.resolved ? "解决了评论" : item.revision > 1 ? "更新了评论" : item.parent_comment_id ? "回复了评论" : "发表了评论", detail: `${item.author_user_id} · 版本 ${item.published_version}`, at: item.updated_at })),
         ...pageTasks.items.map(item => ({ id: `task-${item.id}-${item.revision}`, title: item.status === "done" ? "完成了任务" : item.status === "canceled" ? "取消了任务" : item.revision > 1 ? "更新了任务" : "创建了任务", detail: `${item.title} · ${item.updated_by_user_id}`, at: item.updated_at })),
       ].sort((left, right) => right.at.localeCompare(left.at)).slice(0, limit);
@@ -2088,7 +2152,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       setMode("read");
       setSelectedID(pageID);
     },
-  }), [canWrite, client, collaboration, currentUserID, formatError, library, mentionRuntime, mode, selectedID, view?.draft, view?.page.content_type]);
+  }), [canCreateDynamicChild, canWrite, client, currentUserID, library.id, selectedID]);
   const formRuntime = useMemo<KnowledgeFormRuntime | undefined>(() => {
     if (view?.page.content_type !== "form" || !view.published || !client.submitPageForm || !client.listPageFormSubmissions || !client.getPageFormAnalytics || !client.exportPageFormSubmissions) return undefined;
     const definition = parseFormContent(view.published.body.content);
@@ -2132,6 +2196,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   // body changes in place; forcing them to remount would discard live selection,
   // the active presentation slide, or the current form designer tab.
   const remountEditorOnDraftRevision = view?.page.content_type !== "document"
+    && view?.page.content_type !== "multidimensional_table"
+    && view?.page.content_type !== "spreadsheet"
     && view?.page.content_type !== "form"
     && view?.page.content_type !== "presentation"
     && view?.page.content_type !== "mind_note"
@@ -2139,6 +2205,20 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     && view?.page.content_type !== "flowchart";
   const aiAvailable = view?.page.content_type === "document" && canWrite && !!client.createAIExecution && !!client.getAIExecution && !!client.confirmAIExecution;
   const workbenchEditorOpen = Boolean(view && mode === "edit" && workbenchPageTypes.has(view.page.content_type));
+  const documentContentScroll = view?.page.content_type === "document" && (mode === "read" || mode === "outline" || mode === "edit" || mode === "suggestions");
+  const beginTitleEditing = () => {
+    if (!view || !canWrite || view.page.state !== "active") return;
+    setMode("edit");
+    setTitleEditing(true);
+    window.setTimeout(() => titleInputRef.current?.select());
+  };
+  const changeWorkspaceMode = (nextMode: PageWorkspaceMode) => {
+    setMode(nextMode);
+    if (["access", "permissions", "shares", "governance"].includes(nextMode)) {
+      setPageFindOpen(false);
+      setPageFindQuery("");
+    }
+  };
   return <section className={`knowledge-pages${embedded ? " is-embedded" : ""}`} aria-label="知识页面">
     {!embedded && <header className="knowledge-section-heading">
       <div className="knowledge-section-identity"><span className="knowledge-section-icon" aria-hidden="true"><BookOpen size={18} /></span><span><small>Knowledge workspace</small><h3>知识页面</h3><p>协作编辑、版本发布与访问治理集中在一个工作区。</p></span></div>
@@ -2146,14 +2226,11 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     </header>}
     <div className="knowledge-pages-layout">
       <aside className="knowledge-page-tree" onDragOver={event => { if (canWrite) event.preventDefault(); }} onDrop={() => { if (dragged && dragged.parent_page_id) void move(dragged, ""); setDragged(null); setTreeDropTarget(null); }}>
+        {scopeTabs}
+        {hasTeamLibraryPicker && <div className="knowledge-team-library-picker"><Select aria-label="团队知识库" value={library.id} disabled={disabled} onChange={event => onLibrarySelect?.(event.target.value)}>{teamLibraries!.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? "（已归档）" : ""}</option>)}</Select><KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onCreateLibrary={onCreateLibrary} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} /></div>}
         <div className="knowledge-tree-toolbar">
           <label><Search size={14} aria-hidden="true" /><input aria-label={`筛选${pageNavigationLabels[navigationSection]}`} value={localFilter} onChange={event => setLocalFilter(event.target.value)} placeholder={`搜索${pageNavigationLabels[navigationSection]}`} /></label>
-          {canWrite && <div ref={createMenuAnchorRef} className="knowledge-create-menu-wrap"><Button aria-label="新建知识条目" title="新建知识条目" aria-haspopup="menu" aria-expanded={createMenuOpen} disabled={disabled} onClick={() => setCreateMenuOpen(value => !value)}><Plus size={16} /></Button>{createMenuOpen && typeof document !== "undefined" && createPortal(<div ref={createMenuRef} className="knowledge-create-menu" role="menu" aria-label="新建知识条目类型" style={createMenuPosition}>
-            {client.listPageTemplates && client.instantiatePageTemplate && <button className="knowledge-create-menu-template" role="menuitem" onClick={() => void openTemplateDialog()}><LayoutTemplate size={18} /><span><strong>从模板创建</strong><small>复用完整页面子树，并保留独立内容</small></span></button>}
-            {nativePageTypes.map(type => <button key={type} role="menuitem" onClick={() => { setCreateMenuOpen(false); void createPage(type); }}><PageTypeIcon type={type} size={18} /><span><strong>{pageTypeMeta[type].label}</strong><small>{pageTypeMeta[type].description}</small></span></button>)}
-            {library.documents_configured && importPageTypes.map(definition => <button key={`import-${definition.id}`} role="menuitem" disabled={importingFile} onClick={() => { setCreateMenuOpen(false); if (definition.importer?.kind === "document-upload") filePageInputRef.current?.click(); }}><Upload size={18} /><span><strong>上传及导入{definition.label}</strong><small>在当前节点下创建{definition.label}页面</small></span></button>)}
-          </div>, document.body)}</div>}
-          <input ref={filePageInputRef} className="knowledge-visually-hidden" type="file" accept={knowledgeDocumentAccept(library)} disabled={!canWrite || importingFile} onChange={event => { const file = event.target.files?.[0]; if (file) void createFilePage(file); }} />
+          {canWrite && !hasTeamLibraryPicker && <KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} />}
           {onManage && <Button aria-label="管理知识库" title="管理知识库" disabled={disabled} onClick={onManage}><Settings size={15} /></Button>}
         </div>
         <nav className="knowledge-page-collections" aria-label="页面导航">
@@ -2161,7 +2238,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
           <button type="button" aria-pressed={navigationSection === "shortcuts"} onClick={() => { setNavigationSection("shortcuts"); setLocalFilter(""); }}><Pin size={14} /><span>快捷</span></button>
           <button type="button" aria-pressed={navigationSection === "favorites"} onClick={() => { setNavigationSection("favorites"); setLocalFilter(""); }}><Star size={14} /><span>收藏</span></button>
           <details className="knowledge-page-collection-more">
-            <summary aria-label="更多页面筛选"><MoreHorizontal size={14} /><span>{["recent_views", "recent_edits", "subscribed", "trash"].includes(navigationSection) ? pageNavigationLabels[navigationSection] : "更多"}</span><ChevronDown size={12} /></summary>
+            <summary aria-label="更多页面筛选"><span>{["recent_views", "recent_edits", "subscribed", "trash"].includes(navigationSection) ? pageNavigationLabels[navigationSection] : "更多"}</span><ChevronDown size={12} /></summary>
             <div role="menu" aria-label="更多页面筛选">
               <button type="button" role="menuitemradio" aria-checked={navigationSection === "recent_views"} onClick={event => { setNavigationSection("recent_views"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Clock3 size={14} /><span>最近访问</span></button>
               <button type="button" role="menuitemradio" aria-checked={navigationSection === "recent_edits"} onClick={event => { setNavigationSection("recent_edits"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Pencil size={14} /><span>最近编辑</span></button>
@@ -2181,69 +2258,25 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
           {!collectionComplete && <button type="button" className="knowledge-tree-more" disabled={collectionLoading} onClick={() => void loadMoreCollection()}>{collectionLoading ? "加载中…" : "加载更多"}</button>}
         </div>}
       </aside>
-		<article ref={pageFindSurfaceRef} onCopyCapture={event => void controlledPageCopy(event)} className={`knowledge-page-main${mode === "outline" || mode === "comments" || mode === "suggestions" || mode === "activity" || mode === "access" || mode === "permissions" || mode === "governance" ? " has-side-panel" : ""}${workbenchEditorOpen ? " is-workbench" : ""}`}>
-        {notice && <p role="status" className="knowledge-notice">{notice}</p>}{error && <p role="alert" className="knowledge-error">{error}</p>}
+		<article ref={pageFindSurfaceRef} onCopyCapture={event => void controlledPageCopy(event)} className={`knowledge-page-main${mode === "access" || mode === "permissions" || mode === "shares" || mode === "governance" ? " has-side-panel" : ""}${mode === "comments" ? " has-comment-drawer" : ""}${workbenchEditorOpen ? " is-workbench" : ""}${documentContentScroll ? " is-scroll-frame" : ""}`}>
 		<KnowledgeDynamicWatermark governance={view?.governance} />
-        {pendingMove && <section className="knowledge-confirm knowledge-move-impact" role="dialog" aria-label="确认页面权限影响"><h3>移动会改变页面权限</h3><p>将影响该子树中的 {pendingMove.impact.affected_pages} 个页面，并改变 {pendingMove.impact.changed_subjects.length} 个用户或组织的有效访问。</p>{pendingMove.impact.changed_subjects.length > 0 && <p className="knowledge-subtle">涉及主体：{pendingMove.impact.changed_subjects.map(subjectLabel).join("、")}</p>}<div className="knowledge-actions"><Button className="danger" onClick={() => void commitMove(pendingMove.page, pendingMove.parentPageID, pendingMove.impact.token)}>确认移动并更新继承</Button><Button onClick={() => setPendingMove(null)}>取消移动</Button></div></section>}
+        {!view && <div className="knowledge-page-feedback">
+          {notice && <p role="status" className="knowledge-notice">{notice}</p>}{error && <p role="alert" className="knowledge-error">{error}</p>}{collaborationFailure && <p role="alert" className="knowledge-error">{collaborationFailure}</p>}
+          {pendingMove && <section className="knowledge-confirm knowledge-move-impact" role="dialog" aria-label="确认页面权限影响"><h3>移动会改变页面权限</h3><p>将影响该子树中的 {pendingMove.impact.affected_pages} 个页面，并改变 {pendingMove.impact.changed_subjects.length} 个用户或组织的有效访问。</p>{pendingMove.impact.changed_subjects.length > 0 && <p className="knowledge-subtle">涉及主体：{pendingMove.impact.changed_subjects.map(subjectLabel).join("、")}</p>}<div className="knowledge-actions"><Button className="danger" onClick={() => void commitMove(pendingMove.page, pendingMove.parentPageID, pendingMove.impact.token)}>确认移动并更新继承</Button><Button onClick={() => setPendingMove(null)}>取消移动</Button></div></section>}
+        </div>}
         {!view && !loading ? <EmptyState><FilePlus2 size={28} /><h3>选择或新建页面</h3></EmptyState> : null}
         {view && <>
-          <nav className="knowledge-page-breadcrumbs" aria-label="页面路径">{view.breadcrumbs.map((item, index) => <span key={item.page_id}>{index > 0 && <ChevronRight size={12} aria-hidden="true" />}<button onClick={() => setSelectedID(item.page_id)}>{item.title}</button></span>)}</nav>
-          <header className={`knowledge-page-title${mode === "edit" ? " is-editing" : ""}`}>
-            <div className="knowledge-page-heading"><div className="knowledge-page-heading-line">{mode !== "edit" && <h2 className={canWrite && view.page.state === "active" ? "is-editable" : undefined} title={canWrite && view.page.state === "active" ? "双击编辑标题" : undefined} onDoubleClick={() => { if (canWrite && view.page.state === "active") { setMode("edit"); window.setTimeout(() => titleInputRef.current?.select()); } }}>{mode === "suggestions" ? view.draft?.title || view.page.title : view.published?.title || view.page.title}</h2>}<KnowledgeClassificationBadge governance={view.governance} /></div><p>{mode === "suggestions" && view.draft ? `草稿 revision ${view.draft.draft_revision}` : `版本 ${view.page.published_version || "未发布"}`}<span aria-hidden="true"> · </span>{mode === "suggestions" && view.draft ? "修订提议基于当前草稿" : view.published ? `${memberProfiles[view.published.published_by_user_id]?.display_name || "账号不可用"} 发布于 ${new Date(view.published.published_at).toLocaleString()}` : "仅草稿"}</p>
-              {metadata && (metadataDirty || metadata.tags.length > 0 || metadata.aliases.length > 0 || metadata.related_page_ids.length > 0 || metadata.owner_user_id || metadata.status || metadata.next_review_at) && <div className="knowledge-page-metadata-summary" aria-label="页面属性摘要">
-                {metadataDirty && <span className="is-pending">未保存</span>}
-                {metadata.status && <span className={`is-status-${metadata.status}`}><i aria-hidden="true" />{pageStatusLabels[metadata.status]}</span>}
-                {metadata.owner_user_id && <span><Users size={12} />负责人 {memberProfiles[metadata.owner_user_id]?.display_name || metadata.owner_user_id}</span>}
-                {metadata.next_review_at && <span><CalendarClock size={12} />复核 {new Date(metadata.next_review_at).toLocaleString()}</span>}
-                {metadata.aliases.map(alias => <span key={`alias-${alias}`}><Share2 size={11} />别名 {alias}</span>)}
-                {metadata.related_page_ids.length > 0 && <span><Link2 size={11} />{metadata.related_page_ids.length} 个关联页面</span>}
-                {metadata.tags.map(tag => <span key={tag} className="is-tag"><Tags size={11} />{tag}</span>)}
-              </div>}
-            </div>
-            <div className="knowledge-page-heading-actions">
-              {mode === "edit" && presenceAvailable && <details className="knowledge-presence-details"><summary aria-label={`${activeOnlineUsers} 人在线编辑`}><div className="knowledge-avatar-stack">{collaborators.slice(0, 4).map(person => <span key={person.userID} title={memberProfiles[person.userID]?.display_name || person.userID} style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{(memberProfiles[person.userID]?.display_name || person.userID).slice(0, 1).toUpperCase()}</span>)}</div><strong>{activeOnlineUsers} 人在线</strong><ChevronDown size={13} /></summary><aside className="knowledge-collaboration-popover" aria-label="在线协作详情">
-                <header><div><Users size={17} /><strong>在线协作</strong></div><span>{activeOnlineUsers} 人</span></header>
-                <section className="knowledge-merge-strategy"><GitMerge size={17} /><div><strong>内容冲突自动收敛</strong><p>{collaboration.available ? "正文由 Yjs 按内容块与富文本节点合并；服务端串行确认时钟、校验 Block JSON，并持久化完整检查点。" : "图形由服务端按节点、连线和画布结构校验目标哈希后合并；不同目标可并行写入，同一目标的过期修改会明确冲突。"}</p></div></section>
-                {collaboration.available && collaboration.mergeCount > 0 && <p className="knowledge-merge-event"><Check size={14} />已自动合并 {collaboration.mergeCount} 个远端更新{collaboration.mergedUserIDs.length > 0 ? `，来自 ${collaboration.mergedUserIDs.map(id => memberProfiles[id]?.display_name || id).join("、")}` : ""}</p>}
-                <div className="knowledge-collaborator-list">{collaborators.map(person => { const profile = memberProfiles[person.userID]; const name = profile?.display_name || person.userID; const position = person.selectionBlockID ? `${nativeAwareness.available ? "选中目标" : "选区"} ${person.cursorBlockID.slice(0, 8) || "起点"} → ${person.selectionBlockID.slice(0, 8)}` : person.cursorBlockID ? `${nativeAwareness.available ? "选中" : "光标在内容块"} ${person.cursorBlockID.slice(0, 8)}` : "正在查看"; return <div className="knowledge-collaborator" key={person.userID}><span className="knowledge-collaborator-avatar" style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{name.slice(0, 1).toUpperCase()}<i /></span><span><strong>{name}{person.userID === presenceUserID && <em>你</em>}</strong><small>{position}{person.sessions > 1 ? ` · ${person.sessions} 个设备` : ""}</small></span><time dateTime={person.lastSeenAt}>{recentActivityLabel(person.lastSeenAt)}</time></div>; })}</div>
-                <footer><span><Wifi size={13} />{collaborationStateLabel}</span>{collaboration.available && collaboration.state === "error" && <Button onClick={collaboration.reconnect}><RefreshCw size={13} />重新连接</Button>}</footer>
-              </aside></details>}
-              {mode !== "edit" && canWrite && view.page.state === "active" && <Button className="primary" onClick={() => { setMode("edit"); window.setTimeout(() => titleInputRef.current?.select()); }}><Pencil size={14} />编辑</Button>}
-            </div>
-          </header>
-          <div className="knowledge-page-toolbar">
-            <div className="knowledge-view-tabs" role="tablist" aria-label="页面视图">
-              <button role="tab" aria-selected={mode === "read"} onClick={() => setMode("read")}><BookOpen size={14} />阅读</button>
-              {canWrite && view.page.state === "active" && <button role="tab" aria-selected={mode === "edit"} onClick={() => setMode("edit")}><Pencil size={14} />编辑</button>}
-              {view.page.content_type === "document" && <button role="tab" aria-selected={mode === "suggestions"} onClick={() => setMode("suggestions")}><GitPullRequest size={14} />修订</button>}
-              <button role="tab" aria-selected={mode === "history"} onClick={() => setMode("history")}><Clock3 size={14} />历史</button>
-              <button role="tab" aria-selected={mode === "comments"} onClick={() => setMode("comments")}><MessageSquare size={14} />评论</button>
-              <button role="tab" aria-selected={mode === "activity"} onClick={() => setMode("activity")}><Activity size={14} />活动</button>
-            </div>
-            <div className="knowledge-page-tools">
-				<Button aria-pressed={pageFindOpen} aria-label="在当前页面查找" title="在当前页面查找（⌘/Ctrl + F）" onClick={() => { setPageFindOpen(true); window.setTimeout(() => pageFindInputRef.current?.select()); }}><Search size={15} /></Button>
-              {personalState && view.page.state === "active" && <>
-                <Button aria-label={personalState.favorite ? "取消收藏" : "收藏页面"} aria-pressed={personalState.favorite} title={personalState.favorite ? "取消收藏" : "收藏页面"} disabled={personalStateSaving} onClick={() => void updatePersonalState({ favorite: !personalState.favorite }, personalState.favorite ? "已取消收藏。" : "已收藏页面。") }><Star size={15} fill={personalState.favorite ? "currentColor" : "none"} /></Button>
-                <Button aria-label={personalState.subscribed ? "取消订阅" : "订阅页面"} aria-pressed={personalState.subscribed} title={personalState.subscribed ? "取消订阅" : "订阅页面"} disabled={personalStateSaving} onClick={() => void updatePersonalState({ subscribed: !personalState.subscribed }, personalState.subscribed ? "已取消订阅。" : "已订阅页面更新。") }><Bell size={15} fill={personalState.subscribed ? "currentColor" : "none"} /></Button>
-                <Button aria-label={personalState.shortcut_rank ? "移出快捷入口" : "添加到快捷入口"} aria-pressed={!!personalState.shortcut_rank} title={personalState.shortcut_rank ? "移出快捷入口" : "添加到快捷入口"} disabled={personalStateSaving} onClick={() => void updatePersonalState({ shortcutRank: personalState.shortcut_rank ? "" : `${Date.now().toString().padStart(20, "0")}:${crypto.randomUUID()}` }, personalState.shortcut_rank ? "已移出快捷入口。" : "已添加到快捷入口。") }><Pin size={15} fill={personalState.shortcut_rank ? "currentColor" : "none"} /></Button>
-              </>}
-              {view.page.content_type === "document" && <Button aria-pressed={mode === "outline"} title="页面大纲" onClick={() => setMode("outline")}><ListTree size={15} /></Button>}
-              {aiAvailable && <Button aria-pressed={aiOpen} aria-label="AI 写作助手" title="AI 写作助手" onClick={() => { setMode("edit"); setAISourceScope(view.published ? "published" : "draft"); setAIOpen(true); setAIFailure(""); }}><Sparkles size={15} /></Button>}
-              <Button aria-pressed={mode === "metadata"} aria-label="页面属性" title="页面属性" onClick={() => setMode("metadata")}><Tags size={15} /></Button>
-              <Button aria-pressed={mode === "references"} aria-label="页面引用与反向链接" title="页面引用与反向链接" onClick={() => setMode("references")}><Link2 size={15} /></Button>
-              <Button aria-pressed={mode === "relationships"} aria-label="知识关系图" title="关联页面与知识关系图" onClick={() => setMode("relationships")}><Share2 size={15} /></Button>
-              {library.role === "manager" && <Button aria-pressed={mode === "access"} title="访问说明" onClick={() => setMode("access")}><ShieldCheck size={15} /></Button>}
-              {library.role === "manager" && client.getPageAccess && client.setPageAccess && <Button aria-pressed={mode === "permissions"} title="页面权限" onClick={() => setMode("permissions")}><Users size={15} /></Button>}
-              {(library.role === "manager" || canReviewGovernance) && <Button aria-pressed={mode === "governance"} aria-label="页面治理" title="页面治理与内容保护" onClick={() => setMode("governance")}><LockKeyhole size={15} /></Button>}
-              {canWrite && <Button title="复制页面" onClick={() => void copyCurrentPage()}><Copy size={15} /></Button>}
-              {canWrite && <Button title={view.page.state === "archived" ? "恢复页面" : "归档页面"} onClick={() => void archive(view.page)}><MoreHorizontal size={15} /></Button>}
-            </div>
+          <PageHeader editing={mode === "edit"} breadcrumbs={view.breadcrumbs} title={mode === "edit" && titleEditing ? <input ref={titleInputRef} className="knowledge-page-heading-title-input" aria-label="标题" value={title} maxLength={256} disabled={view.page.content_type !== "file" && collaboration.available && !collaboration.ready} onChange={event => updateEditor(event.target.value, body)} onBlur={() => setTitleEditing(false)} onKeyDown={event => { if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur(); }} placeholder="页面标题" /> : <h2 className={canWrite && view.page.state === "active" ? "is-editable" : undefined} title={canWrite && view.page.state === "active" ? "双击编辑标题" : undefined} onDoubleClick={beginTitleEditing}>{mode === "edit" ? title : mode === "suggestions" ? view.draft?.title || view.page.title : view.published?.title || view.page.title}</h2>} governance={view.governance} versionSummary={mode === "suggestions" && view.draft ? `草稿 revision ${view.draft.draft_revision} · 修改建议基于当前草稿` : `版本 ${view.page.published_version || "未发布"} · ${view.published ? `${memberProfiles[view.published.published_by_user_id]?.display_name || "账号不可用"} 发布于 ${new Date(view.published.published_at).toLocaleString()}` : "仅草稿"}`} metadataSummary={metadata && (metadataDirty || metadata.tags.length > 0 || metadata.aliases.length > 0 || metadata.related_page_ids.length > 0 || metadata.owner_user_id || metadata.status || metadata.next_review_at) ? <div className="knowledge-page-metadata-summary" aria-label="页面属性摘要">{metadataDirty && <span className="is-pending">未保存</span>}{metadata.status && <span className={`is-status-${metadata.status}`}><i aria-hidden="true" />{pageStatusLabels[metadata.status]}</span>}{metadata.owner_user_id && <span><Users size={12} />负责人 {memberProfiles[metadata.owner_user_id]?.display_name || metadata.owner_user_id}</span>}{metadata.next_review_at && <span><CalendarClock size={12} />复核 {new Date(metadata.next_review_at).toLocaleString()}</span>}{metadata.aliases.map(alias => <span key={`alias-${alias}`}><Share2 size={11} />别名 {alias}</span>)}{metadata.related_page_ids.length > 0 && <span><Link2 size={11} />{metadata.related_page_ids.length} 个关联页面</span>}{metadata.tags.map(tag => <span key={tag} className="is-tag"><Tags size={11} />{tag}</span>)}</div> : undefined} presence={mode === "edit" && presenceAvailable ? <details className="knowledge-presence-details"><summary aria-label={`${activeOnlineUsers} 人在线编辑`}><div className="knowledge-avatar-stack">{collaborators.slice(0, 4).map(person => <span key={person.userID} title={memberProfiles[person.userID]?.display_name || person.userID} style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{(memberProfiles[person.userID]?.display_name || person.userID).slice(0, 1).toUpperCase()}</span>)}</div><strong>{activeOnlineUsers} 人在线</strong><ChevronDown size={13} /></summary><aside className="knowledge-collaboration-popover" aria-label="在线协作详情"><header><div><Users size={17} /><strong>在线协作</strong></div><span>{activeOnlineUsers} 人</span></header><section className="knowledge-merge-strategy"><GitMerge size={17} /><div><strong>内容冲突自动收敛</strong><p>{collaboration.available ? "正文由 Yjs 按内容块与富文本节点合并；服务端串行确认时钟、校验 Block JSON，并持久化完整检查点。" : "图形由服务端按节点、连线和画布结构校验目标哈希后合并；不同目标可并行写入，同一目标的过期修改会明确冲突。"}</p></div></section>{collaboration.available && collaboration.mergeCount > 0 && <p className="knowledge-merge-event"><Check size={14} />已自动合并 {collaboration.mergeCount} 个远端更新{collaboration.mergedUserIDs.length > 0 ? `，来自 ${collaboration.mergedUserIDs.map(id => memberProfiles[id]?.display_name || id).join("、")}` : ""}</p>}<div className="knowledge-collaborator-list">{collaborators.map(person => { const profile = memberProfiles[person.userID]; const name = profile?.display_name || person.userID; const position = person.selectionBlockID ? `${nativeAwareness.available ? "选中目标" : "选区"} ${person.cursorBlockID.slice(0, 8) || "起点"} → ${person.selectionBlockID.slice(0, 8)}` : person.cursorBlockID ? `${nativeAwareness.available ? "选中" : "光标在内容块"} ${person.cursorBlockID.slice(0, 8)}` : "正在查看"; return <div className="knowledge-collaborator" key={person.userID}><span className="knowledge-collaborator-avatar" style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{name.slice(0, 1).toUpperCase()}<i /></span><span><strong>{name}{person.userID === presenceUserID && <em>你</em>}</strong><small>{position}{person.sessions > 1 ? ` · ${person.sessions} 个设备` : ""}</small></span><time dateTime={person.lastSeenAt}>{recentActivityLabel(person.lastSeenAt)}</time></div>; })}</div><footer><span><Wifi size={13} />{collaborationStateLabel}</span>{collaboration.available && collaboration.state === "error" && <Button onClick={collaboration.reconnect}><RefreshCw size={13} />重新连接</Button>}</footer></aside></details> : undefined} actionHostRef={setPageActionHost} canEdit={canWrite && view.page.state === "active"} onNavigate={setSelectedID} onEdit={() => setMode("edit")} />
+          <PageToolbar mode={mode} pageActive={view.page.state === "active"} canWrite={canWrite} isDocument={view.page.content_type === "document"} pageFindOpen={pageFindOpen} personalState={personalState} personalStateSaving={personalStateSaving} aiAvailable={aiAvailable} aiOpen={aiOpen} isManager={library.role === "manager"} canManagePermissions={library.role === "manager" && !!client.getPageAccess && !!client.setPageAccess} canManageShares={library.role === "manager" && !!client.listPageShares && !!client.createPageShare && !!client.revokePageShare} canReviewGovernance={canReviewGovernance} archived={view.page.state === "archived"} onModeChange={changeWorkspaceMode} onOpenSuggestions={() => { setCommentAnchor(null); setSuggestionPanelOpen(false); setMode("suggestions"); }} onOpenFind={() => { setPageFindOpen(true); window.setTimeout(() => pageFindInputRef.current?.select()); }} onToggleFavorite={() => void updatePersonalState({ favorite: !personalState?.favorite }, personalState?.favorite ? "已取消收藏。" : "已收藏页面。")} onToggleSubscription={() => void updatePersonalState({ subscribed: !personalState?.subscribed }, personalState?.subscribed ? "已取消订阅。" : "已订阅页面更新。")} onToggleShortcut={() => void updatePersonalState({ shortcutRank: personalState?.shortcut_rank ? "" : `${Date.now().toString().padStart(20, "0")}:${crypto.randomUUID()}` }, personalState?.shortcut_rank ? "已移出快捷入口。" : "已添加到快捷入口。")} onOpenAI={() => { setMode("edit"); setAISourceScope(view.published ? "published" : "draft"); setAIOpen(true); setAIFailure(""); }} onCopy={() => void copyCurrentPage()} onArchive={() => void archive(view.page)} />
+          <div className="knowledge-page-feedback">
+            {notice && <p role="status" className="knowledge-notice">{notice}</p>}{error && <p role="alert" className="knowledge-error">{error}</p>}{collaborationFailure && <p role="alert" className="knowledge-error">{collaborationFailure}</p>}
+            {pendingMove && <section className="knowledge-confirm knowledge-move-impact" role="dialog" aria-label="确认页面权限影响"><h3>移动会改变页面权限</h3><p>将影响该子树中的 {pendingMove.impact.affected_pages} 个页面，并改变 {pendingMove.impact.changed_subjects.length} 个用户或组织的有效访问。</p>{pendingMove.impact.changed_subjects.length > 0 && <p className="knowledge-subtle">涉及主体：{pendingMove.impact.changed_subjects.map(subjectLabel).join("、")}</p>}<div className="knowledge-actions"><Button className="danger" onClick={() => void commitMove(pendingMove.page, pendingMove.parentPageID, pendingMove.impact.token)}>确认移动并更新继承</Button><Button onClick={() => setPendingMove(null)}>取消移动</Button></div></section>}
           </div>
 			{aiOpen && aiAvailable && <div className="knowledge-ai-dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !aiBusy) setAIOpen(false); }}><section className="knowledge-ai-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-ai-title">
               <header><div><span className="knowledge-ai-icon" aria-hidden="true"><Sparkles size={18} /></span><div><h3 id="knowledge-ai-title">AI 写作助手</h3><p>只读取下方锁定的页面快照，结果不会自动改写正文。</p></div></div><Button aria-label="关闭 AI 写作助手" title="关闭" disabled={aiBusy} onClick={() => { aiRequestAbortRef.current?.abort(); setAIOpen(false); }}><X size={16} /></Button></header>
               <div className="knowledge-ai-form">
-                <label><span>能力</span><select value={aiOperation} disabled={aiBusy} onChange={event => { setAIOperation(event.target.value as KnowledgeAIOperation); setAIExecution(null); setAIFailure(""); }}>{Object.entries(aiOperationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                <label><span>内容来源</span><select value={aiSourceScope} disabled={aiBusy} onChange={event => { setAISourceScope(event.target.value as KnowledgeAISourceScope); setAIExecution(null); setAIFailure(""); }}><option value="published" disabled={!view.published}>当前已发布版本{view.published ? `（版本 ${view.published.version}）` : "（暂无）"}</option><option value="draft" disabled={!collaboration.ready}>当前编辑会话草稿{collaboration.ready ? `（revision ${collaboration.draftRevision}）` : "（连接中）"}</option></select></label>
+                <label><span>能力</span><Select value={aiOperation} disabled={aiBusy} onChange={event => { setAIOperation(event.target.value as KnowledgeAIOperation); setAIExecution(null); setAIFailure(""); }}>{Object.entries(aiOperationLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label>
+                <label><span>内容来源</span><Select value={aiSourceScope} disabled={aiBusy} onChange={event => { setAISourceScope(event.target.value as KnowledgeAISourceScope); setAIExecution(null); setAIFailure(""); }}><option value="published" disabled={!view.published}>当前已发布版本{view.published ? `（版本 ${view.published.version}）` : "（暂无）"}</option><option value="draft" disabled={!collaboration.ready}>当前编辑会话草稿{collaboration.ready ? `（revision ${collaboration.draftRevision}）` : "（连接中）"}</option></Select></label>
                 {aiOperation === "translate" && <label><span>目标语言</span><input value={aiLanguage} maxLength={64} disabled={aiBusy} onChange={event => setAILanguage(event.target.value)} /></label>}
                 <label className="knowledge-ai-prompt"><span>{aiOperation === "answer" ? "问题" : "补充要求"}</span><textarea rows={4} maxLength={8000} value={aiPrompt} disabled={aiBusy} onChange={event => setAIPrompt(event.target.value)} placeholder={aiOperation === "write" ? "例如：继续补充验收步骤" : aiOperation === "answer" ? "输入要基于当前页面回答的问题" : "可选：说明语气、长度或重点"} /></label>
               </div>
@@ -2257,20 +2290,24 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
               <footer><p>{!collaboration.ready ? "正在建立受权编辑会话，连接完成后才能执行和确认。" : "确认时会再次复核会话、权限、来源 revision 与 hash；任何变化都会拒绝写回。"}</p><div><Button disabled={aiBusy} onClick={() => { setAIExecution(null); setAIFailure(""); }}>清空</Button>{aiExecution?.state === "completed" ? <Button className="primary" disabled={aiBusy || !collaboration.ready} onClick={() => void confirmAndInsertAI()}><Check size={14} />确认并追加到草稿</Button> : aiExecution?.state !== "confirmed" && <Button className="primary" disabled={aiBusy || !collaboration.ready || aiSourceScope === "published" && !view.published} onClick={() => void runAI()}>{aiBusy ? <LoaderCircle className="knowledge-spin" size={14} /> : <Sparkles size={14} />}{aiBusy ? "正在执行…" : "生成候选"}</Button>}</div></footer>
             </section></div>}
 			{pageFindOpen && <div className="knowledge-page-find-bar" role="search" aria-label="在当前页面查找"><Search size={14} aria-hidden="true" /><input ref={pageFindInputRef} value={pageFindQuery} maxLength={256} onChange={event => setPageFindQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && pageFindCount) { event.preventDefault(); setPageFindActive(index => event.shiftKey ? (index - 1 + pageFindCount) % pageFindCount : (index + 1) % pageFindCount); } else if (event.key === "Escape") { event.preventDefault(); setPageFindOpen(false); setPageFindQuery(""); } }} placeholder="查找当前页面内容" /><span aria-live="polite">{pageFindQuery ? pageFindCount ? `${pageFindActive + 1} / ${pageFindCount}` : "无结果" : "输入关键词"}</span><Button aria-label="上一个匹配" title="上一个匹配" disabled={!pageFindCount} onClick={() => setPageFindActive(index => (index - 1 + pageFindCount) % pageFindCount)}><ChevronDown className="knowledge-find-previous" size={15} /></Button><Button aria-label="下一个匹配" title="下一个匹配" disabled={!pageFindCount} onClick={() => setPageFindActive(index => (index + 1) % pageFindCount)}><ChevronDown size={15} /></Button><Button aria-label="关闭页内查找" title="关闭" onClick={() => { setPageFindOpen(false); setPageFindQuery(""); }}><X size={15} /></Button></div>}
+          {mode === "suggestions" && <section className="knowledge-suggestion-review-bar" aria-label="修改建议说明">
+            <div><span className="knowledge-suggestion-review-icon"><GitPullRequest size={16} /></span><span><strong>建议模式</strong><small>选中正文后，可提议在该内容块后插入段落或删除整个内容块；接受前不会改动草稿。</small></span></div>
+            <div><b>{suggestions.filter(item => item.status === "open").length} 条待处理</b><Button onClick={() => setSuggestionPanelOpen(true)}>查看建议</Button></div>
+          </section>}
           {mode === "metadata" && metadata && <section className="knowledge-page-metadata" aria-labelledby="knowledge-page-metadata-title">
             <header><div><h3 id="knowledge-page-metadata-title">页面属性</h3><p>属性属于页面本身，不会创建正文版本，也不会改变页面访问权限。</p></div><span>revision {metadata.revision}</span></header>
             <div className="knowledge-metadata-grid">
               <label className="knowledge-metadata-tags"><span>页面别名</span><textarea rows={2} maxLength={3100} value={metadataAliasesInput} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => { setMetadataAliasesInput(event.target.value); setMetadataDirty(true); }} placeholder="用逗号分隔；同一页可有多个检索别名" /><small>{metadataAliases(metadataAliasesInput).length}/12 个别名</small></label>
               <label className="knowledge-metadata-tags"><span>标签</span><textarea rows={2} maxLength={1300} value={metadataTagsInput} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => { setMetadataTagsInput(event.target.value); setMetadataDirty(true); }} placeholder="用逗号分隔，最多 20 个" /><small>{metadataTags(metadataTagsInput).length}/20 个标签</small></label>
-              <label><span>状态</span><select value={metadata.status} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, status: event.target.value as KnowledgePageStatus }))}>{Object.entries(pageStatusLabels).map(([value, label]) => <option key={value || "unset"} value={value}>{label}</option>)}</select></label>
+              <label><span>状态</span><Select value={metadata.status} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, status: event.target.value as KnowledgePageStatus }))}>{Object.entries(pageStatusLabels).map(([value, label]) => <option key={value || "unset"} value={value}>{label}</option>)}</Select></label>
             </div>
             <label className="knowledge-metadata-member-search"><span>查找知识库成员</span><div><Search size={14} /><input value={metadataMemberQuery} onChange={event => setMetadataMemberQuery(event.target.value)} placeholder="按姓名或邮箱筛选负责人和人员属性" /></div></label>
             <div className="knowledge-metadata-properties-heading"><div><h4>自定义属性</h4><p>支持文本、数字、日期、选项、勾选和当前知识库成员。</p></div>{canWrite && view.page.state === "active" && <Button disabled={metadataSaving || metadata.properties.length >= 32} onClick={addMetadataProperty}><Plus size={14} />添加属性</Button>}</div>
             <div className="knowledge-metadata-properties">
               {metadata.properties.map((property, index) => <div className="knowledge-metadata-property" key={property.id}>
                 <input aria-label={`属性 ${index + 1} 名称`} maxLength={64} value={property.name} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, name: event.target.value } : item) }))} />
-                <select aria-label={`属性 ${index + 1} 类型`} value={property.type} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, type: event.target.value as KnowledgePagePropertyType, value: "" } : item) }))}>{Object.entries(pagePropertyTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-                {property.type === "checkbox" ? <select aria-label={`${property.name} 值`} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))}><option value="">未设置</option><option value="true">是</option><option value="false">否</option></select> : property.type === "person" ? <select aria-label={`${property.name} 值`} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))}><option value="">未设置</option>{metadataMemberIDs.map(userID => <option key={userID} value={userID}>{memberProfiles[userID]?.display_name || userID}</option>)}</select> : <input aria-label={`${property.name} 值`} type={property.type === "number" ? "number" : property.type === "date" ? "date" : "text"} step={property.type === "number" ? "any" : undefined} maxLength={property.type === "text" ? 1024 : 128} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))} />}
+                <Select aria-label={`属性 ${index + 1} 类型`} value={property.type} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, type: event.target.value as KnowledgePagePropertyType, value: "" } : item) }))}>{Object.entries(pagePropertyTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select>
+                {property.type === "checkbox" ? <Select aria-label={`${property.name} 值`} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))}><option value="">未设置</option><option value="true">是</option><option value="false">否</option></Select> : property.type === "person" ? <Select aria-label={`${property.name} 值`} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))}><option value="">未设置</option>{metadataMemberIDs.map(userID => <option key={userID} value={userID}>{memberProfiles[userID]?.display_name || userID}</option>)}</Select> : <input aria-label={`${property.name} 值`} type={property.type === "number" ? "number" : property.type === "date" ? "date" : "text"} step={property.type === "number" ? "any" : undefined} maxLength={property.type === "text" ? 1024 : 128} value={property.value} disabled={!canWrite || view.page.state !== "active" || metadataSaving} onChange={event => updateMetadata(current => ({ ...current, properties: current.properties.map(item => item.id === property.id ? { ...item, value: event.target.value } : item) }))} />}
                 {canWrite && view.page.state === "active" && <Button aria-label={`删除属性 ${property.name}`} title="删除属性" disabled={metadataSaving} onClick={() => updateMetadata(current => ({ ...current, properties: current.properties.filter(item => item.id !== property.id) }))}><Trash2 size={14} /></Button>}
               </div>)}
               {metadata.properties.length === 0 && <p className="knowledge-subtle">还没有自定义属性。</p>}
@@ -2307,104 +2344,65 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
               </article>
             </div>
           </section>}
-          {(mode === "read" || mode === "outline" || mode === "comments" || mode === "activity" || mode === "access" || mode === "permissions" || mode === "governance") && (view.page.content_type === "file" && visibleFileContent ? <div className="knowledge-page-readable typed-readable"><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={visibleFileContent} formatError={formatError} /></div> : view.published ? <div className="knowledge-page-readable typed-readable"><KnowledgeEditor type={view.page.content_type} body={content} documentTitle={view.published.title} canManage={library.role === "manager"} gridAccess={view.grid_access} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={highlightedBlockID} initialSearchLocation={linkedSearchLocation} blockHighlightRevision={commentFocus.revision} onCommentAnchor={["document", "whiteboard", "mind_map", "flowchart"].includes(view.page.content_type) ? anchor => setCommentAnchor(anchor || null) : undefined} authorizeContentAction={authorizeContentAction} uploadFile={view.page.content_type === "form" ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div> : <EmptyState><Upload size={28} /><h3>页面尚未发布</h3><p>编辑者可以完善草稿后发布。</p></EmptyState>)}
-          {mode === "suggestions" && view.draft && <div className="knowledge-page-readable typed-readable knowledge-suggestion-draft"><KnowledgeEditor type="document" body={view.draft.body.content} documentTitle={view.draft.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} initialBlockID={commentFocus.nodeID || undefined} blockHighlightRevision={commentFocus.revision} onCommentAnchor={anchor => setCommentAnchor(anchor || null)} authorizeContentAction={authorizeContentAction} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div>}
-          {mode === "edit" && view.draft && view.page.content_type === "file" && <div className="knowledge-editor-shell"><section className="knowledge-page-editor knowledge-file-page-editor"><div className="knowledge-editor-canvas"><input ref={titleInputRef} className="knowledge-editor-title" aria-label="标题" value={title} maxLength={256} onChange={event => updateEditor(event.target.value, body)} placeholder="页面标题" /><div className="knowledge-editor-toolbar"><span>文件页面</span><span>正文只保存受权原件引用</span></div><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={body} formatError={formatError} /></div><footer className="knowledge-editor-actions"><div><Button disabled={!dirty || saveState === "saving" || publishState === "publishing"} onClick={() => void saveDraft()}><Save size={14} />保存草稿</Button><span className="knowledge-editor-hint">文件原件不可在页面正文中覆盖；标题和位置按页面版本管理。</span></div><div><input aria-label="发布说明" value={publishNote} maxLength={2048} onChange={event => setPublishNote(event.target.value)} placeholder="添加发布说明…" /><Button className="primary" disabled={saveState === "conflict" || publishState === "publishing" || !title.trim()} onClick={() => void publish()}><Send size={14} />{publishState === "publishing" ? "发布中…" : "发布版本"}</Button></div></footer></section></div>}
+          {(mode === "read" || mode === "outline" || mode === "comments" || mode === "access" || mode === "permissions" || mode === "shares" || mode === "governance") && (view.page.content_type === "file" && visibleFileContent ? <div className="knowledge-page-readable typed-readable"><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={visibleFileContent} pageActionHost={pageActionHost} formatError={formatError} /></div> : (view.published || view.draft) ? <div className={`knowledge-page-readable typed-readable${view.page.content_type === "document" ? " is-document" : ""}${mode === "outline" && view.page.content_type === "document" ? " has-inline-outline" : ""}`}>
+            {mode === "outline" && view.page.content_type === "document" && <PageOutline items={outline} />}
+            <KnowledgeEditor type={view.page.content_type} body={view.published?.body.content || view.draft?.body.content || ""} documentTitle={view.published?.title || view.draft?.title || view.page.title} canManage={library.role === "manager"} gridAccess={view.grid_access} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={highlightedBlockID} initialSearchLocation={linkedSearchLocation} blockHighlightRevision={commentFocus.revision} commentMarkers={showCommentMarkers ? commentMarkers : undefined} onCommentMarkerOpen={showCommentMarkers ? openCommentThread : undefined} onCommentAnchor={["document", "whiteboard", "mind_map", "flowchart"].includes(view.page.content_type) ? anchor => setCommentAnchor(anchor || null) : undefined} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} uploadFile={view.page.content_type === "form" ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} />
+          </div> : <EmptyState><Upload size={28} /><h3>页面尚未发布</h3><p>编辑者可以完善草稿后发布。</p></EmptyState>)}
+          {mode === "suggestions" && view.draft && <div className="knowledge-page-readable typed-readable is-document knowledge-suggestion-draft"><KnowledgeEditor type="document" body={view.draft.body.content} documentTitle={view.draft.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} initialBlockID={commentFocus.nodeID || undefined} blockHighlightRevision={commentFocus.revision} onCommentAnchor={anchor => { setCommentAnchor(anchor || null); if (anchor) setSuggestionPanelOpen(true); }} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div>}
+          {mode === "edit" && view.draft && view.page.content_type === "file" && <div className="knowledge-editor-shell"><section className="knowledge-page-editor knowledge-file-page-editor"><div className="knowledge-editor-canvas"><div className="knowledge-editor-toolbar"><span>文件页面</span><span>正文只保存受权原件引用</span></div><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={body} pageActionHost={pageActionHost} formatError={formatError} /></div><footer className="knowledge-editor-actions"><div><Button disabled={!dirty || saveState === "saving" || publishState === "publishing"} onClick={() => void saveDraft()}><Save size={14} />保存草稿</Button><span className="knowledge-editor-hint">文件原件不可在页面正文中覆盖；标题和位置按页面版本管理。</span></div><div><Button className="primary" disabled={saveState === "conflict" || publishState === "publishing" || !title.trim()} onClick={() => void publish()}><Send size={14} />{publishState === "publishing" ? "发布中…" : "发布版本"}</Button></div></footer></section></div>}
           {mode === "edit" && view.draft && view.page.content_type !== "file" && <div className="knowledge-editor-shell">
             <section className="knowledge-page-editor">
               <div className="knowledge-editor-canvas">
-                <input ref={titleInputRef} className="knowledge-editor-title" aria-label="标题" value={title} maxLength={256} disabled={collaboration.available && !collaboration.ready} onChange={event => updateEditor(event.target.value, body)} placeholder="页面标题" />
                 <div className="knowledge-editor-toolbar"><span>{pageTypeMeta[view.page.content_type].label}</span><span>{view.page.content_type === "document" ? `${editorStats.blocks} 个内容块 · ${editorStats.characters} 字符` : "结构化草稿"}</span></div>
-                <KnowledgeEditor key={`${view.page.id}:${remountEditorOnDraftRevision ? view.draft.draft_revision : 0}:${editorEpoch}`} type={view.page.content_type} body={body} documentTitle={title} canManage={library.role === "manager"} gridAccess={view.grid_access} collaboration={collaboration.available && collaboration.ready ? collaboration.editorCollaboration : undefined} readOnly={collaboration.available && !collaboration.ready} mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={linkedBlockID} initialSearchLocation={linkedSearchLocation} blockLink={blockLink} insertMarkdownRequest={aiInsertRequest} authorizeContentAction={authorizeContentAction} onActionFeedback={setNotice} uploadFile={view.page.content_type === "document" || view.page.content_type === "multidimensional_table" || view.page.content_type === "presentation" || view.page.content_type === "form" ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} readFile={readEditorFile} convertPage={view.page.content_type === "document" || view.page.content_type === "mind_note" ? convertCurrentPage : undefined} onChange={(next, change) => updateEditor(title, next, change)} onPresence={collaboration.available ? collaboration.updatePresence : nativeAwareness.updatePresence} />
+                <KnowledgeEditor key={`${view.page.id}:${remountEditorOnDraftRevision ? view.draft.draft_revision : 0}:${editorEpoch}`} type={view.page.content_type} body={body} documentTitle={title} canManage={library.role === "manager"} gridAccess={view.grid_access} collaboration={collaboration.available && collaboration.ready ? collaboration.editorCollaboration : undefined} readOnly={collaboration.available && !collaboration.ready} mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={linkedBlockID} initialSearchLocation={linkedSearchLocation} blockLink={blockLink} insertMarkdownRequest={aiInsertRequest} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} onActionFeedback={setNotice} uploadFile={library.documents_configured && (view.page.content_type === "document" || view.page.content_type === "multidimensional_table" || view.page.content_type === "presentation" || view.page.content_type === "form") ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} fileUploadAccept={fileUploadAccept} readFile={readEditorFile} convertPage={view.page.content_type === "document" || view.page.content_type === "mind_note" ? convertCurrentPage : undefined} onChange={(next, change) => updateEditor(title, next, change)} onPresence={collaboration.available ? collaboration.updatePresence : nativeAwareness.updatePresence} />
               </div>
               <div className="knowledge-editor-meta">
                 <div className={`knowledge-sync-state is-${collaboration.state}`} role="status">{collaboration.state === "syncing" || collaboration.state === "connecting" || collaboration.state === "reconnecting" ? <Cloud className="knowledge-pulse" size={15} /> : collaboration.state === "error" ? <Wifi size={15} /> : <Check size={15} />}<span>{publishState === "publishing" ? "正在冻结协作快照…" : publishState === "error" ? "发布失败" : collaboration.available ? collaborationStateLabel : { idle: dirty ? "有未保存更改" : "草稿未更改", saving: "正在保存…", saved: `已保存 revision ${view.draft.draft_revision}`, conflict: "保存冲突：服务器已有更新", error: "保存失败" }[saveState]}</span>{collaboration.available && collaboration.draftRevision > 0 && <small>revision {collaboration.draftRevision} · clock {collaboration.serverClock}</small>}</div>
-                <label className="knowledge-attachment-trigger"><Paperclip size={15} />添加附件或粘贴图片<input type="file" accept={knowledgeDocumentAccept(library)} disabled={attaching} onChange={event => { const file = event.target.files?.[0]; if (file) void attachFile(file); event.currentTarget.value = ""; }} /></label>
+                <label className={`knowledge-attachment-trigger${!library.documents_configured ? " is-disabled" : ""}`} title={library.documents_configured ? "添加附件或粘贴图片" : "文件存储未配置"}><Paperclip size={15} />添加附件或粘贴图片<input type="file" accept={knowledgeDocumentAccept(library)} disabled={attaching || !library.documents_configured} onChange={event => { const file = selectedUploadFile(event.target.files); if (file) void attachFile(file); event.currentTarget.value = ""; }} /></label>
               </div>
               {(attaching || attachments.length > 0) && <div className="knowledge-page-attachments">{attaching && <span role="status">正在校验并上传附件…</span>}{attachments.map(attachment => <span key={attachment.document_id}>{attachment.title}<button type="button" onClick={() => void removeAttachment(attachment)}>移除</button></span>)}</div>}
               {!collaboration.available && saveState === "conflict" && <div className="knowledge-conflict"><GitMerge size={18} /><span>{saveConflict ? `服务器草稿 revision ${saveConflict.current_draft_revision}，基于发布版本 ${saveConflict.base_published_version}，更新时间 ${new Date(saveConflict.current_updated_at).toLocaleString()}，摘要 ${saveConflict.current_content_sha256.slice(0, 12)}` : "服务器上的同一编辑目标已经变化，请重新载入后决定保留哪一项。"}</span><Button onClick={() => void copyDraftAfterConflict()}>复制我的内容</Button><Button onClick={() => { pendingSaveRef.current = null; pendingNativeSaveRef.current = null; pendingPublishRef.current = null; setSaveConflict(null); setSelectedID(current => { window.setTimeout(() => setSelectedID(current)); return ""; }); }}><RefreshCw size={14} />重新载入</Button></div>}
               <footer className="knowledge-editor-actions">
                 <div>{!collaboration.available && <Button disabled={!dirty || saveState === "saving" || publishState === "publishing"} onClick={() => void saveDraft()}><Save size={14} />保存草稿</Button>}<span className="knowledge-editor-hint">{collaboration.available ? "正文使用增量 CRDT 同步，不会整篇覆盖他人的修改。" : nativeAwareness.available ? "图形按节点和连线合并；选中目标会同步给在线成员。" : "更改会自动保存为草稿。"}</span></div>
-                <div><input aria-label="发布说明" value={publishNote} maxLength={2048} onChange={event => setPublishNote(event.target.value)} placeholder="添加发布说明…" /><Button className="primary" disabled={saveState === "conflict" || publishState === "publishing" || !title.trim() || collaboration.available && (collaboration.state === "error" || collaboration.state === "connecting" || collaboration.state === "reconnecting")} onClick={() => void publish()}><Send size={14} />{publishState === "publishing" ? "发布中…" : "发布版本"}</Button></div>
+                <div><Button className="primary" disabled={saveState === "conflict" || publishState === "publishing" || !title.trim() || collaboration.available && (collaboration.state === "error" || collaboration.state === "connecting" || collaboration.state === "reconnecting")} onClick={() => void publish()}><Send size={14} />{publishState === "publishing" ? "发布中…" : "发布版本"}</Button></div>
               </footer>
             </section>
           </div>}
-          {mode === "history" && <section className="knowledge-page-history"><div className="knowledge-history-heading"><div><h3>连续编辑历史</h3><p>按草稿 revision 永久记录，显示作者、时间和 Block 级变化。</p></div></div>{editHistory.map(entry => <article className="knowledge-edit-history" key={entry.draft_revision}><header><strong>{memberProfiles[entry.user_id]?.display_name || "账号不可用"}</strong><span>{new Date(entry.created_at).toLocaleString()} · 草稿 revision {entry.draft_revision}{entry.clock > 0 ? ` · 协作时钟 ${entry.clock}` : ""}</span></header><div className="knowledge-edit-history-summary">{entry.title_changed && <em>标题已修改</em>}<span>{entry.changed_block_count} 个 Block 变化{entry.truncated ? "（明细过多，已截断）" : ""}</span></div>{entry.changes.length > 0 && <ul>{entry.changes.map(change => <li key={`${entry.draft_revision}-${change.node_id}`} className={`is-${change.kind}`}><b>{change.kind === "insert" ? "新增" : change.kind === "delete" ? "删除" : "修改"}</b><code>{change.node_id.slice(0, 12)}</code><span>{change.kind === "update" ? `${change.before_preview || "空内容"} → ${change.after_preview || "空内容"}` : change.after_preview || change.before_preview || "空内容"}</span></li>)}</ul>}</article>)}{editHistory.length === 0 && <p className="knowledge-subtle">还没有编辑记录。</p>}{!editHistoryComplete && <Button onClick={() => void loadMoreEditHistory()}>加载更早编辑</Button>}<div className="knowledge-history-heading"><div><h3>发布版本</h3><p>发布后形成不可变快照，可查看、对比和恢复为新草稿。</p></div><Button disabled={compare.length !== 2} onClick={() => void compareVersions()}>对比所选版本</Button></div>{versions.map(version => <div key={version.version} className="knowledge-version"><label><input type="checkbox" checked={compare.includes(version.version)} onChange={event => setCompare(current => event.target.checked ? [version.version, ...current].slice(0, 2) : current.filter(item => item !== version.version))} />版本 {version.version}</label><span>{memberProfiles[version.published_by_user_id]?.display_name || "账号不可用"} · {new Date(version.published_at).toLocaleString()} · {version.publish_note || "无发布说明"} · {version.body.summary || "无摘要"}</span><Button onClick={() => void previewVersion(version.version)}>查看版本</Button>{canWrite && <Button onClick={() => void restore(version.version)}>恢复为草稿</Button>}</div>)}{!versionsComplete && <Button onClick={() => void loadMoreVersions()}>加载更早版本</Button>}{historyPreview && <div className="knowledge-version-preview"><h4>版本 {historyPreview.version}：{historyPreview.title}</h4><p className="knowledge-subtle">页面位置 {historyPreview.parent_page_id || "根目录"} · 排序 {historyPreview.rank}</p><div className="knowledge-page-readable typed-readable"><KnowledgeEditor type={historyPreview.content_type} body={historyPreview.body.content} documentTitle={historyPreview.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div></div>}{diff && <div className="knowledge-diff"><h4>版本 {diff.from_version} → {diff.to_version}</h4><pre>{diff.content.map((op, index) => <span key={index} className={`is-${op.kind}`}>{op.kind === "insert" ? "+ " : op.kind === "delete" ? "- " : "  "}{op.text}</span>)}</pre></div>}</section>}
-          {mode === "suggestions" && <aside className="knowledge-page-suggestions" aria-label="修订提议">
-            <header><div><GitPullRequest size={17} /><span><strong>修订提议</strong><small>接受前不会改动草稿</small></span></div><b>{suggestions.filter(item => item.status === "open").length} 条待处理</b></header>
-            {canWrite && view.page.state === "active" && view.draft && <section className="knowledge-suggestion-create">
-              <p className="knowledge-subtle">先在左侧草稿中选择文字或点选一个内容块，再提议在其后插入新段落，或删除该内容块。</p>
-              {commentAnchor ? <button type="button" className="knowledge-comment-anchor" onClick={() => setCommentFocus(current => ({ nodeID: commentAnchor.nodeID, revision: current.revision + 1 }))}><GitPullRequest size={14} /><span><strong>当前修订锚点</strong><small>“{commentAnchor.quote}”</small></span></button> : <p className="knowledge-comment-anchor is-empty">尚未选择内容块。</p>}
-              <div className="knowledge-suggestion-kind"><button type="button" aria-pressed={suggestionKind === "insert"} onClick={() => setSuggestionKind("insert")}>插入段落</button><button type="button" aria-pressed={suggestionKind === "delete"} onClick={() => setSuggestionKind("delete")}>删除内容块</button></div>
-              {suggestionKind === "insert" && <textarea value={suggestionText} maxLength={32_768} onChange={event => setSuggestionText(event.target.value)} placeholder="要插入的新段落内容" />}
-              <textarea value={suggestionComment} maxLength={16_384} onChange={event => setSuggestionComment(event.target.value)} placeholder="说明修订原因（可选）" />
-              <label>@ 提及当前资料库成员<input value={memberQuery} onChange={event => setMemberQuery(event.target.value)} placeholder="按姓名或邮箱搜索" /></label>
-              <div className="knowledge-mention-picker">{mentionCandidates.map(member => <button key={member.user_id} type="button" aria-pressed={suggestionMentionedUserIDs.includes(member.user_id)} onClick={() => setSuggestionMentionedUserIDs(current => current.includes(member.user_id) ? current.filter(id => id !== member.user_id) : [...current, member.user_id])}>@{member.display_name}</button>)}</div>
-              <Button className="primary" disabled={suggestionBusy === "create" || !commentAnchor || suggestionKind === "insert" && !suggestionText.trim()} onClick={() => void createSuggestion()}>{suggestionBusy === "create" ? "正在提交…" : "提交修订"}</Button>
-            </section>}
-            <div className="knowledge-suggestion-list">{suggestions.map(suggestion => <article key={suggestion.id} className={`knowledge-suggestion is-${suggestion.status}${suggestion.anchor.changed ? " is-stale" : ""}`}>
-              <header><span><strong>{suggestion.kind === "insert" ? "提议插入" : "提议删除"}</strong><small>{memberProfiles[suggestion.author_user_id]?.display_name || "账号不可用"} · {new Date(suggestion.created_at).toLocaleString()}</small></span><em>{suggestion.status === "open" ? "待处理" : suggestion.status === "accepted" ? "已接受" : suggestion.status === "rejected" ? "已拒绝" : "已撤回"}</em></header>
-              <button type="button" className="knowledge-comment-quote" disabled={!!suggestion.anchor.changed} onClick={() => setCommentFocus(current => ({ nodeID: suggestion.anchor.node_id || "", revision: current.revision + 1 }))}>“{suggestion.anchor.quote || "内容块"}”</button>
-              {suggestion.anchor.changed && suggestion.status === "open" && <p className="knowledge-comment-anchor-state is-invalid">原内容块已改变，不能接受这条修订。</p>}
-              {suggestion.proposed_text && <p className="knowledge-suggestion-proposal">+ {suggestion.proposed_text}</p>}
-              {suggestion.comment && <p>{suggestion.comment}</p>}
-              {suggestion.mentioned_user_ids.length > 0 && <p className="knowledge-subtle">提及 {suggestion.mentioned_user_ids.map(id => `@${memberProfiles[id]?.display_name || "账号不可用"}`).join("、")}</p>}
-              {suggestion.status === "open" && <div className="knowledge-actions">{canWrite && <><Button disabled={suggestionBusy === suggestion.id || !!suggestion.anchor.changed} onClick={() => void decideSuggestion(suggestion, "accept")}>接受</Button><Button disabled={suggestionBusy === suggestion.id} onClick={() => void decideSuggestion(suggestion, "reject")}>拒绝</Button></>}{suggestion.author_user_id === currentUserID && <Button disabled={suggestionBusy === suggestion.id} onClick={() => void decideSuggestion(suggestion, "withdraw")}>撤回</Button>}</div>}
-            </article>)}{suggestions.length === 0 && <p className="knowledge-subtle">还没有修订提议。</p>}</div>
-          </aside>}
-          {mode === "outline" && <aside className="knowledge-page-outline" aria-label="页面大纲"><h3>页面大纲</h3>{outline.length === 0 ? <p className="knowledge-subtle">当前发布版本没有标题块。</p> : <ol>{outline.map(item => <li key={item.key} style={{ paddingInlineStart: `${(item.level - 1) * 12}px` }}>{item.title}</li>)}</ol>}</aside>}
-          {mode === "comments" && <section className="knowledge-page-comments">
-            <label className="knowledge-checkbox"><input type="checkbox" checked={unresolvedOnly} onChange={event => setUnresolvedOnly(event.target.checked)} />只看未解决</label>
-            {view.page.state === "archived" && <p className="knowledge-subtle">页面已归档，评论只读。</p>}
-            {view.published && view.page.state === "active" && <div className="knowledge-comment-create">
-              {replyingTo ? <p className="knowledge-comment-anchor is-replying">正在回复评论线程 <button onClick={() => setReplyingTo("")}>取消回复</button></p> : commentAnchor ? <button type="button" className="knowledge-comment-anchor" onClick={() => setCommentFocus(current => ({ nodeID: commentAnchor.nodeID, revision: current.revision + 1 }))}><MessageSquare size={14} /><span><strong>评论当前选区</strong><small>“{commentAnchor.quote}”</small></span></button> : <p className="knowledge-comment-anchor is-empty">请先选择正文内容块，或点选画板、思维导图、流程图元素。</p>}
-              <textarea value={commentBody} maxLength={16_384} onChange={event => setCommentBody(event.target.value)} placeholder="针对当前发布版本发表评论" />
-              <label>@ 提及当前资料库成员<input value={memberQuery} onChange={event => setMemberQuery(event.target.value)} placeholder="按姓名或邮箱搜索" /></label>
-              <div className="knowledge-mention-picker">{mentionCandidates.map(member => <button key={member.user_id} type="button" aria-pressed={mentionedUserIDs.includes(member.user_id)} onClick={() => setMentionedUserIDs(current => current.includes(member.user_id) ? current.filter(id => id !== member.user_id) : [...current, member.user_id])}>@{member.display_name}</button>)}</div>
-              {mentionedUserIDs.length > 0 && <p className="knowledge-subtle">将提及：{mentionedUserIDs.map(id => memberProfiles[id]?.display_name || id).join("、")}</p>}
-              <Button disabled={!commentBody.trim() || !replyingTo && !commentAnchor} onClick={() => void addComment()}>评论</Button>
-            </div>}
-            {comments.map(comment => <div key={comment.id} className={`knowledge-comment${comment.resolved ? " is-resolved" : ""}${comment.parent_comment_id ? " is-reply" : ""}`}>
-              <header><strong>{memberProfiles[comment.author_user_id]?.display_name || "账号不可用"}</strong><span>版本 {comment.published_version} · {new Date(comment.created_at).toLocaleString()}</span></header>
-              {comment.anchor.changed ? <p className="knowledge-comment-anchor-state is-invalid">原内容块已删除或内容已经变化，锚点失效。</p> : <button type="button" className="knowledge-comment-quote" onClick={() => focusComment(comment)} title="定位并高亮原内容块">“{comment.anchor.quote}”</button>}
-              {editingCommentID === comment.id ? <div className="knowledge-comment-edit"><textarea value={editingCommentBody} maxLength={16_384} onChange={event => setEditingCommentBody(event.target.value)} /><div className="knowledge-actions"><Button disabled={!editingCommentBody.trim()} onClick={() => void updateComment(comment)}>保存评论</Button><Button onClick={() => { setEditingCommentID(""); setEditingCommentBody(""); }}>取消</Button></div></div> : <p>{comment.deleted ? "评论已删除" : comment.body}</p>}
-              {comment.mentioned_user_ids.length > 0 && <p className="knowledge-subtle">提及 {comment.mentioned_user_ids.map(id => `@${memberProfiles[id]?.display_name || "账号不可用"}`).join("、")}</p>}
-              {!comment.deleted && <div className="knowledge-comment-reactions" aria-label="表情回应">{commentReactionEmojis.map(emoji => { const reaction = comment.reactions?.find(item => item.emoji === emoji); return <button key={emoji} type="button" className={reaction?.reacted ? "is-active" : undefined} aria-pressed={reaction?.reacted || false} title={`${reaction?.reacted ? "取消" : "添加"}${emoji}回应`} onClick={() => void toggleCommentReaction(comment, emoji)}><span>{emoji}</span>{reaction && reaction.count > 0 && <b>{reaction.count}</b>}</button>; })}</div>}
-              {tasks.filter(task => task.source_block_id === comment.anchor.node_id).map(task => <div className="knowledge-comment-task" key={task.id}><Check size={14} /><span><strong>{task.title}</strong><small>{task.status === "done" ? "已完成" : task.status === "in_progress" ? "进行中" : task.status === "canceled" ? "已取消" : "待处理"}{task.assignee_user_ids.length ? ` · ${task.assignee_user_ids.map(id => memberProfiles[id]?.display_name || id).join("、")}` : " · 未指派"}</small></span></div>)}
-              {view.page.state === "active" && !comment.deleted && editingCommentID !== comment.id && <div className="knowledge-actions"><Button onClick={() => beginReply(comment)}>回复</Button><Button onClick={() => { setEditingCommentID(comment.id); setEditingCommentBody(comment.body); }}>编辑</Button><Button onClick={() => void resolveComment(comment)}>{comment.resolved ? "重新打开" : "标记解决"}</Button>{canWrite && !comment.anchor.changed && <Button onClick={() => void assignCommentTask(comment)}>{tasks.some(task => task.source_block_id === comment.anchor.node_id) ? "追加任务指派" : "指派任务"}</Button>}<Button className="danger" onClick={() => void deleteComment(comment)}>删除</Button></div>}
-            </div>)}
-            {!commentsComplete && <Button onClick={() => void loadMoreComments()}>加载更多评论</Button>}
+          {mode === "history" && <PageHistoryPanel section={historySection} versions={versions} versionsComplete={versionsComplete} editHistory={editHistory} editHistoryComplete={editHistoryComplete} compare={compare} rollbackVersion={rollbackVersion} rollbackBusy={rollbackBusy} diff={diff} preview={historyPreview} previewContent={historyPreview ? <div className="knowledge-page-readable typed-readable"><KnowledgeEditor type={historyPreview.content_type} body={historyPreview.body.content} documentTitle={historyPreview.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div> : undefined} canWrite={canWrite} memberProfiles={memberProfiles} onSectionChange={section => { setHistorySection(section); setRollbackVersion(null); }} onCompareChange={setCompare} onCompare={() => void compareVersions()} onPreview={version => void previewVersion(version)} onRollbackPrompt={setRollbackVersion} onRollback={version => void rollback(version)} onLoadMoreVersions={() => void loadMoreVersions()} onLoadMoreEdits={() => void loadMoreEditHistory()} />}
+          {mode === "suggestions" && <SuggestionDrawer open={suggestionPanelOpen} suggestions={suggestions} anchor={commentAnchor} canCreate={canWrite && view.page.state === "active" && !!view.draft} canWrite={canWrite} currentUserID={currentUserID} memberProfiles={memberProfiles} kind={suggestionKind} proposedText={suggestionText} comment={suggestionComment} mentionedUserIDs={suggestionMentionedUserIDs} busy={suggestionBusy} searchMembers={searchMentionMembers} onMemberResolved={rememberMentionMember} onClose={() => setSuggestionPanelOpen(false)} onFocusAnchor={nodeID => setCommentFocus(current => ({ nodeID, revision: current.revision + 1 }))} onKindChange={setSuggestionKind} onProposedTextChange={setSuggestionText} onCommentChange={setSuggestionComment} onMentionedUserIDsChange={setSuggestionMentionedUserIDs} onCreate={() => void createSuggestion()} onDecide={(suggestion, decision) => void decideSuggestion(suggestion, decision)} />}
+          {mode === "comments" && <CommentDrawer comments={comments} tasks={tasks} memberProfiles={memberProfiles} activeThreadID={activeCommentThreadID} pageArchived={view.page.state === "archived"} canComment={!!view.published && view.page.state === "active"} canWrite={canWrite} unresolvedOnly={unresolvedOnly} commentsComplete={commentsComplete} replyingTo={replyingTo} anchor={commentAnchor} body={commentBody} mentionedUserIDs={mentionedUserIDs} focusRequest={commentComposerFocusRequest} editingCommentID={editingCommentID} editingCommentBody={editingCommentBody} editingMentionedUserIDs={editingCommentMentionedUserIDs} searchMembers={searchMentionMembers} onMemberResolved={rememberMentionMember} onClose={() => setMode("read")} onUnresolvedOnlyChange={setUnresolvedOnly} onFocusAnchor={nodeID => setCommentFocus(current => ({ nodeID, revision: current.revision + 1 }))} onCancelReply={() => setReplyingTo("")} onBodyChange={setCommentBody} onMentionedUserIDsChange={setMentionedUserIDs} onSubmit={() => void addComment()} onThreadElement={(threadID, element) => { commentThreadRefs.current[threadID] = element; }} onFocusComment={focusComment} onEditingCommentBodyChange={setEditingCommentBody} onEditingMentionedUserIDsChange={setEditingCommentMentionedUserIDs} onSaveEdit={comment => void updateComment(comment)} onCancelEdit={() => { setEditingCommentID(""); setEditingCommentBody(""); setEditingCommentMentionedUserIDs([]); }} onBeginEdit={comment => { setEditingCommentID(comment.id); setEditingCommentBody(comment.body); setEditingCommentMentionedUserIDs(comment.mentioned_user_ids || []); }} onBeginReply={beginReply} onResolve={comment => void resolveComment(comment)} onAssignTask={comment => void assignCommentTask(comment)} onDelete={comment => void deleteComment(comment)} onToggleReaction={(comment, emoji) => void toggleCommentReaction(comment, emoji)} onLoadMore={() => void loadMoreComments()} />}
+          {mode === "activity" && <PageActivityPanel items={activities} versionsComplete={versionsComplete} commentsComplete={commentsComplete} onLoadMoreVersions={() => void loadMoreVersions()} onLoadMoreComments={() => void loadMoreComments()} />}
+          {mode === "access" && library.role === "manager" && <section className="knowledge-page-access knowledge-page-management-panel">
+            <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><ScanSearch size={17} /></span><div><h3>权限分析</h3><p>只读解释指定用户为什么能或不能执行某个动作，不会修改任何权限。</p></div></header>
+            <div className="knowledge-principal-picker"><label>查找用户<input value={accessQuery} onChange={event => { setAccessQuery(event.target.value); setAccessUserID(""); }} placeholder="输入姓名或邮箱" /></label>{accessPrincipals.length > 0 && <div className="knowledge-principal-results" role="listbox">{accessPrincipals.map(principal => <button key={principal.user_id} role="option" aria-selected={accessUserID === principal.user_id} onClick={() => { setAccessUserID(principal.user_id); setAccessQuery(principal.display_name || principal.email || principal.user_id); setAccessPrincipals([]); }}>{principal.avatar_url ? <img src={principal.avatar_url} alt="" /> : <span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span>}<strong>{principal.display_name}</strong><small>{principal.email}</small></button>)}</div>}</div>
+            <label>分析动作<Select value={accessAction} onChange={event => setAccessAction(event.target.value)}><option value="knowledge.pages.get">阅读页面</option><option value="knowledge.pages.update">编辑草稿</option><option value="knowledge.pages.publish">发布页面</option><option value="knowledge.page_comments.create">发表评论</option><option value="knowledge.page_shares.read">通过受控分享阅读</option></Select></label>
+            {accessAction === "knowledge.page_shares.read" && <label>分享定位符<input value={accessShareID} onChange={event => setAccessShareID(event.target.value)} placeholder="kshare_…" /></label>}
+            {accessExplanation ? <div className="knowledge-access-preview"><p><strong>最终结论：{accessExplanation.final.allowed ? "允许" : "拒绝"}</strong>（{accessExplanation.final.label} · {accessExplanation.final.source === "share" ? "受控分享路径" : "正常页面权限路径"}）</p><p>Identity 功能权限：{accessExplanation.identity.allowed ? "允许" : "拒绝"} · {accessExplanation.identity.label}</p><p>资料库成员角色：{accessExplanation.library.allowed ? "允许" : "拒绝"} · {accessExplanation.library_role || "无成员关系"} · {accessExplanation.library.label}</p><p>页面权限：{accessExplanation.page.allowed ? "允许" : "拒绝"} · {accessExplanation.page.label}；继承来源 {accessExplanation.inherited_from || "资料库"}</p>{accessExplanation.share && <p>受控分享：{accessExplanation.share.allowed ? "允许" : "拒绝"} · {accessExplanation.share.label} · {accessExplanation.share.source || "share"}</p>}</div> : <p className="knowledge-management-panel-empty">选择用户和动作后显示逐层裁决结果。</p>}
           </section>}
-          {mode === "activity" && <section className="knowledge-page-activity"><p className="knowledge-subtle">活动由发布版本与评论实时合并，不另存第三份活动记录。</p>{activities.map(item => <div key={item.key} className="knowledge-activity-item"><Activity size={15} /><span><strong>{item.title}</strong><small>{new Date(item.at).toLocaleString()} · {item.detail}</small></span></div>)}{activities.length === 0 && <p className="knowledge-subtle">暂无页面活动。</p>}<div className="knowledge-actions">{!versionsComplete && <Button onClick={() => void loadMoreVersions()}>加载更早发布</Button>}{!commentsComplete && <Button onClick={() => void loadMoreComments()}>加载更多评论</Button>}</div></section>}
-          {mode === "access" && library.role === "manager" && <section className="knowledge-page-access"><h3>当前页面访问说明</h3><p className="knowledge-subtle">结果由服务端同时计算 Identity 功能权限、资料库实时成员角色、页面继承关系和可选的受控分享状态。</p><label>查找用户<input value={accessQuery} onChange={event => { setAccessQuery(event.target.value); setAccessUserID(""); }} placeholder="输入姓名或邮箱" /></label><div className="knowledge-principal-results" role="listbox">{accessPrincipals.map(principal => <button key={principal.user_id} role="option" aria-selected={accessUserID === principal.user_id} onClick={() => { setAccessUserID(principal.user_id); setAccessQuery(principal.display_name || principal.email || principal.user_id); setAccessPrincipals([]); }}>{principal.avatar_url ? <img src={principal.avatar_url} alt="" /> : <span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span>}<strong>{principal.display_name}</strong><small>{principal.email}</small></button>)}</div><label>动作<select value={accessAction} onChange={event => setAccessAction(event.target.value)}><option value="knowledge.pages.get">阅读页面</option><option value="knowledge.pages.update">编辑草稿</option><option value="knowledge.pages.publish">发布页面</option><option value="knowledge.page_comments.create">发表评论</option><option value="knowledge.page_shares.read">通过受控分享阅读</option></select></label>{accessAction === "knowledge.page_shares.read" && <label>分享定位符<input value={accessShareID} onChange={event => setAccessShareID(event.target.value)} placeholder="kshare_…" /></label>}{accessExplanation && <div className="knowledge-access-preview"><p><strong>最终结论：{accessExplanation.final.allowed ? "允许" : "拒绝"}</strong>（{accessExplanation.final.label} · {accessExplanation.final.source === "share" ? "受控分享路径" : "正常页面权限路径"}）</p><p>Identity 功能权限：{accessExplanation.identity.allowed ? "允许" : "拒绝"} · {accessExplanation.identity.label}</p><p>资料库成员角色：{accessExplanation.library.allowed ? "允许" : "拒绝"} · {accessExplanation.library_role || "无成员关系"} · {accessExplanation.library.label}</p><p>页面权限：{accessExplanation.page.allowed ? "允许" : "拒绝"} · {accessExplanation.page.label}；继承来源 {accessExplanation.inherited_from || "资料库"}</p>{accessExplanation.share && <p>受控分享：{accessExplanation.share.allowed ? "允许" : "拒绝"} · {accessExplanation.share.label} · {accessExplanation.share.source || "share"}</p>}</div>}</section>}
-          {mode === "permissions" && library.role === "manager" && client.getPageAccess && client.setPageAccess && <section className="knowledge-page-access knowledge-page-permissions">
-            <h3>页面与子树权限</h3>
-            <p className="knowledge-subtle">管理者始终保留治理访问。受限模式可授权当前知识库中的用户或组织，实际权限不会超过其知识库角色。</p>
+          {mode === "permissions" && library.role === "manager" && client.getPageAccess && client.setPageAccess && <section className="knowledge-page-access knowledge-page-permissions knowledge-page-management-panel">
+            <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><UserRoundCog size={17} /></span><div><h3>页面与子树权限</h3><p>配置当前页面是否继承知识库角色，以及受限模式下的明确授权。</p></div></header>
             {!pageAccess ? <p role="status">正在读取服务端权限…</p> : <>
-              <label>访问模式<select value={permissionMode} disabled={permissionSaving} onChange={event => setPermissionMode(event.target.value as "inherit" | "restricted")}><option value="inherit">继承知识库角色</option><option value="restricted">仅管理者和明确授权主体</option></select></label>
+              <label>访问模式<Select value={permissionMode} disabled={permissionSaving} onChange={event => setPermissionMode(event.target.value as "inherit" | "restricted")}><option value="inherit">继承知识库角色</option><option value="restricted">仅管理者和明确授权主体</option></Select></label>
               {permissionMode === "inherit" ? <p className="knowledge-access-preview">本页完全继承知识库成员角色，不保存额外授权。</p> : <>
                 <div className="knowledge-permission-grant-options">
-                  <label>授权主体<select value={permissionSubjectType} disabled={permissionSaving} onChange={event => { setPermissionSubjectType(event.target.value as KnowledgeAccessSubject["type"]); setPermissionQuery(""); }}><option value="user">用户</option><option value="organization">组织</option></select></label>
-                  <label>授权角色<select value={permissionRole} onChange={event => setPermissionRole(event.target.value as KnowledgePageAccessGrant["role"])}><option value="reader">阅读者</option><option value="editor">编辑者</option><option value="manager">管理者</option></select></label>
-                  <label>授权范围<select value={permissionScope} onChange={event => setPermissionScope(event.target.value as KnowledgePageAccessGrant["scope"])}><option value="page">仅此页面</option><option value="subtree">此页面与子树</option></select></label>
+                  <label>授权主体<Select value={permissionSubjectType} disabled={permissionSaving} onChange={event => { setPermissionSubjectType(event.target.value as KnowledgeAccessSubject["type"]); setPermissionQuery(""); }}><option value="user">用户</option><option value="organization">组织</option></Select></label>
+                  <label>授权角色<Select value={permissionRole} onChange={event => setPermissionRole(event.target.value as KnowledgePageAccessGrant["role"])}><option value="reader">阅读者</option><option value="editor">编辑者</option><option value="manager">管理者</option></Select></label>
+                  <label>授权范围<Select value={permissionScope} onChange={event => setPermissionScope(event.target.value as KnowledgePageAccessGrant["scope"])}><option value="page">仅此页面</option><option value="subtree">此页面与子树</option></Select></label>
                 </div>
-                {permissionSubjectType === "user" ? <>
-                  <label>查找当前知识库成员<input value={permissionQuery} disabled={permissionSaving} onChange={event => setPermissionQuery(event.target.value)} placeholder="按姓名或邮箱搜索" /></label>
-                  <div className="knowledge-principal-results" role="listbox">{permissionPrincipals.map(principal => <button key={principal.user_id} role="option" onClick={() => addPermissionGrant(principal)}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>
-                </> : <div className="knowledge-member-editor"><label>Identity 组织 ID<input value={permissionQuery} disabled={permissionSaving} onChange={event => setPermissionQuery(event.target.value)} placeholder="输入准确的组织 ID" /></label><Button disabled={permissionSaving || !permissionQuery.trim()} onClick={() => void addOrganizationPermissionGrant()}>验证并添加组织</Button></div>}
+                {permissionSubjectType === "user" ? <div className="knowledge-principal-picker"><label>查找当前知识库成员<input value={permissionQuery} disabled={permissionSaving} onChange={event => setPermissionQuery(event.target.value)} placeholder="按姓名或邮箱搜索" /></label>{permissionPrincipals.length > 0 && <div className="knowledge-principal-results" role="listbox">{permissionPrincipals.map(principal => <button key={principal.user_id} role="option" onClick={() => addPermissionGrant(principal)}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}</div> : <div className="knowledge-member-editor"><label>Identity 组织 ID<input value={permissionQuery} disabled={permissionSaving} onChange={event => setPermissionQuery(event.target.value)} placeholder="输入准确的组织 ID" /></label><Button disabled={permissionSaving || !permissionQuery.trim()} onClick={() => void addOrganizationPermissionGrant()}>验证并添加组织</Button></div>}
                 <div className="knowledge-permission-grants">{permissionGrants.map(grant => <div key={`${grant.subject.type}:${grant.subject.id}:${grant.scope}`}><span><strong>{subjectLabel(grant.subject)}</strong><small>{grant.subject.type === "organization" ? "组织" : "用户"} · {grant.role === "reader" ? "阅读者" : grant.role === "editor" ? "编辑者" : "管理者"} · {grant.scope === "page" ? "仅此页面" : "页面与子树"}</small></span><Button disabled={permissionSaving} onClick={() => setPermissionGrants(current => current.filter(item => item.subject.type !== grant.subject.type || item.subject.id !== grant.subject.id || item.scope !== grant.scope))}>移除</Button></div>)}{permissionGrants.length === 0 && <p className="knowledge-subtle">尚未授权任何用户或组织；除管理者外无人可访问。</p>}</div>
               </>}
               <p className="knowledge-subtle">当前 ACL revision {pageAccess.revision} · 远端投影 {pageAccess.projection_status === "ready" ? "已确认" : "确认中（页面已从搜索结果隐藏）"}</p>
               <Button disabled={permissionSaving} onClick={() => void savePageAccess()}><Save size={14} />{permissionSaving ? "正在保存…" : "保存页面权限"}</Button>
             </>}
-            <KnowledgePageShareManager client={client} libraryID={library.id} pageID={selectedID} published={!!view.published} formatError={formatError} onNotice={setNotice} />
           </section>}
-          {mode === "governance" && metadata && governanceDraft && <section className="knowledge-page-governance" aria-labelledby="knowledge-page-governance-title">
-            <header><div><h3 id="knowledge-page-governance-title">页面治理</h3><p>负责人和内容管理员只承担治理责任，不会因此获得页面访问权限；复核人仍须拥有编辑权限。</p></div><span>revision {metadata.revision}</span></header>
+          {mode === "shares" && library.role === "manager" && client.listPageShares && client.createPageShare && client.revokePageShare && <section className="knowledge-page-access knowledge-page-shares knowledge-page-management-panel" aria-label="受控分享"><KnowledgePageShareManager client={client} libraryID={library.id} pageID={selectedID} published={!!view.published} formatError={formatError} onNotice={setNotice} /></section>}
+          {mode === "governance" && metadata && governanceDraft && <section className="knowledge-page-governance knowledge-page-management-panel" aria-labelledby="knowledge-page-governance-title">
+            <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><ShieldCheck size={17} /></span><div><h3 id="knowledge-page-governance-title">页面治理</h3><p>配置负责人、复核周期、归档保留与内容保护；治理身份本身不授予页面访问权。</p></div><span>revision {metadata.revision}</span></header>
             <article className="knowledge-governance-card">
               <div className="knowledge-governance-card-title"><div><h4>责任人与复核周期</h4><p>管理者配置规则；负责人、内容管理员或管理者可完成复核。</p></div>{governanceDirty && <span className="is-pending">未保存</span>}</div>
               <div className="knowledge-governance-grid">
-                <label><span>页面负责人</span><select value={governanceDraft.ownerUserID} disabled={library.role !== "manager" || governanceSaving} onChange={event => updateGovernance(current => ({ ...current, ownerUserID: event.target.value, contentAdminUserIDs: current.contentAdminUserIDs.filter(userID => userID !== event.target.value) }))}><option value="">选择当前知识库成员</option>{metadataMemberIDs.map(userID => <option key={userID} value={userID}>{memberProfiles[userID]?.display_name || userID}</option>)}</select></label>
+                <label><span>页面负责人</span><Select value={governanceDraft.ownerUserID} disabled={library.role !== "manager" || governanceSaving} onChange={event => updateGovernance(current => ({ ...current, ownerUserID: event.target.value, contentAdminUserIDs: current.contentAdminUserIDs.filter(userID => userID !== event.target.value) }))}><option value="">选择当前知识库成员</option>{metadataMemberIDs.map(userID => <option key={userID} value={userID}>{memberProfiles[userID]?.display_name || userID}</option>)}</Select></label>
                 <label><span>下次复核时间</span><input type="datetime-local" value={metadataDateTimeInput(governanceDraft.nextReviewAt)} disabled={library.role !== "manager" || governanceSaving || governanceDraft.reviewIntervalDays === 0} onChange={event => updateGovernance(current => ({ ...current, nextReviewAt: metadataDateTimeISO(event.target.value) }))} /></label>
                 <label><span>复核周期（天）</span><input type="number" min={0} max={3650} value={governanceDraft.reviewIntervalDays} disabled={library.role !== "manager" || governanceSaving} onChange={event => updateGovernance(current => ({ ...current, reviewIntervalDays: Math.max(0, Number(event.target.value) || 0), nextReviewAt: Number(event.target.value) > 0 ? current.nextReviewAt : undefined }))} /><small>填 0 表示关闭定期复核。</small></label>
                 <label><span>归档保留期（天）</span><input type="number" min={1} max={3650} value={governanceDraft.archiveRetentionDays} disabled={library.role !== "manager" || governanceSaving} onChange={event => updateGovernance(current => ({ ...current, archiveRetentionDays: Math.max(1, Number(event.target.value) || 1) }))} /><small>到期后页面不可恢复；首期不提供物理删除按钮。</small></label>
@@ -2417,7 +2415,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
             </article>
             {library.role === "manager" && <article className="knowledge-governance-card knowledge-governance-audit">
               <div className="knowledge-governance-card-title"><div><h4>治理审计</h4><p>直接查询不可变 Audit 事件，不在知识库内复制第三份日志。</p></div><Button aria-label="刷新治理审计" title="刷新" disabled={governanceAuditLoading} onClick={() => void loadGovernanceAudit(true)}><RefreshCw className={governanceAuditLoading ? "knowledge-spin" : undefined} size={14} /></Button></div>
-              <div className="knowledge-governance-audit-filters"><label><span>事件</span><select value={governanceAuditEvent} disabled={governanceAuditLoading} onChange={event => setGovernanceAuditEvent(event.target.value)}><option value="">全部治理事件</option><option value="knowledge.page.governance_set">更新治理规则</option><option value="knowledge.page.governance_reviewed">完成内容复核</option></select></label><label><span>操作者用户 ID</span><input value={governanceAuditActor} disabled={governanceAuditLoading} onChange={event => setGovernanceAuditActor(event.target.value)} placeholder="留空表示全部" /></label><Button disabled={governanceAuditLoading} onClick={() => void loadGovernanceAudit(true)}><Search size={14} />查询</Button></div>
+              <div className="knowledge-governance-audit-filters"><label><span>事件</span><Select value={governanceAuditEvent} disabled={governanceAuditLoading} onChange={event => setGovernanceAuditEvent(event.target.value)}><option value="">全部治理事件</option><option value="knowledge.page.governance_set">更新治理规则</option><option value="knowledge.page.governance_reviewed">完成内容复核</option></Select></label><label><span>操作者用户 ID</span><input value={governanceAuditActor} disabled={governanceAuditLoading} onChange={event => setGovernanceAuditActor(event.target.value)} placeholder="留空表示全部" /></label><Button disabled={governanceAuditLoading} onClick={() => void loadGovernanceAudit(true)}><Search size={14} />查询</Button></div>
               <div className="knowledge-governance-audit-list">{governanceAudit.map(event => <article key={event.id}><span className="knowledge-governance-audit-icon"><ShieldCheck size={15} /></span><div><strong>{governanceEventLabels[event.type] || event.type}</strong><small>{memberProfiles[event.actor.user_id]?.display_name || event.actor.user_id} · {new Date(event.occurred_at).toLocaleString()} · revision {event.version || "-"}</small>{event.after && <p>{Object.entries(event.after).map(([key, value]) => `${key}: ${value}`).join(" · ")}</p>}</div></article>)}{!governanceAuditLoading && governanceAudit.length === 0 && <p className="knowledge-subtle">没有符合条件的治理事件。</p>}</div>
               {!governanceAuditComplete && <Button disabled={governanceAuditLoading || !governanceAuditAfter} onClick={() => void loadGovernanceAudit(false)}>{governanceAuditLoading ? "加载中…" : "加载更多"}</Button>}
             </article>}

@@ -101,12 +101,12 @@ func (host *Host) newHandler(options Options, knowledgeAdapters []modulehttp.Ada
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Cache-Control", "no-store")
 		response.Header().Set("X-Content-Type-Options", "nosniff")
-		response.Header().Set("Referrer-Policy", "no-referrer")
+		response.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		frameSources := "'none'"
 		if len(host.embedFrameOrigins) > 0 {
 			frameSources = strings.Join(host.embedFrameOrigins, " ")
 		}
-		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src "+frameSources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-src "+frameSources+"; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		unsafe := request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions
 		if request.Host != origin.Host || request.Header.Get("Origin") != "" && request.Header.Get("Origin") != options.Origin || unsafe && request.Header.Get("Origin") != options.Origin {
 			httpresponse.WriteError(response, request, httpresponse.Failure{Status: http.StatusForbidden, Code: "knowledge.origin_required"})

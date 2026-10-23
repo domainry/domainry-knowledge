@@ -11,6 +11,10 @@ import (
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
+type knowledgePageProjectionSkipper interface {
+	SkipKnowledgePageProjection(context.Context, knowledgesdk.KnowledgePageProjectionLease) error
+}
+
 func (s *Service) ProcessKnowledgePageProjection(ctx context.Context, repository knowledgesdk.KnowledgePageProjectionRepository, work knowledgesdk.KnowledgePageProjectionWork) (resultErr error) {
 	completed := false
 	defer func() {
@@ -21,6 +25,24 @@ func (s *Service) ProcessKnowledgePageProjection(ctx context.Context, repository
 		defer cancel()
 		resultErr = errors.Join(resultErr, repository.RetryKnowledgePageProjection(retry, work.Lease, time.Now().UTC().Add(30*time.Second)))
 	}()
+	configured, err := s.DocumentManagementConfigured(ctx, work.Lease.LibraryID, work.Lease.Actor)
+	if err != nil {
+		resultErr = err
+		return
+	}
+	if !configured {
+		skipper, ok := repository.(knowledgePageProjectionSkipper)
+		if !ok {
+			resultErr = conversationFailure("unavailable", "page_projection_skip_unavailable")
+			return
+		}
+		if err = skipper.SkipKnowledgePageProjection(ctx, work.Lease); err != nil {
+			resultErr = err
+			return
+		}
+		completed = true
+		return nil
+	}
 	if _, err := s.DocumentAccess(ctx, work.Lease.LibraryID, knowledgesdk.ActionPagesPublish, work.Lease.Actor); err != nil {
 		resultErr = err
 		return

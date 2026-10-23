@@ -3,9 +3,11 @@ import { ArrowDown, ArrowUp, BarChart3, CheckCircle2, ClipboardCopy, Download, F
 import { DefaultEvaluator, Formio } from "@formio/js";
 import bootstrapCSS from "bootstrap/dist/css/bootstrap.min.css?inline";
 import formioCSS from "@formio/js/dist/formio.full.min.css?inline";
+import { Button, Select } from "../components.tsx";
 import { canonicalFormFromBuilder, formioSchema, formSubmissionAnswers, normalizeFormContent, parseFormContent } from "../formContent.ts";
 import type { KnowledgeFormAnalytics, KnowledgeFormComponent, KnowledgeFormComponentType, KnowledgeFormFileAnswer, KnowledgeFormOption, KnowledgeFormSettings, KnowledgeFormSubmission } from "../types.ts";
 import type { KnowledgeEditorProps } from "./types.ts";
+import { PageActionPortal } from "./PageActionPortal.tsx";
 import { taskDateTimeInputValue, taskDateTimeISO } from "./task.ts";
 
 type FormView = "design" | "settings" | "responses";
@@ -101,7 +103,7 @@ function formShadowStyle() {
     @container (max-width:720px){.formbuilder{display:block!important;margin:0!important}.formbuilder>.formcomponents,.formbuilder>.formarea{width:100%!important;max-width:none!important;flex:none!important}.builder-sidebar_scroll{max-height:300px!important;margin-bottom:18px;overflow:auto}.builder-sidebar [ref="sidebar-container"]{grid-template-columns:repeat(2,minmax(0,1fr))}}`;
 }
 
-export function FormEditor({ body, readOnly = false, form, authorizeContentAction, onChange, onActionFeedback, uploadFile, fileUploadsEnabled }: KnowledgeEditorProps) {
+export function FormEditor({ body, readOnly = false, form, pageActionHost, authorizeContentAction, onChange, onActionFeedback, uploadFile, fileUploadsEnabled }: KnowledgeEditorProps) {
   const parsed = useMemo(() => parseFormContent(body), [body]);
   const [view, setView] = useState<FormView>("design");
   const [components, setComponents] = useState<KnowledgeFormComponent[]>(parsed.components);
@@ -258,6 +260,7 @@ export function FormEditor({ body, readOnly = false, form, authorizeContentActio
 
   const canShowResponses = form?.canManage && form.publishedVersion > 0;
   return <div className={`knowledge-open-editor is-formio${readOnly ? " is-form-response" : " is-form-builder"}`}>
+    {authorizeContentAction && form?.canManage && form.publishedVersion > 0 && <PageActionPortal host={pageActionHost}><Button onClick={() => void exportResponses()}><Download size={15} />导出 CSV</Button></PageActionPortal>}
     <div className="knowledge-form-toolbar" role="tablist" aria-label="问卷工作区">
       <button role="tab" aria-selected={view === "design"} onClick={() => setView("design")}><ListChecks size={16} />{readOnly ? "填写问卷" : "题目设计"}</button>
       {!readOnly && <button role="tab" aria-selected={view === "settings"} onClick={() => setView("settings")}><Settings2 size={16} />提交设置</button>}
@@ -298,7 +301,7 @@ export function FormEditor({ body, readOnly = false, form, authorizeContentActio
                   <label>最小值<input type="number" value={component.validate.min ?? ""} onChange={event => patchQuestion(index, { validate: { ...component.validate, min: event.target.value ? Number(event.target.value) : undefined } })} /></label>
                   <label>最大值<input type="number" value={component.validate.max ?? ""} onChange={event => patchQuestion(index, { validate: { ...component.validate, max: event.target.value ? Number(event.target.value) : undefined } })} /></label>
                 </>}
-                {component.type === "currency" && <label>币种<select value={component.currency || "CNY"} onChange={event => patchQuestion(index, { currency: event.target.value as NonNullable<KnowledgeFormComponent["currency"]> })}><option value="CNY">人民币 CNY</option><option value="USD">美元 USD</option><option value="EUR">欧元 EUR</option><option value="JPY">日元 JPY</option></select></label>}
+                {component.type === "currency" && <label>币种<Select value={component.currency || "CNY"} onChange={event => patchQuestion(index, { currency: event.target.value as NonNullable<KnowledgeFormComponent["currency"]> })}><option value="CNY">人民币 CNY</option><option value="USD">美元 USD</option><option value="EUR">欧元 EUR</option><option value="JPY">日元 JPY</option></Select></label>}
                 {component.type === "file" && <label>最多文件数<input type="number" min="1" max="20" value={component.maxFiles || 5} onChange={event => patchQuestion(index, { maxFiles: Number(event.target.value) })} /></label>}
               </div>
               {choiceTypes.has(component.type) && <div className="knowledge-form-option-editor">
@@ -307,10 +310,10 @@ export function FormEditor({ body, readOnly = false, form, authorizeContentActio
                 <button type="button" onClick={() => { let suffix = options.length + 1; while (options.some(option => option.value === `option${suffix}`)) suffix += 1; setOptions(index, [...options, { label: `选项 ${suffix}`, value: `option${suffix}` }]); }}><Plus size={14} />添加选项</button>
               </div>}
               <div className="knowledge-form-condition-editor">
-                <label>显示条件<select value={component.conditional?.when || ""} onChange={event => setCondition(index, event.target.value)}><option value="">始终显示</option>{components.filter(candidate => candidate.key !== component.key).map(candidate => <option key={candidate.key} value={candidate.key}>{candidate.label || candidate.key}</option>)}</select></label>
+                <label>显示条件<Select value={component.conditional?.when || ""} onChange={event => setCondition(index, event.target.value)}><option value="">始终显示</option>{components.filter(candidate => candidate.key !== component.key).map(candidate => <option key={candidate.key} value={candidate.key}>{candidate.label || candidate.key}</option>)}</Select></label>
                 {component.conditional && <>
-                  <label>规则<select value={component.conditional.show ? "show" : "hide"} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, show: event.target.value === "show" } })}><option value="show">等于时显示</option><option value="hide">等于时隐藏</option></select></label>
-                  <label>比较值{conditionTarget?.type === "checkbox" ? <select value={String(component.conditional.eq)} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, eq: event.target.value === "true" } })}><option value="true">已勾选</option><option value="false">未勾选</option></select> : <input type={conditionTarget?.type === "number" || conditionTarget?.type === "currency" || conditionTarget?.type === "rating" || conditionTarget?.type === "scale" ? "number" : "text"} value={String(component.conditional.eq)} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, eq: conditionTarget?.type === "number" || conditionTarget?.type === "currency" || conditionTarget?.type === "rating" || conditionTarget?.type === "scale" ? Number(event.target.value) : event.target.value } })} />}</label>
+                  <label>规则<Select value={component.conditional.show ? "show" : "hide"} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, show: event.target.value === "show" } })}><option value="show">等于时显示</option><option value="hide">等于时隐藏</option></Select></label>
+                  <label>比较值{conditionTarget?.type === "checkbox" ? <Select value={String(component.conditional.eq)} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, eq: event.target.value === "true" } })}><option value="true">已勾选</option><option value="false">未勾选</option></Select> : <input type={conditionTarget?.type === "number" || conditionTarget?.type === "currency" || conditionTarget?.type === "rating" || conditionTarget?.type === "scale" ? "number" : "text"} value={String(component.conditional.eq)} onChange={event => patchQuestion(index, { conditional: { ...component.conditional!, eq: conditionTarget?.type === "number" || conditionTarget?.type === "currency" || conditionTarget?.type === "rating" || conditionTarget?.type === "scale" ? Number(event.target.value) : event.target.value } })} />}</label>
                 </>}
               </div>
             </article>;
@@ -325,7 +328,7 @@ export function FormEditor({ body, readOnly = false, form, authorizeContentActio
     {view === "settings" && !readOnly && <section className="knowledge-form-settings">
       <header><FilePenLine size={20} /><div><h3>提交与开放规则</h3><p>规则随问卷版本发布；答卷始终绑定提交时的不可变发布版本。</p></div></header>
       <div className="knowledge-form-settings-grid">
-        <label>最低提交角色<select value={settings.submission_role} onChange={event => updateSettings({ submission_role: event.target.value as KnowledgeFormSettings["submission_role"] })}><option value="reader">阅读者及以上</option><option value="editor">编辑者及以上</option><option value="manager">仅管理者</option></select></label>
+        <label>最低提交角色<Select value={settings.submission_role} onChange={event => updateSettings({ submission_role: event.target.value as KnowledgeFormSettings["submission_role"] })}><option value="reader">阅读者及以上</option><option value="editor">编辑者及以上</option><option value="manager">仅管理者</option></Select></label>
         <label className="knowledge-form-checkbox"><input type="checkbox" checked={settings.allow_multiple_submissions} onChange={event => updateSettings({ allow_multiple_submissions: event.target.checked })} />允许同一账号重复提交</label>
         <label>开始时间<input type="datetime-local" value={taskDateTimeInputValue(settings.opens_at)} onChange={event => updateSettings({ opens_at: taskDateTimeISO(event.target.value) || "" })} /></label>
         <label>截止时间<input type="datetime-local" value={taskDateTimeInputValue(settings.closes_at)} onChange={event => updateSettings({ closes_at: taskDateTimeISO(event.target.value) || "" })} /></label>
@@ -335,7 +338,7 @@ export function FormEditor({ body, readOnly = false, form, authorizeContentActio
     </section>}
 
     {view === "responses" && canShowResponses && <section className="knowledge-form-responses">
-      <header><div><h3>答卷与统计</h3><p>统计只计算当前发布版本；导出会保留历史版本答卷并标注版本号。</p></div>{authorizeContentAction && <button type="button" onClick={() => void exportResponses()}><Download size={15} />导出 CSV</button>}</header>
+      <header><div><h3>答卷与统计</h3><p>统计只计算当前发布版本；导出会保留历史版本答卷并标注版本号。</p></div></header>
       {analytics && <div className="knowledge-form-metrics"><article><strong>{analytics.total_submissions}</strong><span>当前版本答卷</span></article><article><strong>{analytics.questions.length}</strong><span>问题数</span></article><article><strong>v{analytics.published_version}</strong><span>统计版本</span></article></div>}
       {analytics?.questions.map(question => <article className="knowledge-form-analysis" key={question.key}><header><strong>{question.label}</strong><span>{question.answered} 人回答 · {question.skipped} 人跳过</span></header>{question.choice_counts.length > 0 && <div>{question.choice_counts.map(choice => <p key={choice.value}><span>{choice.label}</span><b>{choice.count}</b><i style={{ width: `${analytics.total_submissions ? Math.round(choice.count / analytics.total_submissions * 100) : 0}%` }} /></p>)}</div>}{question.number_average !== undefined && <p className="knowledge-form-number-summary">平均 {question.number_average.toFixed(2)} · 最小 {question.number_min} · 最大 {question.number_max}</p>}</article>)}
       <div className="knowledge-form-response-list"><h4>最近答卷</h4>{responses.map(response => <details key={response.id}><summary><span>{response.submitted_by_user_id}</span><time>{new Date(response.submitted_at).toLocaleString()}</time><em>版本 {response.published_version}</em></summary><dl>{Object.entries(response.answers).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{typeof value === "string" ? value : JSON.stringify(value)}</dd></div>)}</dl></details>)}{!loadingResponses && responses.length === 0 && <p>当前版本还没有答卷。</p>}{!responsesComplete && <button type="button" disabled={loadingResponses} onClick={() => void loadResponses(false)}>{loadingResponses ? "正在载入…" : "加载更多"}</button>}</div>

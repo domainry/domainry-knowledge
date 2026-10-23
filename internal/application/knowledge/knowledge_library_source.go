@@ -81,6 +81,25 @@ func (k *LibraryKnowledgeSource) Configured(ctx context.Context, id string, a ag
 	_, ok, err := k.Binding(ctx, id, a)
 	return ok, err
 }
+
+// ManagedDocumentsConfigured reports host intent without requiring the remote
+// provider to be healthy. Workers use this distinction to avoid retrying local-
+// only libraries forever while still retrying a configured provider that is
+// temporarily unavailable.
+func (k *LibraryKnowledgeSource) ManagedDocumentsConfigured(ctx context.Context, id string, a agentsdk.Authority) (bool, error) {
+	if a.RuntimeID != k.runtimeID {
+		return false, nil
+	}
+	if static, ok := k.bindings[conversationDigest([]string{a.WorkspaceID, id})]; ok {
+		return static.ManageDocuments, nil
+	}
+	if k.datasources == nil {
+		return false, nil
+	}
+	_, found, err := k.datasources.KnowledgeDatasourceBinding(ctx, DocumentStorageScope(id, a))
+	return found, err
+}
+
 func (k *LibraryKnowledgeSource) Binding(ctx context.Context, id string, a agentsdk.Authority) (LibraryKnowledgeBinding, bool, error) {
 	if a.RuntimeID != k.runtimeID {
 		return LibraryKnowledgeBinding{}, false, nil

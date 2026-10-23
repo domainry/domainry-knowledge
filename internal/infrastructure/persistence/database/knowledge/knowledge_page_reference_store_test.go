@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 	"github.com/domainry/domainry-orm/query"
@@ -39,6 +40,17 @@ func pageCountForReferenceTest(t *testing.T, store *Store, libraryID string, aut
 		t.Fatal(err)
 	}
 	return count
+}
+
+func TestDocumentPageReferencesIgnoreUnresolvedDraftBlocks(t *testing.T) {
+	content := referenceDocumentContent("reference-draft", "", "未选择知识条目", knowledgesdk.KnowledgePageTypeDocument, "card", "live", 0)
+	references, err := documentPageReferences("kpage_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "klib_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", content, time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(references) != 0 {
+		t.Fatalf("unresolved draft reference must not be indexed: %+v", references)
+	}
 }
 
 func TestCreateKnowledgePageReferenceIsAtomicAndIdempotent(t *testing.T) {

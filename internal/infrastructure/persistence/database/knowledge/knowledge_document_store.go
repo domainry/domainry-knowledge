@@ -180,7 +180,7 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 		return
 	}
 	valid := personalMemoryKey(in.ClientID) && executionText(in.Filename, 255, true) && executionText(in.ContentType, 255, true) && validArtifactSHA(in.SHA256) && in.Bytes > 0 && in.Bytes <= agentsdk.KnowledgeDocumentMaximumBytes
-	if !valid || !validLibraryID(in.LibraryID) || !validArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !validArtifactSHA(in.AccessPolicySHA256) || !validDocumentSourceAccess(in.SourceAccess) {
+	if !valid || !validLibraryID(in.LibraryID) || in.SourceID != "" && !validArtifactSHA(in.SourceID) || in.AccessPolicySHA256 != "" && !validArtifactSHA(in.AccessPolicySHA256) || !validDocumentSourceAccess(in.SourceAccess) {
 		return out, conversationError("bad_request", "document_invalid")
 	}
 	namespace := ""
@@ -204,7 +204,7 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 		if e != nil {
 			return e
 		}
-		if source != in.SourceID {
+		if in.SourceID != "" && source != in.SourceID {
 			return conversationError("conflict", "document_source_changed")
 		}
 		found, e := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, id), &out)
@@ -249,10 +249,16 @@ func (s *Store) ReserveKnowledgeDocument(ctx context.Context, in persistence.Kno
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		actor := agentsdk.Authority{Known: true, RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, UserID: a.UserID, RoleKey: a.RoleKey}
-		out = persistence.KnowledgeDocumentRecord{DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, ProjectionKind: "file", Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, ContentVersion: 1, IndexGeneration: 1, CreatedByUserID: a.UserID, State: "uploading", ProcessingStage: "upload", SecurityStatus: "pending", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: source, SourceAccess: cloneDocumentSourceAccess(in.SourceAccess), RemoteID: "dka_" + conversationHash([]string{source, libraryScope(a), id, in.SHA256})}
+		remoteID := "local_" + conversationHash([]string{libraryScope(a), id, in.SHA256})
+		if in.SourceID != "" {
+			remoteID = "dka_" + conversationHash([]string{in.SourceID, libraryScope(a), id, in.SHA256})
+		}
+		out = persistence.KnowledgeDocumentRecord{DocumentOrigin: in.DocumentOrigin, Document: agentsdk.KnowledgeDocument{ID: id, LibraryID: in.LibraryID, ProjectionKind: "file", Filename: in.Filename, ContentType: in.ContentType, Bytes: in.Bytes, SHA256: in.SHA256, ContentVersion: 1, IndexGeneration: 1, CreatedByUserID: a.UserID, State: "uploading", ProcessingStage: "upload", SecurityStatus: "pending", Revision: 1, CreatedAt: now, UpdatedAt: now}, Actor: actor, RequestSHA256: conversationHash(in), SourceID: in.SourceID, SourceAccess: cloneDocumentSourceAccess(in.SourceAccess), RemoteID: remoteID}
 		out.AccessPolicySHA256 = in.AccessPolicySHA256
-		out.PutRequestID = knowledgeDocumentPutRequestID(out)
-		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgeDocumentTable).Columns("scope_key", "document_id", "runtime_id", "library_id", "projection_kind", "source_key", "remote_id", "state", "revision", "bytes", "updated_at", "payload_json").Values(libraryScope(a), id, a.RuntimeID, in.LibraryID, "file", source, out.RemoteID, out.Document.State, 1, in.Bytes, now.UnixMilli(), conversationJSON(out)).Build()
+		if in.SourceID != "" {
+			out.PutRequestID = knowledgeDocumentPutRequestID(out)
+		}
+		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgeDocumentTable).Columns("scope_key", "document_id", "runtime_id", "library_id", "projection_kind", "source_key", "remote_id", "state", "revision", "bytes", "updated_at", "payload_json").Values(libraryScope(a), id, a.RuntimeID, in.LibraryID, "file", in.SourceID, out.RemoteID, out.Document.State, 1, in.Bytes, now.UnixMilli(), conversationJSON(out)).Build()
 		return conversationExec(ctx, tx, q, args, e)
 	})
 	return

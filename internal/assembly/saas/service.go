@@ -24,6 +24,7 @@ import (
 	filestore "github.com/domainry/domainry-knowledge/internal/infrastructure/filestore"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/migrationhost"
+	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/sqliteconfig"
 	saashttp "github.com/domainry/domainry-knowledge/internal/transport/http/saas"
 	ormdialect "github.com/domainry/domainry-orm/dialect"
 	ormsqlite "github.com/domainry/domainry-orm/sqlite"
@@ -70,7 +71,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	if err != nil {
 		return nil, err
 	}
-	database, err := sql.Open("sqlite", databasePath)
+	database, err := sql.Open("sqlite", sqliteconfig.DSN(databasePath))
 	if err != nil {
 		return nil, err
 	}
@@ -81,13 +82,7 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 			_ = service.Close(context.Background())
 		}
 	}()
-	if _, err = database.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-		return nil, err
-	}
 	if _, err = database.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
-		return nil, err
-	}
-	if _, err = database.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
 		return nil, err
 	}
 	renderer, err := ormdialect.New(ormdialect.SQLite)

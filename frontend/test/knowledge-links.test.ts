@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createKnowledgeBlockLink, createKnowledgePageLink, parseKnowledgeDeepLink } from "../src/knowledge-links.ts";
 
-const libraryID = `lib_${"a".repeat(32)}`;
+const libraryID = `klib_${"a".repeat(32)}`;
 const pageID = `kpage_${"b".repeat(32)}`;
 
 test("knowledge block links round-trip stable identifiers", () => {
@@ -23,7 +23,7 @@ test("knowledge block links round-trip stable identifiers", () => {
 });
 
 test("knowledge deep links reject malformed or executable identifiers", () => {
-  assert.equal(parseKnowledgeDeepLink("https://knowledge.example.test/?knowledge_library=lib_bad&knowledge_kind=personal&knowledge_page=kpage_bad"), null);
+  assert.equal(parseKnowledgeDeepLink("https://knowledge.example.test/?knowledge_library=klib_bad&knowledge_kind=personal&knowledge_page=kpage_bad"), null);
   assert.equal(parseKnowledgeDeepLink(`https://knowledge.example.test/?knowledge_library=${libraryID}&knowledge_kind=personal&knowledge_page=${pageID}&knowledge_block=%3Cscript%3E`), null);
   assert.throws(() => createKnowledgeBlockLink("https://knowledge.example.test/", { libraryID, libraryKind: "personal", pageID, mode: "read" }, "bad block"));
 });

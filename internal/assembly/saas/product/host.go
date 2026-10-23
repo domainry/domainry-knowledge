@@ -25,9 +25,11 @@ import (
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgemodulehost "github.com/domainry/domainry-knowledge-sdk/modulehost"
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
+	applicationcardprovider "github.com/domainry/domainry-knowledge/internal/infrastructure/applicationcardprovider"
 	documentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 	embedprovider "github.com/domainry/domainry-knowledge/internal/infrastructure/embedprovider"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/migrationhost"
+	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/sqliteconfig"
 	webhookdelivery "github.com/domainry/domainry-knowledge/internal/infrastructure/webhookdelivery"
 	knowledgemodule "github.com/domainry/domainry-knowledge/module"
 	metadatamodule "github.com/domainry/domainry-metadata/module"
@@ -76,6 +78,9 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	if len(options.Knowledge.EmbedProviders) == 0 {
 		options.Knowledge.EmbedProviders = embedprovider.Defaults()
 	}
+	if !hasApplicationCardProvider(options.Knowledge.ApplicationCardProviders, "web") {
+		options.Knowledge.ApplicationCardProviders = append(options.Knowledge.ApplicationCardProviders, applicationcardprovider.Web{})
+	}
 	embedRegistry, err := knowledgesdk.NewEmbedProviderRegistry(options.Knowledge.EmbedProviders...)
 	if err != nil {
 		return nil, err
@@ -95,7 +100,7 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	if err = os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
 		return nil, fmt.Errorf("create Knowledge database directory: %w", err)
 	}
-	database, err := sql.Open("sqlite", databasePath)
+	database, err := sql.Open("sqlite", sqliteconfig.DSN(databasePath))
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +116,7 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 			_ = host.Close(context.Background())
 		}
 	}()
-	for _, statement := range []string{"PRAGMA foreign_keys = ON", "PRAGMA journal_mode = WAL", "PRAGMA busy_timeout = 5000"} {
+	for _, statement := range []string{"PRAGMA journal_mode = WAL"} {
 		if _, err = database.ExecContext(ctx, statement); err != nil {
 			return nil, err
 		}
@@ -203,6 +208,15 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 		return nil, err
 	}
 	return host, nil
+}
+
+func hasApplicationCardProvider(providers []knowledgesdk.KnowledgeApplicationCardProvider, key string) bool {
+	for _, provider := range providers {
+		if provider != nil && strings.TrimSpace(provider.Key()) == key {
+			return true
+		}
+	}
+	return false
 }
 
 func (host *Host) Database() knowledgemodulehost.Database             { return host.database }

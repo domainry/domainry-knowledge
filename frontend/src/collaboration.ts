@@ -1,4 +1,13 @@
 import * as Y from "yjs";
+import type { KnowledgeCollaborationPresence } from "./types.ts";
+
+export function collaborationPresenceUserIDs(presence: readonly KnowledgeCollaborationPresence[]) {
+  return [...new Set(presence.map(item => item.user_id).filter(Boolean))].sort();
+}
+
+export function collaborationPositionChanged(current: { cursor: string; selection: string }, cursorBlockID?: string, selectionBlockID?: string) {
+  return current.cursor !== (cursorBlockID || "") || current.selection !== (selectionBlockID || "");
+}
 
 export function encodeCollaborationBinary(value: Uint8Array) {
   let binary = "";

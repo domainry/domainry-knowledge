@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as Y from "yjs";
-import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "../src/collaboration.ts";
+import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, collaborationPresenceUserIDs, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "../src/collaboration.ts";
 import { knowledgeOfflineCollaborationKey, loadKnowledgeOfflineChange } from "../src/collaborationOffline.ts";
 
 test("collaboration binary codec preserves large Yjs updates", () => {
@@ -57,4 +57,18 @@ test("offline collaboration queues are isolated by user, library, and page", asy
   assert.notEqual(knowledgeOfflineCollaborationKey("alice", "library-a", "page"), knowledgeOfflineCollaborationKey("alice", "library-b", "page"));
   assert.notEqual(knowledgeOfflineCollaborationKey("alice", "library", "page-a"), knowledgeOfflineCollaborationKey("alice", "library", "page-b"));
   assert.equal(await loadKnowledgeOfflineChange("alice", "library", "page"), null);
+});
+
+test("presence identity resolution changes only when the online user set changes", () => {
+  const first = { session_id: "one", user_id: "alice", cursor_block_id: "block-a", edited_blocks: 0, last_seen_at: "2026-10-22T00:00:00Z" };
+  const moved = { ...first, cursor_block_id: "block-b", last_seen_at: "2026-10-22T00:00:01Z" };
+  const second = { ...first, session_id: "two", user_id: "bob" };
+  assert.deepEqual(collaborationPresenceUserIDs([first, moved]), ["alice"]);
+  assert.deepEqual(collaborationPresenceUserIDs([second, first]), ["alice", "bob"]);
+});
+
+test("unchanged collaboration positions do not schedule duplicate presence sync", () => {
+  assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "" }, "block-a"), false);
+  assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "" }, "block-b"), true);
+  assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "block-b" }, "block-a", "block-c"), true);
 });

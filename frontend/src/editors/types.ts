@@ -21,6 +21,12 @@ export type KnowledgeCommentAnchorSelection = {
   quote: string;
 };
 
+export type KnowledgeCommentMarker = KnowledgeCommentAnchorSelection & {
+  count: number;
+  unresolved: boolean;
+  active: boolean;
+};
+
 export type KnowledgeMentionPerson = {
   userID: string;
   displayName: string;
@@ -106,12 +112,21 @@ export type KnowledgeEditorProps = {
   initialBlockID?: string;
   initialSearchLocation?: KnowledgePageSearchLocation;
   blockHighlightRevision?: number;
+  commentMarkers?: KnowledgeCommentMarker[];
+  onCommentMarkerOpen?(nodeID: string): void;
   blockLink?(blockID: string): string;
   insertMarkdownRequest?: { id: string; markdown: string };
+  pageActionHost?: HTMLElement | null;
   authorizeContentAction?(operation: "copy" | "print" | "export" | "duplicate"): Promise<void>;
   onActionFeedback?(message: string): void;
   uploadFile?(file: File, blockID?: string): Promise<string | Record<string, unknown>>;
   fileUploadsEnabled?: boolean;
+  fileUploadAccept?: {
+    all: string;
+    image: string;
+    video: string;
+    audio: string;
+  };
   readFile?(reference: string): Promise<Blob>;
   convertPage?(targetType: "document" | "mind_note", title: string, body: string): Promise<void>;
   onChange(body: string, collaboration?: KnowledgeEditorChange): void;

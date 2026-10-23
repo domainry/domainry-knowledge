@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
-import { Button } from "../components.tsx";
+import { Button, Select } from "../components.tsx";
 import { readPreviewRange } from "../file-preview.ts";
 import type { FilePreviewLocation, FilePreviewSource } from "../types.ts";
 
@@ -106,5 +106,5 @@ export function PDFViewer({ source, location }: { source: FilePreviewSource; loc
     return () => { active = false; task?.cancel(); };
   }, [pdf, page, width, zoom]);
 
-  return <div className="knowledge-file-viewer"><nav className="knowledge-file-toolbar" aria-label="PDF 翻页"><Button disabled={!pdf || page <= 1} onClick={() => setPage(value => value - 1)}>上一页</Button><span>第 {page} / {pdf?.numPages || "—"} 页</span><Button disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}>下一页</Button><label>缩放 <select aria-label="PDF 缩放" value={zoom} onChange={event => setZoom(Number(event.target.value))}><option value={0.75}>75%</option><option value={1}>适合宽度</option><option value={1.5}>150%</option><option value={2}>200%</option></select></label></nav>{error && <p role="alert" className="knowledge-error">{error}</p>}<div className="knowledge-pdf-canvas" ref={viewport} aria-busy={!rendered && !error}><canvas ref={canvas} aria-label={`PDF 第 ${page} 页`} data-rendered={rendered} /></div></div>;
+  return <div className="knowledge-file-viewer"><nav className="knowledge-file-toolbar" aria-label="PDF 翻页"><Button disabled={!pdf || page <= 1} onClick={() => setPage(value => value - 1)}>上一页</Button><span>第 {page} / {pdf?.numPages || "—"} 页</span><Button disabled={!pdf || page >= pdf.numPages} onClick={() => setPage(value => value + 1)}>下一页</Button><label>缩放 <Select aria-label="PDF 缩放" value={zoom} onChange={event => setZoom(Number(event.target.value))}><option value={0.75}>75%</option><option value={1}>适合宽度</option><option value={1.5}>150%</option><option value={2}>200%</option></Select></label></nav>{error && <p role="alert" className="knowledge-error">{error}</p>}<div className="knowledge-pdf-canvas" ref={viewport} aria-busy={!rendered && !error}><canvas ref={canvas} aria-label={`PDF 第 ${page} 页`} data-rendered={rendered} /></div></div>;
 }

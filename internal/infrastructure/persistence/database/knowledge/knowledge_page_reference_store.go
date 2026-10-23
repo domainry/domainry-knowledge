@@ -236,6 +236,13 @@ func documentPageReferences(sourcePageID, libraryID, content string, now time.Ti
 			if blockType == "knowledgeReference" {
 				props, _ := block["props"].(map[string]any)
 				targetPageID, _ := props["targetPageId"].(string)
+				targetPageID = strings.TrimSpace(targetPageID)
+				// A newly inserted reference is a valid draft before the user picks
+				// its target.  It becomes an indexed edge only after that choice;
+				// publish validation still rejects unresolved references.
+				if targetPageID == "" {
+					continue
+				}
 				contentType, _ := props["targetType"].(string)
 				referenceMode, _ := props["referenceMode"].(string)
 				display, _ := props["display"].(string)
@@ -247,7 +254,7 @@ func documentPageReferences(sourcePageID, libraryID, content string, now time.Ti
 					targetVersion, _ = knowledgeJSONInteger(raw, 0, 1<<31-1)
 				}
 				references = append(references, knowledgePageReferenceRecord{
-					SourcePageID: sourcePageID, BlockID: blockID, LibraryID: libraryID, TargetPageID: strings.TrimSpace(targetPageID), ContentType: contentType,
+					SourcePageID: sourcePageID, BlockID: blockID, LibraryID: libraryID, TargetPageID: targetPageID, ContentType: contentType,
 					ReferenceMode: referenceMode, TargetVersion: targetVersion, Display: display, UpdatedAt: now.UnixMilli(),
 				})
 				if len(references) > knowledgePageReferenceMaximumPerPage {

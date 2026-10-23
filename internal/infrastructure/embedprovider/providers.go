@@ -15,17 +15,17 @@ var bilibiliID = regexp.MustCompile(`^BV[A-Za-z0-9]{10}$`)
 type youtube struct{}
 
 func (youtube) Key() string            { return "youtube" }
-func (youtube) FrameOrigins() []string { return []string{"https://www.youtube-nocookie.com"} }
+func (youtube) FrameOrigins() []string { return []string{"https://www.youtube.com"} }
 func (youtube) CanonicalizeEmbedURL(raw string) (string, error) {
 	parsed, err := exactHTTPSURL(raw)
 	if err != nil {
 		return "", err
 	}
 	videoID := strings.TrimPrefix(parsed.Path, "/embed/")
-	if strings.ToLower(parsed.Hostname()) != "www.youtube-nocookie.com" || parsed.RawQuery != "" || !strings.HasPrefix(parsed.Path, "/embed/") || !youtubeID.MatchString(videoID) {
+	if strings.ToLower(parsed.Hostname()) != "www.youtube.com" || parsed.RawQuery != "" || !strings.HasPrefix(parsed.Path, "/embed/") || !youtubeID.MatchString(videoID) {
 		return "", fmt.Errorf("YouTube embed URL is invalid")
 	}
-	return "https://www.youtube-nocookie.com/embed/" + videoID, nil
+	return "https://www.youtube.com/embed/" + videoID, nil
 }
 
 type bilibili struct{}

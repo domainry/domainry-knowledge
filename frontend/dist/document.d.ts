@@ -1,7 +1,9 @@
 import type { KnowledgeDocument, KnowledgeLibrary } from "./types.ts";
 export declare const knowledgeDocumentMaxBytes: number;
 export declare function knowledgeDocumentAccept(library: KnowledgeLibrary): string;
+export declare function knowledgeDocumentAcceptForContentType(library: KnowledgeLibrary, prefix: "image/" | "video/" | "audio/"): string;
 export declare function knowledgeDocumentSupports(library: KnowledgeLibrary, filename: string): boolean;
+export declare function selectedUploadFile(files: Pick<FileList, "item"> | null): File | null;
 export declare function documentUploadMaxBytes(library: KnowledgeLibrary): number;
 export declare function documentIndexMaxBytes(library: KnowledgeLibrary): number;
 export declare function documentFormat(library: KnowledgeLibrary, filename: string): import("./types.ts").KnowledgeDocumentFormat | undefined;

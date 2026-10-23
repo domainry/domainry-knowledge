@@ -121,17 +121,7 @@ export async function readPreviewRange(source: FilePreviewSource, begin: number,
   return { data, total: current.total, filename: current.filename, sha256: current.sha256 };
 }
 
-type SavePickerWindow = Window & { showSaveFilePicker?: (options: { suggestedName: string }) => Promise<{ createWritable(): Promise<WritableStream> }> };
-
 export async function downloadFile(source: FilePreviewSource, signal: AbortSignal) {
-  const picker = (window as SavePickerWindow).showSaveFilePicker;
-  if (picker) {
-    const handle = await picker({ suggestedName: source.file.filename });
-    const current = await checkedContent(source, signal);
-    if (!current.response.body) throw Error("浏览器无法读取下载内容。");
-    await current.response.body.pipeTo(await handle.createWritable(), { signal });
-    return;
-  }
   const current = await readPreviewFile(source, signal, fallbackDownloadMaxBytes);
   const url = URL.createObjectURL(current.blob);
   const link = window.document.createElement("a");

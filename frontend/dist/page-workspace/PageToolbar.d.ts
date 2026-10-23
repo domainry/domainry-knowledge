@@ -1,0 +1,28 @@
+import type { KnowledgePagePersonalState } from "../types.ts";
+export type PageWorkspaceMode = "read" | "edit" | "suggestions" | "history" | "outline" | "comments" | "activity" | "metadata" | "references" | "relationships" | "access" | "permissions" | "shares" | "governance";
+export type PageToolbarProps = {
+    mode: PageWorkspaceMode;
+    pageActive: boolean;
+    canWrite: boolean;
+    isDocument: boolean;
+    pageFindOpen: boolean;
+    personalState: KnowledgePagePersonalState | null;
+    personalStateSaving: boolean;
+    aiAvailable: boolean;
+    aiOpen: boolean;
+    isManager: boolean;
+    canManagePermissions: boolean;
+    canManageShares: boolean;
+    canReviewGovernance: boolean;
+    archived: boolean;
+    onModeChange(mode: PageWorkspaceMode): void;
+    onOpenSuggestions(): void;
+    onOpenFind(): void;
+    onToggleFavorite(): void;
+    onToggleSubscription(): void;
+    onToggleShortcut(): void;
+    onOpenAI(): void;
+    onCopy(): void;
+    onArchive(): void;
+};
+export declare function PageToolbar(props: PageToolbarProps): import("react").JSX.Element;

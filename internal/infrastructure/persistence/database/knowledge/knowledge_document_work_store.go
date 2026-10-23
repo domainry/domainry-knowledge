@@ -235,6 +235,15 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 		before := conversationHash(r)
 		done := false
 		switch in.Event {
+		case "stored":
+			if r.SourceID != "" || r.PutStarted || !r.SecurityScanCompleted || r.Document.SecurityStatus != "clean" || in.IndexStatus != "STORED" {
+				return conversationError("conflict", "document_state_conflict")
+			}
+			r.Document.State = "ready"
+			r.Document.ProcessingStage = "complete"
+			r.Document.IndexStatus = in.IndexStatus
+			r.Document.ErrorCode = ""
+			done = true
 		case "scan_clean":
 			if !r.SecurityScanStarted || r.PutStarted || r.Document.SecurityStatus != "scanning" || !validArtifactSHA(in.SecurityReportSHA256) || in.SecurityScanner == "" {
 				return conversationError("conflict", "document_state_conflict")

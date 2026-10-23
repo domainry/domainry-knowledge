@@ -12,9 +12,20 @@ export function knowledgeDocumentAccept(library: KnowledgeLibrary) {
   return configuredDocumentExtensions(library).join(",");
 }
 
+export function knowledgeDocumentAcceptForContentType(library: KnowledgeLibrary, prefix: "image/" | "video/" | "audio/") {
+  return (library.document_formats || [])
+    .filter(format => /^\.[a-z0-9]{1,8}$/.test(format.extension) && format.content_type.toLowerCase().startsWith(prefix))
+    .map(format => format.extension)
+    .join(",");
+}
+
 export function knowledgeDocumentSupports(library: KnowledgeLibrary, filename: string) {
   const lower = filename.toLowerCase();
   return configuredDocumentExtensions(library).some(extension => lower.endsWith(extension));
+}
+
+export function selectedUploadFile(files: Pick<FileList, "item"> | null) {
+  return files?.item(0) || null;
 }
 
 export function documentUploadMaxBytes(library: KnowledgeLibrary) {
@@ -62,7 +73,7 @@ export function documentCanRetry(document: KnowledgeDocument) {
 }
 
 export function documentCanReindex(document: KnowledgeDocument) {
-  return document.state === "ready" && document.security_status === "clean" && !document.reindexing && !document.error_code;
+  return document.state === "ready" && document.security_status === "clean" && document.index_status === "INDEXED" && !document.reindexing && !document.error_code;
 }
 
 export function documentLabel(document: Pick<KnowledgeDocument, "state" | "index_status" | "error_code" | "reindexing">) {
@@ -95,7 +106,7 @@ export function documentStatusDetail(document: KnowledgeDocument) {
   if (document.state === "indexing") return document.index_status === "CHUNKED" ? "资料已完成分段，正在等待索引完成。" : "原文件已保存，正在建立索引。";
   if (document.state === "queued") return "原文件已保存，后台将继续处理。";
   if (document.state === "uploading") return "上传尚未完成，可重新选择同一文件继续。";
-  if (document.state === "ready") return "知识索引已经完成，可以检索。";
+  if (document.state === "ready") return document.index_status === "STORED" ? "原文件已安全保存，可以预览和下载；当前知识库未配置远端索引。" : "知识索引已经完成，可以检索。";
   return "处理尚未完成，请稍后刷新状态。";
 }
 

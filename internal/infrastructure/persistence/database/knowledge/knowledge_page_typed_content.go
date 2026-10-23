@@ -731,7 +731,10 @@ func scanJSONPageReferences(content string) ([]knowledgePageContentReference, er
 						key = "pageId"
 					}
 					if target, ok := props[key].(string); ok {
-						references = append(references, knowledgePageContentReference{Kind: "page", TargetID: strings.TrimSpace(target)})
+						target = strings.TrimSpace(target)
+						if target != "" {
+							references = append(references, knowledgePageContentReference{Kind: "page", TargetID: target})
+						}
 					}
 				}
 			}

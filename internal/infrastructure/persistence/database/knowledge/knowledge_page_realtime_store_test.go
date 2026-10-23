@@ -631,6 +631,22 @@ func TestKnowledgeCollaborationExternalDraftWriteRevokesSession(t *testing.T) {
 	}
 }
 
+func TestKnowledgeCollaborationCloseIsIdempotentAfterRevocation(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "close-idempotent", authority)
+	_ = savePageFixture(t, store, authority, library, page, "external-save-before-close", "外部保存", "替换正文")
+
+	if err := store.CloseKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, session.ID, authority); err != nil {
+		t.Fatalf("close after revocation must be idempotent: %v", err)
+	}
+	if err := store.CloseKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, session.ID, authority); err != nil {
+		t.Fatalf("repeated close must be idempotent: %v", err)
+	}
+	if err := store.CloseKnowledgeCollaboration(t.Context(), library.ID, page.Page.ID, "kcollab_missing", authority); err != nil {
+		t.Fatalf("close of an already-pruned session must be idempotent: %v", err)
+	}
+}
+
 func TestKnowledgeCollaborationRejectsMalformedAndUnsafeUpdates(t *testing.T) {
 	store, authority, library, page := pageFixture(t)
 	session := connectCollaborationFixture(t, store, library.ID, page.Page.ID, "security", authority)

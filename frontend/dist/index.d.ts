@@ -2,6 +2,8 @@ import "./styles.css";
 export { KnowledgeLibraryManager, KnowledgeLibraryManagerDialog, KnowledgeWorkspace } from "./KnowledgeWorkspace.tsx";
 export { KnowledgePagesPanel, pageContentSHA256 } from "./KnowledgePagesPanel.tsx";
 export { KnowledgePageShareManager } from "./KnowledgePageShareManager.tsx";
+export { MentionComposer } from "./page-workspace/MentionComposer.tsx";
+export type { MentionComposerProps } from "./page-workspace/MentionComposer.tsx";
 export { KnowledgeSharedPage } from "./KnowledgeSharedPage.tsx";
 export { createKnowledgePageShareLink, parseKnowledgePageShareLocation } from "./knowledge-share-links.ts";
 export type { KnowledgeWorkspaceProps } from "./KnowledgeWorkspace.tsx";

@@ -380,6 +380,17 @@ func TestKnowledgePageTreeCommentsAndHiddenProjection(t *testing.T) {
 	if _, err = store.CreateKnowledgePageComment(t.Context(), library.ID, root.Page.ID, knowledgesdk.KnowledgePageCommentCreate{ClientID: "bad-mention", PublishedVersion: 1, Anchor: knowledgesdk.KnowledgePageCommentAnchor{NodeID: "block-1", Quote: "根"}, Body: "未知成员", MentionedUserIDs: []string{"mallory"}}, bob); err == nil || !strings.Contains(err.Error(), "mention") {
 		t.Fatalf("non-member mention was accepted: %v", err)
 	}
+	deletedComment, err := store.DeleteKnowledgePageComment(t.Context(), library.ID, root.Page.ID, comment.ID, knowledgesdk.KnowledgePageCommentDelete{ClientID: "comment-delete", ExpectedRevision: updatedComment.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !deletedComment.Deleted || deletedComment.MentionedUserIDs == nil || len(deletedComment.MentionedUserIDs) != 0 {
+		t.Fatalf("deleted comment must expose an empty mention array: %+v", deletedComment)
+	}
+	listedComments, err := store.KnowledgePageComments(t.Context(), library.ID, root.Page.ID, "", 20, false, authority)
+	if err != nil || len(listedComments.Items) != 1 || listedComments.Items[0].MentionedUserIDs == nil {
+		t.Fatalf("listed deleted comment must preserve the array contract: %+v err=%v", listedComments, err)
+	}
 
 	if err = store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: library.ID}, conversationHash([]string{"page-source", library.ID})); err != nil {
 		t.Fatal(err)
@@ -404,6 +415,29 @@ func TestKnowledgePageTreeCommentsAndHiddenProjection(t *testing.T) {
 	record, err := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
 	if err != nil || record.Document.ProjectionKind != "page" || record.Document.OriginPageID != root.Page.ID || record.Document.OriginPageVersion != 1 {
 		t.Fatalf("page projection origin missing: %+v err=%v", record, err)
+	}
+}
+
+func TestKnowledgePageProjectionCanFinishLocallyWithoutRemoteSource(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	page = savePageFixture(t, store, authority, library, page, "local-body", "本地页面", "正文")
+	page = publishPageFixture(t, store, authority, library, page, "local-publish")
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "local-worker", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("projection not claimable: found=%v err=%v", found, err)
+	}
+	if err = store.SkipKnowledgePageProjection(t.Context(), work.Lease); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.KnowledgePage(t.Context(), library.ID, page.Page.ID, false, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Page.ProjectionStatus != "none" || current.Page.AccessStatus != "ready" {
+		t.Fatalf("page projection=%q access=%q", current.Page.ProjectionStatus, current.Page.AccessStatus)
+	}
+	if _, found, err = store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "local-worker", time.Now().UTC().Add(time.Second), time.Minute); err != nil || found {
+		t.Fatalf("local projection job remained claimable: found=%v err=%v", found, err)
 	}
 }
 
@@ -643,6 +677,12 @@ func TestKnowledgePageCommentReactionsAggregatePerUserWithoutChangingCommentRevi
 	if err != nil || first.Revision != comment.Revision || len(first.Reactions) != 1 || first.Reactions[0].Count != 1 || !first.Reactions[0].Reacted {
 		t.Fatalf("first reaction=%+v err=%v", first, err)
 	}
+	edited, err := store.UpdateKnowledgePageComment(t.Context(), library.ID, page.Page.ID, comment.ID, knowledgesdk.KnowledgePageCommentUpdate{
+		ClientID: "edit-reacted-comment", ExpectedRevision: comment.Revision, Body: "请确认（已编辑）",
+	}, authority)
+	if err != nil || edited.Revision != comment.Revision+1 || len(edited.Reactions) != 1 || edited.Reactions[0].Count != 1 || !edited.Reactions[0].Reacted {
+		t.Fatalf("editing a comment dropped its reactions from the response: %+v err=%v", edited, err)
+	}
 	replayed, err := store.SetKnowledgePageCommentReaction(t.Context(), library.ID, page.Page.ID, comment.ID, write, authority)
 	if err != nil || replayed.Reactions[0].Count != 1 {
 		t.Fatalf("reaction retry duplicated the row: %+v err=%v", replayed, err)
@@ -745,6 +785,21 @@ func TestKnowledgePageInlineMentionsUseStableIdentifiers(t *testing.T) {
 	}
 }
 
+func TestUnresolvedDraftReferencesAreNotIndexedUntilConfigured(t *testing.T) {
+	content := `{"blocks":[{"id":"reference-1","type":"knowledgeReference","props":{"targetPageId":"","title":"未选择知识条目","targetType":"document","display":"card","referenceMode":"live","targetVersion":0,"embeddedEdit":false},"children":[]},{"id":"sync-1","type":"syncedBlock","props":{"targetPageId":"","targetBlockId":"","title":"同步内容块"},"children":[]}]}`
+	normalized, err := normalizedPageContent(knowledgesdk.PageContentSchemaVersion, content, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	references, err := scanJSONPageReferences(normalized.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(references) != 0 {
+		t.Fatalf("unresolved draft references must not become graph edges: %+v", references)
+	}
+}
+
 func TestKnowledgePageMediaBlocksUseOnlyAuthorizedDocumentReferences(t *testing.T) {
 	content := `{"blocks":[{"id":"image-1","type":"image","props":{"backgroundColor":"default","textAlignment":"center","name":"架构图","caption":"系统边界","url":"knowledge-document:kdoc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","showPreview":true,"previewWidth":720,"cropAspect":"16:9","cropX":40,"cropY":65,"cropZoom":125},"children":[]},{"id":"video-1","type":"video","props":{"backgroundColor":"default","textAlignment":"left","name":"演示视频","caption":"发布演示","url":"knowledge-document:kdoc_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","showPreview":true,"previewWidth":960},"children":[]},{"id":"audio-1","type":"audio","props":{"backgroundColor":"default","name":"访谈录音","caption":"用户访谈","url":"knowledge-document:kdoc_cccccccccccccccccccccccccccccccc","showPreview":true},"children":[]},{"id":"file-1","type":"file","props":{"backgroundColor":"default","name":"需求文档.pdf","caption":"原始附件","url":"knowledge-document:kdoc_dddddddddddddddddddddddddddddddd"},"children":[]}]}`
 	normalized, err := normalizedPageContent(knowledgesdk.PageContentSchemaVersion, content, "")
@@ -766,7 +821,7 @@ func TestKnowledgePageMediaBlocksUseOnlyAuthorizedDocumentReferences(t *testing.
 }
 
 func TestKnowledgePageCardsUseSanitizedMetadataAndControlledURLs(t *testing.T) {
-	raw := `{"blocks":[{"id":"bookmark-1","type":"bookmark","props":{"url":"https://openai.com/research","title":"&lt;b&gt;安全标题&lt;/b&gt;","description":"<script>alert(1)</script>\u0007 正文","siteName":" OpenAI  Research "},"children":[]},{"id":"page-1","type":"knowledgeReference","props":{"targetPageId":"kpage_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","title":"知识页面","targetType":"document","display":"card"},"children":[]},{"id":"person-1","type":"personCard","props":{"userId":"user-123","displayName":" Alice  <b>管理员</b> ","email":"alice@example.com"},"children":[]},{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ","title":"产品演示"},"children":[]}]}`
+	raw := `{"blocks":[{"id":"bookmark-1","type":"bookmark","props":{"url":"https://openai.com/research","title":"&lt;b&gt;安全标题&lt;/b&gt;","description":"<script>alert(1)</script>\u0007 正文","siteName":" OpenAI  Research "},"children":[]},{"id":"page-1","type":"knowledgeReference","props":{"targetPageId":"kpage_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","title":"知识页面","targetType":"document","display":"card"},"children":[]},{"id":"person-1","type":"personCard","props":{"userId":"user-123","displayName":" Alice  <b>管理员</b> ","email":"alice@example.com"},"children":[]},{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://www.youtube.com/embed/dQw4w9WgXcQ","title":"产品演示"},"children":[]}]}`
 	digest := sha256.Sum256([]byte(raw))
 	normalized, err := normalizedPageContent(knowledgesdk.PageContentSchemaVersion, raw, hex.EncodeToString(digest[:]))
 	if err != nil {
@@ -801,8 +856,8 @@ func TestKnowledgePageCardsRejectUnsafeURLsAndMetadata(t *testing.T) {
 		"bookmark unknown property":  `{"blocks":[{"id":"bookmark-1","type":"bookmark","props":{"url":"https://openai.com/","title":"x","script":"alert(1)"},"children":[]}]}`,
 		"arbitrary iframe":           `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://evil.example.com/embed/dQw4w9WgXcQ","title":"evil"},"children":[]}]}`,
 		"noncanonical youtube":       `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","title":"watch"},"children":[]}]}`,
-		"provider mismatch":          `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"bilibili","url":"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ","title":"mismatch"},"children":[]}]}`,
-		"embed query injection":      `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?origin=https://evil.example","title":"query"},"children":[]}]}`,
+		"provider mismatch":          `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"bilibili","url":"https://www.youtube.com/embed/dQw4w9WgXcQ","title":"mismatch"},"children":[]}]}`,
+		"embed query injection":      `{"blocks":[{"id":"embed-1","type":"externalEmbed","props":{"provider":"youtube","url":"https://www.youtube.com/embed/dQw4w9WgXcQ?origin=https://evil.example","title":"query"},"children":[]}]}`,
 		"invalid person email":       `{"blocks":[{"id":"person-1","type":"personCard","props":{"userId":"user-1","displayName":"Alice","email":"Alice <alice@example.com>"},"children":[]}]}`,
 		"page card unknown property": `{"blocks":[{"id":"page-1","type":"knowledgeReference","props":{"targetPageId":"kpage_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","title":"页面","targetType":"document","display":"card","script":"alert(1)"},"children":[]}]}`,
 		"block envelope script":      `{"blocks":[{"id":"bookmark-1","type":"bookmark","props":{"url":"https://openai.com/","title":"x"},"children":[],"script":"alert(1)"}]}`,

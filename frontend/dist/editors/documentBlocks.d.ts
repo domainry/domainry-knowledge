@@ -419,5 +419,11 @@ export declare const knowledgeDocumentSchema: import("@blocknote/core").CustomBl
 export declare function getKnowledgeMentionMenuItems(editor: BlockNoteEditor<any, any, any>, runtime: KnowledgeMentionRuntime | undefined, query: string): Promise<DefaultReactSuggestionItem[]>;
 export declare function getKnowledgeSlashMenuItems(editor: BlockNoteEditor<any, any, any>, query: string, capabilities?: {
     canUploadFiles: boolean;
+    fileAccept?: {
+        all: string;
+        image: string;
+        video: string;
+        audio: string;
+    };
 }): Promise<KnowledgeSlashMenuItem[]>;
 export {};

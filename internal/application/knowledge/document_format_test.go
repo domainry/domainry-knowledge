@@ -34,3 +34,34 @@ func TestDocumentIndexMaximumBytesSeparatesTransportAndBuilderLimits(t *testing.
 		t.Fatalf("structured maximum=%d; analysis output budget must not become an upload limit", got)
 	}
 }
+
+func TestStoredDocumentFormatsCoverFilesMediaAndKeepConnectorMetadata(t *testing.T) {
+	stored := StoredKnowledgeDocumentFormats()
+	byExtension := make(map[string]agentsdk.KnowledgeDocumentFormat, len(stored))
+	for _, format := range stored {
+		if byExtension[format.Extension].Extension != "" {
+			t.Fatalf("duplicate stored format %q", format.Extension)
+		}
+		byExtension[format.Extension] = format
+	}
+	for _, extension := range []string{".txt", ".pdf", ".png", ".mp3", ".mp4"} {
+		if format := byExtension[extension]; format.ContentType == "" || format.ParserRoute != "storage" {
+			t.Fatalf("stored format %s=%+v", extension, format)
+		}
+	}
+	if _, ok := StoredKnowledgeDocumentFormat("unsafe.exe"); ok {
+		t.Fatal("unsupported executable format was accepted")
+	}
+
+	uploads := KnowledgeDocumentUploadFormats(documentFormatTestSource{})
+	merged := make(map[string]agentsdk.KnowledgeDocumentFormat, len(uploads))
+	for _, format := range uploads {
+		merged[format.Extension] = format
+	}
+	if merged[".txt"].ParserRoute != "text" || merged[".mp4"].BuilderMaxBytes != 20<<20 {
+		t.Fatalf("connector indexing metadata was not preserved: txt=%+v mp4=%+v", merged[".txt"], merged[".mp4"])
+	}
+	if merged[".mp3"].ParserRoute != "storage" {
+		t.Fatalf("storage-only audio format was lost: %+v", merged[".mp3"])
+	}
+}
