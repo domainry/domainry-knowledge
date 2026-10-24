@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -70,6 +71,9 @@ func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
 	storagePath, err := filepath.Abs(options.StoragePath)
 	if err != nil {
 		return nil, err
+	}
+	if err = os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
+		return nil, fmt.Errorf("create Knowledge SaaS database directory: %w", err)
 	}
 	database, err := sql.Open("sqlite", sqliteconfig.DSN(databasePath))
 	if err != nil {

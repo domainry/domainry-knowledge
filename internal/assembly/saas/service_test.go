@@ -68,6 +68,21 @@ func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 		t.Fatalf("delete err=%v", err)
 	}
 }
+
+func TestOpenCreatesDatabaseParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	service, err := Open(t.Context(), Options{
+		RuntimeID: "runtime-a", ServiceAccessToken: "secret-token",
+		DatabasePath: filepath.Join(root, "nested", "database", "knowledge.db"),
+		StoragePath:  filepath.Join(root, "storage"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
 func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.Authority) error {
 	return nil
 }

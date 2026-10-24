@@ -33,6 +33,35 @@ APP_ENV=development KNOWLEDGE_ADMIN_PASSWORD='Knowledge@2026!' go run ./cmd/know
 
 浏览器使用 Identity 的 `/auth/login`、`/auth/refresh` 和 `/auth/logout`。短期 access token 只保存在页面内存，refresh token 只存在 Identity 设置的 HttpOnly Cookie 中。资料库、页面、成员和文档请求全部调用真实的 `/knowledge/*` HTTP Adapter；前端没有内存假数据或模拟上传。
 
+## 作为独立组件运行
+
+业务产品需要把普通附件字节和元数据交给 Knowledge 统一保存时，启动无前端的 `knowledge-saas`。它提供 Knowledge SaaS RPC 和通用文件服务；普通文件上传不会自动加入资料库或触发索引。
+
+本地文件模式：
+
+```bash
+KNOWLEDGE_SERVICE_ACCESS_TOKEN='replace-with-a-secret' \
+KNOWLEDGE_RUNTIME_ID='facility_ops' \
+go run ./cmd/knowledge-saas
+```
+
+生产环境必须使用 S3 兼容存储，AWS S3 与 MinIO 使用同一个实现：
+
+```bash
+APP_ENV=production \
+KNOWLEDGE_SERVICE_ACCESS_TOKEN='replace-with-a-secret' \
+KNOWLEDGE_RUNTIME_ID='facility_ops' \
+KNOWLEDGE_FILE_STORAGE_DRIVER=s3 \
+KNOWLEDGE_S3_REGION=us-east-1 \
+KNOWLEDGE_S3_BUCKET=facility-files \
+KNOWLEDGE_S3_PREFIX=facility/knowledge \
+KNOWLEDGE_S3_ENDPOINT=https://minio.example.com \
+KNOWLEDGE_S3_FORCE_PATH_STYLE=true \
+go run ./cmd/knowledge-saas
+```
+
+S3 凭据使用 AWS SDK 标准凭据链，不放进上述公开配置。`KNOWLEDGE_S3_ENDPOINT` 留空即使用 AWS S3；MinIO 配置 HTTPS Endpoint，并通常启用 path-style。服务默认监听 `127.0.0.1:8093`，健康检查为 `/live` 与 `/ready`。调用方配置相同的 `KNOWLEDGE_RUNTIME_ID`、`KNOWLEDGE_SERVICE_ACCESS_TOKEN`，并把 `DOMAINRY_KNOWLEDGE_ENDPOINT` 指向该服务。
+
 ## 核心配置
 
 | 环境变量 | 默认值或说明 |
@@ -49,6 +78,18 @@ APP_ENV=development KNOWLEDGE_ADMIN_PASSWORD='Knowledge@2026!' go run ./cmd/know
 | `KNOWLEDGE_ADMIN_NAME` | `Knowledge Admin` |
 | `KNOWLEDGE_ADMIN_PASSWORD` | 生产环境必填 |
 | `KNOWLEDGE_DOCUMENT_UPLOAD_IDLE_TIMEOUT` | 默认 `24h`，允许 `5m` 到 `720h` |
+
+独立组件还使用以下配置：
+
+| 环境变量 | 默认值或说明 |
+|---|---|
+| `KNOWLEDGE_SAAS_HTTP_ADDR` | `127.0.0.1:8093` |
+| `KNOWLEDGE_SERVICE_ACCESS_TOKEN` | 必填；调用方与服务共享的服务凭据 |
+| `KNOWLEDGE_FILE_STORAGE_DRIVER` | 本地默认 `local`；生产必须为 `s3` |
+| `KNOWLEDGE_S3_REGION` / `KNOWLEDGE_S3_BUCKET` | S3 模式必填 |
+| `KNOWLEDGE_S3_PREFIX` | 可选对象键前缀，默认 `domainry-knowledge` |
+| `KNOWLEDGE_S3_ENDPOINT` | MinIO 等 S3 兼容服务的 HTTPS Endpoint；AWS S3 留空 |
+| `KNOWLEDGE_S3_FORCE_PATH_STYLE` | MinIO 常用 `true`，默认 `false` |
 
 Identity 模块自身的项目配置仍使用 `IDENTITY_MODULE_*` 环境变量；数据库连接由产品宿主直接注入，Identity 不另开数据库。
 
