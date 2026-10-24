@@ -4,6 +4,7 @@
 package filestore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,31 +28,55 @@ const fileKind = "file"
 
 var stableID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,254}$`)
 var fileID = regexp.MustCompile(`^art_[a-f0-9]{32}$`)
+var digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type Service struct {
 	runtimeID string
 	store     sharedartifact.ManagedStore
 	content   sharedartifact.ContentStore
-	writer    sharedartifact.ContentWriter
+	writer    streamContentWriter
 	now       func() time.Time
+}
+
+type streamContentWriter interface {
+	sharedartifact.ContentWriter
+	PutImmutableStream(context.Context, string, string, string, int64, io.Reader) (sharedartifact.ContentInfo, error)
 }
 
 func New(runtimeID string, store sharedartifact.ManagedStore, content sharedartifact.ContentStore, writer sharedartifact.ContentWriter) (*Service, error) {
 	runtimeID = strings.TrimSpace(runtimeID)
-	if !stableID.MatchString(runtimeID) || store == nil || content == nil || writer == nil {
+	streamWriter, ok := writer.(streamContentWriter)
+	if !stableID.MatchString(runtimeID) || store == nil || content == nil || !ok {
 		return nil, failure("unavailable", "knowledge.files_configuration_invalid")
 	}
-	return &Service{runtimeID: runtimeID, store: store, content: content, writer: writer, now: func() time.Time { return time.Now().UTC().Truncate(time.Millisecond) }}, nil
+	return &Service{runtimeID: runtimeID, store: store, content: content, writer: streamWriter, now: func() time.Time { return time.Now().UTC().Truncate(time.Millisecond) }}, nil
 }
 
 func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Authority, input knowledgefiles.Upload) (out knowledgefiles.File, resultErr error) {
+	contentDigest := sha256.Sum256(input.Data)
+	return service.UploadStream(ctx, authority, knowledgefiles.StreamUpload{
+		ClientID: input.ClientID, Filename: input.Filename, ContentType: input.ContentType,
+		SizeBytes: int64(len(input.Data)), SHA256: hex.EncodeToString(contentDigest[:]), Content: bytes.NewReader(input.Data),
+	})
+}
+
+func (service *Service) UploadStream(ctx context.Context, authority knowledgefiles.Authority, input knowledgefiles.StreamUpload) (out knowledgefiles.File, resultErr error) {
 	if err := service.authorize(authority); err != nil {
 		return out, err
 	}
 	input.ClientID = strings.TrimSpace(input.ClientID)
 	input.Filename = path.Base(strings.ReplaceAll(strings.TrimSpace(input.Filename), "\\", "/"))
-	input.ContentType = normalizeContentType(input.ContentType, input.Data)
-	if !stableID.MatchString(input.ClientID) || input.Filename == "" || input.Filename == "." || input.Filename == ".." || len(input.Filename) > 255 || strings.IndexFunc(input.Filename, unicode.IsControl) >= 0 || input.ContentType == "" || len(input.ContentType) > 128 || len(input.Data) == 0 || int64(len(input.Data)) > knowledgefiles.MaxContentBytes {
+	input.SHA256 = strings.ToLower(strings.TrimSpace(input.SHA256))
+	if !stableID.MatchString(input.ClientID) || input.Filename == "" || input.Filename == "." || input.Filename == ".." || len(input.Filename) > 255 || strings.IndexFunc(input.Filename, unicode.IsControl) >= 0 || input.SizeBytes < 1 || input.SizeBytes > knowledgefiles.MaxContentBytes || !digestPattern.MatchString(input.SHA256) || input.Content == nil {
+		return out, failure("bad_request", "knowledge.file_invalid")
+	}
+	prefix := make([]byte, min(input.SizeBytes, 512))
+	if _, err := io.ReadFull(input.Content, prefix); err != nil {
+		return out, failure("bad_request", "knowledge.file_size_mismatch")
+	}
+	input.Content = io.MultiReader(bytes.NewReader(prefix), input.Content)
+	input.ContentType = normalizeContentType(input.ContentType, prefix)
+	if input.ContentType == "" || len(input.ContentType) > 128 {
 		return out, failure("bad_request", "knowledge.file_invalid")
 	}
 	identity := digest([]string{service.runtimeID, authority.WorkspaceID, authority.SubjectID, input.ClientID})
@@ -59,18 +84,16 @@ func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Aut
 	if err != nil {
 		return out, err
 	}
-	contentDigest := sha256.Sum256(input.Data)
-	contentSHA := hex.EncodeToString(contentDigest[:])
 	idempotencyKey := "uploads-file:" + identity
 	if current, found, err := service.store.ByID(ctx, authority.WorkspaceID, id); err != nil {
 		return out, err
 	} else if found {
-		if sameUpload(current, authority, input, contentSHA, idempotencyKey) {
+		if sameUpload(current, authority, input, idempotencyKey) {
 			return fileView(current), nil
 		}
 		return out, failure("conflict", "knowledge.file_idempotency_conflict")
 	}
-	info, err := service.writer.PutImmutable(ctx, authority.WorkspaceID, "uploads-file:"+id, input.Data)
+	info, err := service.writer.PutImmutableStream(ctx, authority.WorkspaceID, "uploads-file:"+id, input.SHA256, input.SizeBytes, input.Content)
 	if err != nil {
 		return out, err
 	}
@@ -83,14 +106,14 @@ func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Aut
 			_ = service.content.Delete(context.WithoutCancel(ctx), authority.WorkspaceID, info.Reference)
 		}
 	}()
-	if strings.TrimSpace(info.Reference) == "" || !strings.EqualFold(info.SHA256, contentSHA) || info.Size != int64(len(input.Data)) {
+	if strings.TrimSpace(info.Reference) == "" || !strings.EqualFold(info.SHA256, input.SHA256) || info.Size != input.SizeBytes {
 		return out, failure("unavailable", "knowledge.file_content_mismatch")
 	}
 	now := service.now()
 	value := sharedartifact.Artifact{
 		ArtifactID: id, WorkspaceID: authority.WorkspaceID, Owner: sharedartifact.OwnerUploads, Kind: fileKind,
 		IdempotencyKey: idempotencyKey, CreatedBy: authority.SubjectID, Filename: input.Filename, MediaType: input.ContentType,
-		ContentSHA256: contentSHA, SizeBytes: int64(len(input.Data)), StorageReference: info.Reference,
+		ContentSHA256: input.SHA256, SizeBytes: input.SizeBytes, StorageReference: info.Reference,
 		Status: sharedartifact.StatusAvailable, ScanStatus: sharedartifact.ScanNotRequired,
 		AuthorizationScopeSHA256: digest([]string{authority.RuntimeID, authority.WorkspaceID, authority.SubjectID}),
 		Metadata:                 json.RawMessage(`{}`), CreatedAt: now, UpdatedAt: now,
@@ -99,7 +122,7 @@ func (service *Service) Upload(ctx context.Context, authority knowledgefiles.Aut
 	if err != nil {
 		return out, err
 	}
-	if !sameUpload(registered, authority, input, contentSHA, idempotencyKey) || registered.StorageReference != info.Reference {
+	if !sameUpload(registered, authority, input, idempotencyKey) || registered.StorageReference != info.Reference {
 		return out, failure("conflict", "knowledge.file_idempotency_conflict")
 	}
 	return fileView(registered), nil
@@ -258,8 +281,8 @@ func (service *Service) authorize(authority knowledgefiles.Authority) error {
 	return nil
 }
 
-func sameUpload(value sharedartifact.Artifact, authority knowledgefiles.Authority, input knowledgefiles.Upload, contentSHA, idempotencyKey string) bool {
-	return value.WorkspaceID == authority.WorkspaceID && value.Owner == sharedartifact.OwnerUploads && value.Kind == fileKind && value.IdempotencyKey == idempotencyKey && value.CreatedBy == authority.SubjectID && value.Filename == input.Filename && value.MediaType == input.ContentType && value.ContentSHA256 == contentSHA && value.SizeBytes == int64(len(input.Data)) && value.Status == sharedartifact.StatusAvailable
+func sameUpload(value sharedartifact.Artifact, authority knowledgefiles.Authority, input knowledgefiles.StreamUpload, idempotencyKey string) bool {
+	return value.WorkspaceID == authority.WorkspaceID && value.Owner == sharedartifact.OwnerUploads && value.Kind == fileKind && value.IdempotencyKey == idempotencyKey && value.CreatedBy == authority.SubjectID && value.Filename == input.Filename && value.MediaType == input.ContentType && value.ContentSHA256 == input.SHA256 && value.SizeBytes == input.SizeBytes && value.Status == sharedartifact.StatusAvailable
 }
 
 func fileView(value sharedartifact.Artifact) knowledgefiles.File {

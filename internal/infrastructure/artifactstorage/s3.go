@@ -101,21 +101,26 @@ func (config S3Config) validate() error {
 }
 
 func (store *S3) PutImmutable(ctx context.Context, workspaceID, identity string, content []byte) (sharedartifact.ContentInfo, error) {
+	digest := sha256.Sum256(content)
+	return store.PutImmutableStream(ctx, workspaceID, identity, hex.EncodeToString(digest[:]), int64(len(content)), bytes.NewReader(content))
+}
+
+func (store *S3) PutImmutableStream(ctx context.Context, workspaceID, identity, expectedSHA256 string, expectedBytes int64, content io.Reader) (sharedartifact.ContentInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
-	if strings.TrimSpace(identity) == "" || len(content) == 0 || int64(len(content)) > maxSharedBytes {
+	expectedSHA256 = strings.ToLower(strings.TrimSpace(expectedSHA256))
+	if strings.TrimSpace(identity) == "" || !sharedDigest.MatchString(expectedSHA256) || expectedBytes < 1 || expectedBytes > maxSharedBytes || content == nil {
 		return sharedartifact.ContentInfo{}, errors.New("shared artifact identity or size is invalid")
 	}
 	workspaceHash, err := workspaceName(workspaceID)
 	if err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
-	contentHash := sha256.Sum256(content)
 	identityHash := sha256.Sum256([]byte(strings.TrimSpace(identity)))
-	reference := "artifact_" + hex.EncodeToString(identityHash[:16]) + "_" + hex.EncodeToString(contentHash[:])
+	reference := "artifact_" + hex.EncodeToString(identityHash[:16]) + "_" + expectedSHA256
 	if info, statErr := store.Stat(ctx, workspaceID, reference); statErr == nil {
-		if info.SHA256 != hex.EncodeToString(contentHash[:]) || info.Size != int64(len(content)) {
+		if info.SHA256 != expectedSHA256 || info.Size != expectedBytes {
 			return sharedartifact.ContentInfo{}, sharedartifact.ErrIdentityConflict
 		}
 		return info, nil
@@ -123,16 +128,22 @@ func (store *S3) PutImmutable(ctx context.Context, workspaceID, identity string,
 		return sharedartifact.ContentInfo{}, statErr
 	}
 	key := store.objectKey(workspaceHash, reference)
+	digest := sha256.New()
+	limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
 	_, err = store.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(store.bucket), Key: aws.String(key), Body: bytes.NewReader(content),
-		ContentLength: aws.Int64(int64(len(content))), ContentType: aws.String("application/octet-stream"),
+		Bucket: aws.String(store.bucket), Key: aws.String(key), Body: io.TeeReader(limited, digest),
+		ContentLength: aws.Int64(expectedBytes), ContentType: aws.String("application/octet-stream"),
 		ServerSideEncryption: types.ServerSideEncryptionAes256,
-		Metadata:             map[string]string{"content-sha256": hex.EncodeToString(contentHash[:]), "identity-sha256": hex.EncodeToString(identityHash[:]), "workspace-sha256": workspaceHash},
+		Metadata:             map[string]string{"content-sha256": expectedSHA256, "identity-sha256": hex.EncodeToString(identityHash[:]), "workspace-sha256": workspaceHash},
 	})
 	if err != nil {
 		return sharedartifact.ContentInfo{}, fmt.Errorf("put Knowledge S3 object: %w", err)
 	}
-	return sharedartifact.ContentInfo{Reference: reference, SHA256: hex.EncodeToString(contentHash[:]), Size: int64(len(content))}, nil
+	if limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
+		_, _ = store.client.DeleteObject(context.WithoutCancel(ctx), &s3.DeleteObjectInput{Bucket: aws.String(store.bucket), Key: aws.String(key)})
+		return sharedartifact.ContentInfo{}, errors.New("shared artifact content does not match declared integrity metadata")
+	}
+	return sharedartifact.ContentInfo{Reference: reference, SHA256: expectedSHA256, Size: expectedBytes}, nil
 }
 
 func (store *S3) Open(ctx context.Context, workspaceID, reference string) (io.ReadCloser, error) {

@@ -1,6 +1,7 @@
 package artifactstorage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 const maxSharedBytes = int64(100 << 20)
 
 var sharedReference = regexp.MustCompile(`^artifact_[a-f0-9]{32}_[a-f0-9]{64}$`)
+var sharedDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 type SharedFiles struct{ root *os.Root }
 
@@ -90,10 +92,16 @@ func contentInfo(root *os.Root, reference string) (sharedartifact.ContentInfo, e
 	return sharedartifact.ContentInfo{Reference: reference, SHA256: hex.EncodeToString(digest.Sum(nil)), Size: info.Size()}, nil
 }
 func (f *SharedFiles) PutImmutable(ctx context.Context, workspaceID, identity string, content []byte) (sharedartifact.ContentInfo, error) {
+	digest := sha256.Sum256(content)
+	return f.PutImmutableStream(ctx, workspaceID, identity, hex.EncodeToString(digest[:]), int64(len(content)), bytes.NewReader(content))
+}
+
+func (f *SharedFiles) PutImmutableStream(ctx context.Context, workspaceID, identity, expectedSHA256 string, expectedBytes int64, content io.Reader) (sharedartifact.ContentInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
-	if strings.TrimSpace(identity) == "" || int64(len(content)) > maxSharedBytes {
+	expectedSHA256 = strings.ToLower(strings.TrimSpace(expectedSHA256))
+	if strings.TrimSpace(identity) == "" || !sharedDigest.MatchString(expectedSHA256) || expectedBytes < 0 || expectedBytes > maxSharedBytes || content == nil {
 		return sharedartifact.ContentInfo{}, fmt.Errorf("shared artifact identity or size is invalid")
 	}
 	root, err := f.workspace(workspaceID, true)
@@ -101,11 +109,10 @@ func (f *SharedFiles) PutImmutable(ctx context.Context, workspaceID, identity st
 		return sharedartifact.ContentInfo{}, err
 	}
 	defer root.Close()
-	contentHash := sha256.Sum256(content)
 	identityHash := sha256.Sum256([]byte(strings.TrimSpace(identity)))
-	reference := "artifact_" + hex.EncodeToString(identityHash[:16]) + "_" + hex.EncodeToString(contentHash[:])
+	reference := "artifact_" + hex.EncodeToString(identityHash[:16]) + "_" + expectedSHA256
 	if info, statErr := contentInfo(root, reference); statErr == nil {
-		if info.SHA256 != hex.EncodeToString(contentHash[:]) || info.Size != int64(len(content)) {
+		if info.SHA256 != expectedSHA256 || info.Size != expectedBytes {
 			return sharedartifact.ContentInfo{}, sharedartifact.ErrIdentityConflict
 		}
 		return info, nil
@@ -116,13 +123,16 @@ func (f *SharedFiles) PutImmutable(ctx context.Context, workspaceID, identity st
 	if err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
-	if n, writeErr := file.Write(content); writeErr != nil || n != len(content) {
+	digest := sha256.New()
+	limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
+	written, writeErr := io.CopyBuffer(io.MultiWriter(file, digest), limited, make([]byte, 128*1024))
+	if writeErr != nil || written != expectedBytes || limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
 		_ = file.Close()
 		_ = root.Remove(reference + ".pending")
 		if writeErr != nil {
 			return sharedartifact.ContentInfo{}, writeErr
 		}
-		return sharedartifact.ContentInfo{}, io.ErrShortWrite
+		return sharedartifact.ContentInfo{}, fmt.Errorf("shared artifact content does not match declared integrity metadata")
 	}
 	if err = file.Sync(); err == nil {
 		err = file.Close()
@@ -136,7 +146,7 @@ func (f *SharedFiles) PutImmutable(ctx context.Context, workspaceID, identity st
 	if err = root.Rename(reference+".pending", reference+".blob"); err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
-	return sharedartifact.ContentInfo{Reference: reference, SHA256: hex.EncodeToString(contentHash[:]), Size: int64(len(content))}, nil
+	return sharedartifact.ContentInfo{Reference: reference, SHA256: expectedSHA256, Size: expectedBytes}, nil
 }
 func (f *SharedFiles) Open(ctx context.Context, workspaceID, reference string) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {

@@ -21,7 +21,7 @@ require (
 	github.com/domainry/domainry-audit-sdk v0.1.18
 	github.com/domainry/domainry-foundation v0.2.14
 	github.com/domainry/domainry-identity-sdk v0.1.35
-	github.com/domainry/domainry-knowledge-sdk v0.1.26
+	github.com/domainry/domainry-knowledge-sdk v0.1.27
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	golang.org/x/crypto v0.55.0

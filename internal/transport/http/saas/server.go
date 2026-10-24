@@ -68,6 +68,8 @@ func (server *Server) serveHTTP(writer http.ResponseWriter, request *http.Reques
 		writeJSON(writer, http.StatusOK, knowledgecontract.Descriptor{ProtocolVersion: knowledgecontract.SaaSProtocolVersionV1, Mode: knowledgecontract.DeploymentModeSaaS, Audience: server.dependencies.Audience, Capabilities: append([]string(nil), knowledgecontract.SaaSCapabilitiesV1...)})
 	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSInvokePath:
 		server.invoke(writer, request)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSFileUploadPath:
+		server.uploadFile(writer, request)
 	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSDocumentUploadPath:
 		server.uploadDocument(writer, request)
 	case request.Method == http.MethodGet && request.URL.Path == knowledgecontract.SaaSDocumentDownloadPath:
@@ -88,6 +90,8 @@ func recordRoute(request *http.Request) {
 		telemetry.RecordHTTPRoute(request, "GET "+knowledgecontract.SaaSDiscoveryPath)
 	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSInvokePath:
 		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSInvokePath)
+	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSFileUploadPath:
+		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSFileUploadPath)
 	case request.Method == http.MethodPost && request.URL.Path == knowledgecontract.SaaSDocumentUploadPath:
 		telemetry.RecordHTTPRoute(request, "POST "+knowledgecontract.SaaSDocumentUploadPath)
 	case request.Method == http.MethodGet && request.URL.Path == knowledgecontract.SaaSDocumentDownloadPath:
