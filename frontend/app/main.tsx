@@ -6,8 +6,8 @@ import { KnowledgeWorkspace } from "../src/KnowledgeWorkspace.tsx";
 import { KnowledgeSharedPage } from "../src/KnowledgeSharedPage.tsx";
 import { parseKnowledgePageShareLocation } from "../src/knowledge-share-links.ts";
 import "../src/styles.css";
-import { knowledgeClient } from "./client.ts";
-import { changePassword, formatError, loadConfig, loadProductSession, login, logout, refreshSession, type ProductConfig, type ProductSession } from "./session.ts";
+import { knowledgeClient } from "../src/client.ts";
+import { changePassword, formatError, loadConfig, loadProductSession, login, logout, refreshSession, type ProductConfig, type ProductSession } from "../src/session.ts";
 import "./product.css";
 
 (window as Window & { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH = "/";

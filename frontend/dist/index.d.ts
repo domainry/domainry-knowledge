@@ -1,4 +1,7 @@
 import "./styles.css";
+export { knowledgeClient } from "./client.ts";
+export { APIError, configureKnowledgeTransport } from "./session.ts";
+export type { KnowledgeTransport } from "./session.ts";
 export { KnowledgeLibraryManager, KnowledgeLibraryManagerDialog, KnowledgeWorkspace } from "./KnowledgeWorkspace.tsx";
 export { KnowledgePagesPanel, pageContentSHA256 } from "./KnowledgePagesPanel.tsx";
 export { KnowledgePageShareManager } from "./KnowledgePageShareManager.tsx";

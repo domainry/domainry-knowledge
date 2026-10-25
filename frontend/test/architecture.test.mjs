@@ -193,7 +193,7 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   const collaboration = await readFile(path.join(root, "src", "useKnowledgeCollaboration.ts"), "utf8");
   const transport = await readFile(path.join(root, "src", "collaborationTransport.ts"), "utf8");
   const offline = await readFile(path.join(root, "src", "collaborationOffline.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const blockEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   assert.match(collaboration, /createKnowledgeCollaborationTransport/);
@@ -238,7 +238,7 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
 test("application cards keep only stable references and resolve through the authorized host boundary", async () => {
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   for (const kind of ["calendar_event", "meeting", "group", "task", "jira", "web"]) assert.match(blocks, new RegExp(kind));
   assert.match(blocks, /propSchema: \{[\s\S]*provider:[\s\S]*kind:[\s\S]*resourceId:/);
   assert.doesNotMatch(blocks, /applicationCardConfig[\s\S]{0,600}(accessToken|credential|secret)/i);
@@ -304,7 +304,7 @@ test("file-page export is a one-click browser download without a second save-pic
 test("page search uses the authorized structured endpoint and opens canonical hit locations", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const grid = await readFile(path.join(root, "src", "editors", "GridEditor.tsx"), "utf8");
   const spreadsheet = await readFile(path.join(root, "src", "editors", "SpreadsheetEditor.tsx"), "utf8");
   const mindMap = await readFile(path.join(root, "src", "editors", "MindMapEditor.tsx"), "utf8");
@@ -576,7 +576,7 @@ test("whiteboard persists a Knowledge-owned schema and exposes complete board co
 test("task blocks use backend-owned state instead of versioned block props", async () => {
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   assert.match(blocks, /propSchema: \{ title: \{ default: "待办任务" \} \}/);
   assert.doesNotMatch(blocks, /propSchema: \{[^}]*status:/);
   assert.match(panel, /listPageTasks/);
@@ -589,7 +589,7 @@ test("task blocks use backend-owned state instead of versioned block props", asy
 test("poll blocks keep configuration and per-user ballots in backend-owned state", async () => {
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   assert.match(blocks, /type: "knowledgePoll"/);
   assert.match(blocks, /propSchema: \{ question: \{ default: "请选择一个选项" \} \}/);
   assert.doesNotMatch(blocks, /propSchema: \{[^}]*votes:/);
@@ -606,7 +606,7 @@ test("poll blocks keep configuration and per-user ballots in backend-owned state
 test("page templates are backend-owned immutable subtree snapshots", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
 
   assert.match(panel, /页面模板/);
   assert.match(panel, /保存当前页面为模板/);
@@ -625,7 +625,7 @@ test("native application references are governed child pages instead of raw page
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const runtime = await readFile(path.join(root, "src", "editors", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.match(blocks, /dynamicRuntime\.createChildReference/);
   assert.match(blocks, /parentContent: serializeDocumentBlocks\(editor\.document/);
@@ -654,7 +654,7 @@ test("native application references are governed child pages instead of raw page
 test("personal page navigation is backend-owned and visible in the workspace", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
   for (const kind of ["favorites", "recent_views", "recent_edits", "subscribed", "shortcuts", "trash"]) {
@@ -677,7 +677,7 @@ test("personal page navigation is backend-owned and visible in the workspace", a
 test("shared page metadata and governance are backend-owned, typed, and editable in the page workspace", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
   assert.match(types, /KnowledgePageMetadata/);
@@ -704,7 +704,7 @@ test("shared page metadata and governance are backend-owned, typed, and editable
 test("page references and backlinks use the authorized backend graph index", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
   assert.match(types, /KnowledgePageReferenceDirection = "outgoing" \| "incoming"/);
@@ -724,7 +724,7 @@ test("page references and backlinks use the authorized backend graph index", asy
 test("page identity search and relationship graph keep stable IDs behind live labels", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
@@ -750,7 +750,7 @@ test("page identity search and relationship graph keep stable IDs behind live la
 });
 
 test("content copy download print export and duplicate entries fail closed through server policy", async () => {
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const shared = await readFile(path.join(root, "src", "KnowledgeSharedPage.tsx"), "utf8");
   const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
@@ -796,7 +796,7 @@ test("content copy download print export and duplicate entries fail closed throu
 test("AI candidates are source-pinned, visible, and require explicit editor confirmation", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const editor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
 
   assert.match(types, /KnowledgeAISourceScope = "published" \| "draft"/);
@@ -814,7 +814,7 @@ test("AI candidates are source-pinned, visible, and require explicit editor conf
 test("page history prioritizes immutable versions and restores snapshots through a new draft", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const history = await readFile(path.join(root, "src", "page-workspace", "PageHistoryPanel.tsx"), "utf8");
-  const client = await readFile(path.join(root, "app", "client.ts"), "utf8");
+  const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
   assert.match(panel, /historySection/);

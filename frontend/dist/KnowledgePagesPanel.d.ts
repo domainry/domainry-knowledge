@@ -19,6 +19,7 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
     onSelectionChange?: (page: {
         id: string;
         title: string;
+        mode: "read" | "edit";
     } | null) => void;
     onManage?: () => void;
 }): import("react").JSX.Element;
