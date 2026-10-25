@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domainry/domainry-foundation/telemetry"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
 
@@ -58,6 +59,7 @@ func New(client *http.Client) *HTTP {
 			},
 		}
 	}
+	client = telemetry.InstrumentHTTPClientWithOptions(client, "domainry.knowledge.webhook", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
 	return &HTTP{client: client}
 }
 
@@ -90,6 +92,7 @@ func (delivery *HTTP) DeliverKnowledgeWebhook(ctx context.Context, input knowled
 	if err != nil {
 		return knowledgesdk.KnowledgeWebhookDeliveryResult{}, err
 	}
+	ctx = telemetry.WithHTTPClientOperation(ctx, "knowledge.webhook.deliver")
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, input.EndpointURL, strings.NewReader(string(body)))
 	if err != nil || request.URL.Scheme != "https" || request.URL.Hostname() == "" || request.URL.User != nil || request.URL.Port() != "" && request.URL.Port() != "443" {
 		return knowledgesdk.KnowledgeWebhookDeliveryResult{}, fmt.Errorf("webhook endpoint is invalid")

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/domainry/domainry-foundation/telemetry"
 	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 )
 
@@ -37,7 +38,16 @@ func NewClamdScanner(network, address string, timeout time.Duration) (knowledgec
 	return &clamdScanner{network: network, address: address, timeout: timeout}, nil
 }
 
-func (scanner *clamdScanner) ScanKnowledgeDocument(ctx context.Context, input knowledgecontract.KnowledgeDocumentSecurityInput) (knowledgecontract.KnowledgeDocumentSecurityResult, error) {
+func (scanner *clamdScanner) ScanKnowledgeDocument(ctx context.Context, input knowledgecontract.KnowledgeDocumentSecurityInput) (result knowledgecontract.KnowledgeDocumentSecurityResult, returnErr error) {
+	started := time.Now()
+	defer func() {
+		telemetry.RecordDependencyCall(ctx, telemetry.DependencyCall{
+			Feature: telemetry.DiagnosticFeatureScanner, Dependency: "clamd", Operation: "scan",
+			Input: map[string]any{"network": scanner.network, "document_bytes": input.Document.Bytes, "content_sha256": input.Document.SHA256},
+		}, telemetry.DependencyResult{Output: map[string]any{
+			"clean": result.Clean, "scanner": result.Scanner, "report_sha256": result.ReportSHA256, "error_code": result.ErrorCode,
+		}, Err: returnErr}, time.Since(started))
+	}()
 	if input.Content == nil || input.Document.Bytes < 1 {
 		return knowledgecontract.KnowledgeDocumentSecurityResult{}, fmt.Errorf("clamd document content is unavailable")
 	}

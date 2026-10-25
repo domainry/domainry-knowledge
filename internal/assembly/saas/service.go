@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -25,17 +24,13 @@ import (
 	filestore "github.com/domainry/domainry-knowledge/internal/infrastructure/filestore"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/migrationhost"
-	"github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/sqliteconfig"
 	saashttp "github.com/domainry/domainry-knowledge/internal/transport/http/saas"
-	ormdialect "github.com/domainry/domainry-orm/dialect"
-	ormsqlite "github.com/domainry/domainry-orm/sqlite"
-	_ "modernc.org/sqlite"
 )
 
 type Options struct {
 	RuntimeID          string
 	ServiceAccessToken string
-	DatabasePath       string
+	Database           DatabaseOptions
 	StoragePath        string
 	FileStorage        FileStorageOptions
 	Knowledge          knowledgecontract.Options
@@ -61,56 +56,42 @@ type Service struct {
 }
 
 func Open(ctx context.Context, options Options) (_ *Service, resultErr error) {
-	if strings.TrimSpace(options.RuntimeID) == "" || strings.TrimSpace(options.ServiceAccessToken) == "" || strings.TrimSpace(options.DatabasePath) == "" || strings.TrimSpace(options.StoragePath) == "" {
+	if strings.TrimSpace(options.RuntimeID) == "" || strings.TrimSpace(options.ServiceAccessToken) == "" || strings.TrimSpace(options.StoragePath) == "" {
 		return nil, fmt.Errorf("Knowledge SaaS configuration is incomplete")
-	}
-	databasePath, err := filepath.Abs(options.DatabasePath)
-	if err != nil {
-		return nil, err
 	}
 	storagePath, err := filepath.Abs(options.StoragePath)
 	if err != nil {
 		return nil, err
 	}
-	if err = os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
-		return nil, fmt.Errorf("create Knowledge SaaS database directory: %w", err)
-	}
-	database, err := sql.Open("sqlite", sqliteconfig.DSN(databasePath))
+	databaseResources, err := openDatabase(ctx, options.Database)
 	if err != nil {
 		return nil, err
 	}
-	database.SetMaxOpenConns(8)
-	service := &Service{database: database}
+	service := &Service{database: databaseResources.database}
 	defer func() {
 		if resultErr != nil {
 			_ = service.Close(context.Background())
 		}
 	}()
-	if _, err = database.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
-		return nil, err
-	}
-	renderer, err := ormdialect.New(ormdialect.SQLite)
-	if err != nil {
-		return nil, err
-	}
-	dialect := renderer.WithSchema("")
-	profile := ormsqlite.NewProfile()
-	registrar := &migrationhost.Registrar{DB: database, Renderer: dialect}
-	if err = registrar.Prepare(ctx); err != nil {
-		return nil, err
-	}
-	backend := store.SQLBackend{DB: database, Dialect: dialect, Engine: profile}
-	if err = store.EnsureSchema(ctx, backend, registrar); err != nil {
+	registrar := &migrationhost.Registrar{DB: databaseResources.database, Renderer: databaseResources.renderer, DriverName: databaseResources.driver, SchemaName: databaseResources.schema}
+	backend := store.SQLBackend{DB: databaseResources.database, Dialect: databaseResources.renderer, Engine: databaseResources.profile}
+	var artifactStore *sharedartifact.SQLStore
+	if err = databaseResources.applyMigrations(ctx, func() error {
+		if prepareErr := registrar.Prepare(ctx); prepareErr != nil {
+			return prepareErr
+		}
+		if schemaErr := store.EnsureSchema(ctx, backend, registrar); schemaErr != nil {
+			return schemaErr
+		}
+		artifactStore, err = sharedartifact.Open(ctx, databaseResources.database, databaseResources.renderer, registrar)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	service.shared, err = artifactstorage.OpenShared(ctx, filepath.Join(storagePath, "shared-artifacts"), artifactstorage.SharedStorageConfig{
 		Driver: options.FileStorage.Driver, Region: options.FileStorage.Region, Bucket: options.FileStorage.Bucket,
 		Prefix: options.FileStorage.Prefix, Endpoint: options.FileStorage.Endpoint, ForcePathStyle: options.FileStorage.ForcePathStyle,
 	})
-	if err != nil {
-		return nil, err
-	}
-	artifactStore, err := sharedartifact.Open(ctx, database, dialect, registrar)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +144,17 @@ func (service *Service) Handler() http.Handler {
 	}
 	return service.server.Handler()
 }
+
+func (service *Service) Ready(ctx context.Context) error {
+	if service == nil || service.database == nil {
+		return fmt.Errorf("Knowledge database is unavailable")
+	}
+	if err := service.database.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping Knowledge database: %w", err)
+	}
+	return nil
+}
+
 func (service *Service) Close(context.Context) error {
 	if service == nil {
 		return nil

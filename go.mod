@@ -14,12 +14,13 @@ require (
 	github.com/domainry/domainry-orm v0.1.34
 	github.com/domainry/domainry-report-sdk v0.1.26
 	github.com/domainry/domainry-tools-sdk v0.1.25
+	github.com/jackc/pgx/v5 v5.10.0
 )
 
 require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/domainry/domainry-audit-sdk v0.1.18
-	github.com/domainry/domainry-foundation v0.2.14
+	github.com/domainry/domainry-foundation v0.2.16
 	github.com/domainry/domainry-identity-sdk v0.1.35
 	github.com/domainry/domainry-knowledge-sdk v0.1.27
 	go.opentelemetry.io/otel v1.45.0
@@ -63,7 +64,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
-	github.com/jackc/pgx/v5 v5.10.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect

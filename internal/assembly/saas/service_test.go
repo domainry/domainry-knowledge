@@ -5,9 +5,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
@@ -19,13 +22,21 @@ import (
 
 type allowLibraries struct{}
 
+func sqliteDatabase(path string) DatabaseOptions {
+	return DatabaseOptions{
+		Driver: "sqlite", Path: path, SQLiteBusyTimeout: 5 * time.Second, SQLiteMaxOpen: 8,
+		MaxOpenConnections: 16, MaxIdleConnections: 8,
+		ConnectionLifetime: 30 * time.Minute, ConnectionIdleTime: 5 * time.Minute,
+	}
+}
+
 func (allowLibraries) AuthorizeKnowledgeLibrary(context.Context, string, agentsdk.KnowledgeLibrary, agentsdk.Authority) error {
 	return nil
 }
 
 func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 	root := t.TempDir()
-	options := Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", DatabasePath: filepath.Join(root, "knowledge.db"), StoragePath: filepath.Join(root, "storage")}
+	options := Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", Database: sqliteDatabase(filepath.Join(root, "knowledge.db")), StoragePath: filepath.Join(root, "storage")}
 	open := func() (*Service, *httptest.Server, knowledgefiles.Service) {
 		service, err := Open(t.Context(), options)
 		if err != nil {
@@ -69,18 +80,99 @@ func TestRemoteFilesUseKnowledgeOwnedMetadataAndContent(t *testing.T) {
 	}
 }
 
+func TestPostgreSQLRemoteFilesSurviveServiceRestart(t *testing.T) {
+	dsn := os.Getenv("KNOWLEDGE_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("KNOWLEDGE_TEST_POSTGRES_DSN is not set")
+	}
+	schema := fmt.Sprintf("domainry_knowledge_service_test_%d", time.Now().UTC().UnixNano())
+	databaseOptions := DatabaseOptions{
+		Driver: "postgres", DSN: dsn, Schema: schema,
+		MaxOpenConnections: 4, MaxIdleConnections: 2,
+		ConnectionLifetime: time.Minute, ConnectionIdleTime: time.Minute,
+	}
+	cleanupDatabase, err := openDatabase(t.Context(), databaseOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupDatabase.database.Close()
+	defer func() {
+		cleanupContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = cleanupDatabase.database.ExecContext(cleanupContext, "DROP SCHEMA IF EXISTS "+cleanupDatabase.renderer.Identifier(schema)+" CASCADE")
+	}()
+
+	root := t.TempDir()
+	options := Options{
+		RuntimeID: "runtime-postgres", ServiceAccessToken: "secret-token", Database: databaseOptions,
+		StoragePath: filepath.Join(root, "storage"),
+	}
+	authority := knowledgefiles.Authority{RuntimeID: "runtime-postgres", WorkspaceID: "workspace-a", SubjectID: "user-a"}
+	open := func() (*Service, *httptest.Server, knowledgefiles.Service) {
+		service, openErr := Open(t.Context(), options)
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		httpServer := httptest.NewServer(service.Handler())
+		client, openErr := knowledgefiles.OpenRemote(t.Context(), knowledgefiles.RemoteConfig{Endpoint: httpServer.URL, ServiceAccessToken: "secret-token"}, "runtime-postgres")
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		return service, httpServer, client
+	}
+
+	service, httpServer, client := open()
+	raw := []byte("postgres-backed attachment")
+	file, err := client.Upload(t.Context(), authority, knowledgefiles.Upload{ClientID: "upload-postgres", Filename: "note.txt", ContentType: "text/plain", Data: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer.Close()
+	if err = service.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	service, httpServer, client = open()
+	download, err := client.Download(t.Context(), authority, file.ID)
+	httpServer.Close()
+	closeErr := service.Close(t.Context())
+	if err != nil || closeErr != nil || download.File.ID != file.ID || !bytes.Equal(download.Data, raw) {
+		t.Fatalf("download=%+v err=%v close=%v", download, err, closeErr)
+	}
+}
+
 func TestOpenCreatesDatabaseParentDirectory(t *testing.T) {
 	root := t.TempDir()
 	service, err := Open(t.Context(), Options{
 		RuntimeID: "runtime-a", ServiceAccessToken: "secret-token",
-		DatabasePath: filepath.Join(root, "nested", "database", "knowledge.db"),
-		StoragePath:  filepath.Join(root, "storage"),
+		Database:    sqliteDatabase(filepath.Join(root, "nested", "database", "knowledge.db")),
+		StoragePath: filepath.Join(root, "storage"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = service.Close(t.Context()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReadyTracksOwnedDatabase(t *testing.T) {
+	root := t.TempDir()
+	service, err := Open(t.Context(), Options{
+		RuntimeID: "runtime-a", ServiceAccessToken: "secret-token",
+		Database: sqliteDatabase(filepath.Join(root, "knowledge.db")), StoragePath: filepath.Join(root, "storage"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Ready(t.Context()); err != nil {
+		t.Fatalf("ready before close: %v", err)
+	}
+	if err = service.Close(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err = service.Ready(t.Context()); err == nil {
+		t.Fatal("closed database reported ready")
 	}
 }
 func (allowLibraries) ValidateKnowledgeLibraryMember(context.Context, string, agentsdk.Authority) error {
@@ -96,7 +188,7 @@ func TestRemoteKnowledgeOwnsDatabaseAndSurvivesRestart(t *testing.T) {
 	storagePath := filepath.Join(root, "storage")
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime-a", WorkspaceID: "workspace-a", UserID: "user-a"}
 	open := func() (*Service, *httptest.Server, knowledgecontract.Service) {
-		service, err := Open(t.Context(), Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", DatabasePath: databasePath, StoragePath: storagePath})
+		service, err := Open(t.Context(), Options{RuntimeID: "runtime-a", ServiceAccessToken: "secret-token", Database: sqliteDatabase(databasePath), StoragePath: storagePath})
 		if err != nil {
 			t.Fatal(err)
 		}

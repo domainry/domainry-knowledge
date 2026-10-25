@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	"github.com/domainry/domainry-foundation/telemetry"
 )
 
 const defaultS3Prefix = "domainry-knowledge"
@@ -51,11 +53,12 @@ func NewS3(ctx context.Context, config S3Config) (*S3, error) {
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
-	awsConfiguration, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(strings.TrimSpace(config.Region)))
+	awsHTTPClient := telemetry.InstrumentHTTPClientWithOptions(http.DefaultClient, "domainry.knowledge.s3", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
+	awsConfiguration, err := awsconfig.LoadDefaultConfig(telemetry.WithHTTPClientOperation(ctx, "knowledge.s3.configure"), awsconfig.WithRegion(strings.TrimSpace(config.Region)), awsconfig.WithHTTPClient(awsHTTPClient))
 	if err != nil {
 		return nil, fmt.Errorf("load Knowledge S3 configuration: %w", err)
 	}
-	if _, err = awsConfiguration.Credentials.Retrieve(ctx); err != nil {
+	if _, err = awsConfiguration.Credentials.Retrieve(telemetry.WithHTTPClientOperation(ctx, "knowledge.s3.credentials")); err != nil {
 		return nil, fmt.Errorf("retrieve Knowledge S3 credentials: %w", err)
 	}
 	client := s3.NewFromConfig(awsConfiguration, func(options *s3.Options) {
@@ -81,7 +84,7 @@ func newS3(config S3Config, client s3Client) (*S3, error) {
 	if path.Clean(prefix) != prefix || strings.HasPrefix(prefix, "..") {
 		return nil, errors.New("KNOWLEDGE_S3_PREFIX must be a clean relative path")
 	}
-	return &S3{client: client, bucket: strings.TrimSpace(config.Bucket), prefix: prefix}, nil
+	return &S3{client: diagnosticS3Client{client: client}, bucket: strings.TrimSpace(config.Bucket), prefix: prefix}, nil
 }
 
 func (config S3Config) validate() error {

@@ -18,6 +18,7 @@ import (
 
 	connector "github.com/domainry/domainry-connector-sdk"
 	connectorhttpapi "github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
+	"github.com/domainry/domainry-foundation/telemetry"
 )
 
 type HTTP struct {
@@ -57,7 +58,8 @@ func NewHTTP(origin string, client *http.Client) (*HTTP, error) {
 	// legitimate large upload even when the streamed operation allows longer.
 	bounded.Timeout = 0
 	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &HTTP{origin: u, client: &bounded}, nil
+	client = telemetry.InstrumentHTTPClientWithOptions(&bounded, "domainry.knowledge.connector", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
+	return &HTTP{origin: u, client: client}, nil
 }
 
 func (t *HTTP) RoundTripHTTP(ctx context.Context, in connector.HTTPRequest) (connector.HTTPResponse, error) {
@@ -105,6 +107,7 @@ func (t *HTTP) RoundTripHTTP(ctx context.Context, in connector.HTTPRequest) (con
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	ctx = telemetry.WithHTTPClientOperation(ctx, "knowledge.connector.request")
 	var requestBody io.Reader = bytes.NewReader(in.Body)
 	var limited *io.LimitedReader
 	var digest hashWriter

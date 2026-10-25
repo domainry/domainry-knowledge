@@ -15,12 +15,24 @@ import (
 )
 
 type Registrar struct {
-	DB       *sql.DB
-	Renderer modulehost.Dialect
+	DB         *sql.DB
+	Renderer   modulehost.Dialect
+	DriverName string
+	SchemaName string
 }
 
-func (*Registrar) Driver() string { return "sqlite" }
-func (*Registrar) Schema() string { return "" }
+func (r *Registrar) Driver() string {
+	if r == nil || strings.TrimSpace(r.DriverName) == "" {
+		return "sqlite"
+	}
+	return strings.TrimSpace(r.DriverName)
+}
+func (r *Registrar) Schema() string {
+	if r == nil {
+		return ""
+	}
+	return strings.TrimSpace(r.SchemaName)
+}
 func (r *Registrar) Prepare(ctx context.Context) error {
 	statement, args, err := schema.NewTableWithRequiredColumns(r.Renderer, "_schema_migrations", schema.Column("id", schema.BigInt()).NotNull().AutoIncrement()).IfNotExists().Columns(schema.Column("owner", schema.TextKey(191)).NotNull(), schema.Column("version", schema.BigInt()).NotNull(), schema.Column("name", schema.TextKey(191)).NotNull(), schema.Column("checksum", schema.TextKey(64)).NotNull(), schema.Column("dirty", schema.Boolean()).NotNull(), schema.Column("applied_at", schema.BigInt()).NotNull()).PrimaryKey("id").Unique("owner", "version").Build()
 	if err != nil {

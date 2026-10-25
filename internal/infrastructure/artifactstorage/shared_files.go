@@ -11,8 +11,10 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	sharedartifact "github.com/domainry/domainry-foundation/artifact"
+	"github.com/domainry/domainry-foundation/telemetry"
 )
 
 const maxSharedBytes = int64(100 << 20)
@@ -96,7 +98,11 @@ func (f *SharedFiles) PutImmutable(ctx context.Context, workspaceID, identity st
 	return f.PutImmutableStream(ctx, workspaceID, identity, hex.EncodeToString(digest[:]), int64(len(content)), bytes.NewReader(content))
 }
 
-func (f *SharedFiles) PutImmutableStream(ctx context.Context, workspaceID, identity, expectedSHA256 string, expectedBytes int64, content io.Reader) (sharedartifact.ContentInfo, error) {
+func (f *SharedFiles) PutImmutableStream(ctx context.Context, workspaceID, identity, expectedSHA256 string, expectedBytes int64, content io.Reader) (result sharedartifact.ContentInfo, returnErr error) {
+	started := time.Now()
+	defer func() {
+		recordSharedFileCall(ctx, "put_immutable", map[string]any{"content_sha256": expectedSHA256, "content_bytes": expectedBytes}, result, started, returnErr)
+	}()
 	if err := ctx.Err(); err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
@@ -148,7 +154,14 @@ func (f *SharedFiles) PutImmutableStream(ctx context.Context, workspaceID, ident
 	}
 	return sharedartifact.ContentInfo{Reference: reference, SHA256: expectedSHA256, Size: expectedBytes}, nil
 }
-func (f *SharedFiles) Open(ctx context.Context, workspaceID, reference string) (io.ReadCloser, error) {
+func (f *SharedFiles) Open(ctx context.Context, workspaceID, reference string) (reader io.ReadCloser, returnErr error) {
+	started := time.Now()
+	defer func() {
+		telemetry.RecordDependencyCall(ctx, telemetry.DependencyCall{
+			Feature: telemetry.DiagnosticFeatureFilesystem, Dependency: "knowledge.shared_files", Operation: "open",
+			Input: map[string]any{"reference": reference},
+		}, telemetry.DependencyResult{Output: map[string]any{"opened": reader != nil}, Err: returnErr}, time.Since(started))
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -166,7 +179,11 @@ func (f *SharedFiles) Open(ctx context.Context, workspaceID, reference string) (
 	}
 	return file, err
 }
-func (f *SharedFiles) Stat(ctx context.Context, workspaceID, reference string) (sharedartifact.ContentInfo, error) {
+func (f *SharedFiles) Stat(ctx context.Context, workspaceID, reference string) (result sharedartifact.ContentInfo, returnErr error) {
+	started := time.Now()
+	defer func() {
+		recordSharedFileCall(ctx, "stat", map[string]any{"reference": reference}, result, started, returnErr)
+	}()
 	if err := ctx.Err(); err != nil {
 		return sharedartifact.ContentInfo{}, err
 	}
@@ -180,7 +197,14 @@ func (f *SharedFiles) Stat(ctx context.Context, workspaceID, reference string) (
 	defer root.Close()
 	return contentInfo(root, reference)
 }
-func (f *SharedFiles) Delete(ctx context.Context, workspaceID, reference string) error {
+func (f *SharedFiles) Delete(ctx context.Context, workspaceID, reference string) (returnErr error) {
+	started := time.Now()
+	defer func() {
+		telemetry.RecordDependencyCall(ctx, telemetry.DependencyCall{
+			Feature: telemetry.DiagnosticFeatureFilesystem, Dependency: "knowledge.shared_files", Operation: "delete",
+			Input: map[string]any{"reference": reference},
+		}, telemetry.DependencyResult{Err: returnErr}, time.Since(started))
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -199,6 +223,14 @@ func (f *SharedFiles) Delete(ctx context.Context, workspaceID, reference string)
 		return err
 	}
 	return nil
+}
+
+func recordSharedFileCall(ctx context.Context, operation string, input map[string]any, result sharedartifact.ContentInfo, started time.Time, err error) {
+	telemetry.RecordDependencyCall(ctx, telemetry.DependencyCall{
+		Feature: telemetry.DiagnosticFeatureFilesystem, Dependency: "knowledge.shared_files", Operation: operation, Input: input,
+	}, telemetry.DependencyResult{Output: map[string]any{
+		"reference": result.Reference, "size": result.Size, "content_sha256": result.SHA256,
+	}, Err: err}, time.Since(started))
 }
 
 var _ sharedartifact.ContentStore = (*SharedFiles)(nil)

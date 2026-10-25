@@ -51,6 +51,9 @@ go run ./cmd/knowledge-saas
 APP_ENV=production \
 KNOWLEDGE_SERVICE_ACCESS_TOKEN='replace-with-a-secret' \
 KNOWLEDGE_RUNTIME_ID='facility_ops' \
+KNOWLEDGE_DATABASE_DRIVER=postgres \
+KNOWLEDGE_DATABASE_DSN='postgres://knowledge:password@postgres:5432/knowledge?sslmode=require' \
+KNOWLEDGE_DATABASE_SCHEMA=domainry_knowledge \
 KNOWLEDGE_FILE_STORAGE_DRIVER=s3 \
 KNOWLEDGE_S3_REGION=us-east-1 \
 KNOWLEDGE_S3_BUCKET=facility-files \
@@ -85,11 +88,29 @@ S3 凭据使用 AWS SDK 标准凭据链，不放进上述公开配置。`KNOWLED
 |---|---|
 | `KNOWLEDGE_SAAS_HTTP_ADDR` | `127.0.0.1:8093` |
 | `KNOWLEDGE_SERVICE_ACCESS_TOKEN` | 必填；调用方与服务共享的服务凭据 |
+| `KNOWLEDGE_DATABASE_DRIVER` | 本地默认 `sqlite`；生产必须为 `postgres` |
+| `KNOWLEDGE_DATABASE_PATH` | SQLite 文件，默认 `data/knowledge-saas.db` |
+| `KNOWLEDGE_DATABASE_DSN` | PostgreSQL DSN；`postgres` 驱动必填 |
+| `KNOWLEDGE_DATABASE_SCHEMA` | PostgreSQL Schema，默认 `public`；生产建议 `domainry_knowledge` |
+| `KNOWLEDGE_DATABASE_MAX_OPEN_CONNECTIONS` | PostgreSQL 最大连接数，默认 `16` |
+| `KNOWLEDGE_DATABASE_MAX_IDLE_CONNECTIONS` | PostgreSQL 最大空闲连接数，默认 `8` |
+| `KNOWLEDGE_DATABASE_CONNECTION_LIFETIME` | PostgreSQL 连接最长生命周期，默认 `30m` |
+| `KNOWLEDGE_DATABASE_CONNECTION_IDLE_TIME` | PostgreSQL 空闲连接最长保留时间，默认 `5m` |
+| `KNOWLEDGE_SQLITE_BUSY_TIMEOUT` | 本地 SQLite 写锁等待，默认 `5s` |
+| `KNOWLEDGE_SQLITE_MAX_OPEN_CONNECTIONS` | 本地 SQLite 连接数，默认 `8` |
 | `KNOWLEDGE_FILE_STORAGE_DRIVER` | 本地默认 `local`；生产必须为 `s3` |
 | `KNOWLEDGE_S3_REGION` / `KNOWLEDGE_S3_BUCKET` | S3 模式必填 |
 | `KNOWLEDGE_S3_PREFIX` | 可选对象键前缀，默认 `domainry-knowledge` |
 | `KNOWLEDGE_S3_ENDPOINT` | MinIO 等 S3 兼容服务的 HTTPS Endpoint；AWS S3 留空 |
 | `KNOWLEDGE_S3_FORCE_PATH_STYLE` | MinIO 常用 `true`，默认 `false` |
+
+`knowledge-saas` 的多个生产实例共享 PostgreSQL 元数据和 S3/MinIO 文件内容。启动时以 PostgreSQL advisory lock 串行执行迁移；SQLite 只用于本地开发和单实例测试。
+
+生产镜像只包含无前端的 `knowledge-saas`：
+
+```bash
+docker build -t domainry-knowledge:local .
+```
 
 Identity 模块自身的项目配置仍使用 `IDENTITY_MODULE_*` 环境变量；数据库连接由产品宿主直接注入，Identity 不另开数据库。
 
