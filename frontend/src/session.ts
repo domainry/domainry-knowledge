@@ -1,4 +1,5 @@
 import { readHTTPErrorResponse } from "./http-error.ts";
+import { knowledgeMutationIdempotencyKey } from "./request-idempotency.ts";
 
 export type ProductConfig = {
   mode: "identity";
@@ -142,6 +143,8 @@ export async function sessionFetch(input: RequestInfo | URL, init: RequestInit =
 export async function request<T>(path: string, method: string, body: unknown, signal?: AbortSignal): Promise<T> {
   const headers: Record<string, string> = {};
   const init: RequestInit = { method, signal };
+  const idempotencyKey = knowledgeMutationIdempotencyKey(method, body);
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);

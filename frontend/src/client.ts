@@ -306,7 +306,7 @@ export const knowledgeClient: KnowledgeClient = {
       const end = Math.min(file.size, offset + uploadChunkBytes);
       const chunk = file.slice(offset, end);
       const chunkSHA256 = await sha256(await chunk.arrayBuffer());
-      const response = await checked(await sessionFetch(`${documentPath(libraryID)}?${new URLSearchParams({ client_id: clientID, filename: file.name })}`, { method: "POST", headers: { "Content-Type": "application/octet-stream", "Content-Range": `bytes ${offset}-${end - 1}/${file.size}`, "X-Knowledge-File-SHA256": fileSHA256, "X-Knowledge-Chunk-SHA256": chunkSHA256 }, body: chunk, signal }));
+      const response = await checked(await sessionFetch(`${documentPath(libraryID)}?${new URLSearchParams({ client_id: clientID, filename: file.name })}`, { method: "POST", headers: { "Content-Type": "application/octet-stream", "Content-Range": `bytes ${offset}-${end - 1}/${file.size}`, "Idempotency-Key": `${clientID}:${offset}:${end}`, "X-Knowledge-File-SHA256": fileSHA256, "X-Knowledge-Chunk-SHA256": chunkSHA256 }, body: chunk, signal }));
       const progress = await response.json() as { next_offset?: unknown; complete?: unknown; document?: KnowledgeDocument };
       if (scope !== sessionScope()) throw new APIError("knowledge.identity_changed", 409);
       if (!Number.isSafeInteger(progress.next_offset) || Number(progress.next_offset) <= offset || Number(progress.next_offset) < end || Number(progress.next_offset) > file.size || Number(progress.next_offset) !== file.size && Number(progress.next_offset) % uploadChunkBytes !== 0) throw new APIError("knowledge.document_response_invalid", 502);

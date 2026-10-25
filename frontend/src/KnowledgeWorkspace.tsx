@@ -395,9 +395,10 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   async function perform(action: (signal: AbortSignal) => Promise<void>) {
     if (lock.current || sourceBusy) return;
     lock.current = true; setBusy(true); setError(""); setNotice("");
-    try { await action(AbortSignal.timeout(60_000)); }
+    let succeeded = false;
+    try { await action(AbortSignal.timeout(60_000)); succeeded = true; }
     catch (failure) { setError(formatError(failure)); }
-    finally { lock.current = false; setBusy(false); setRefresh(value => value + 1); }
+    finally { lock.current = false; setBusy(false); if (succeeded) setRefresh(value => value + 1); }
   }
   function selectResult(value: KnowledgeLibrary, message: string) { setSelectedID(value.id); setSelected(value); setMemberCursors([""]); setOrganizationMemberCursors([""]); setNotice(message); }
   async function createPersonalLibrary(signal: AbortSignal) {
