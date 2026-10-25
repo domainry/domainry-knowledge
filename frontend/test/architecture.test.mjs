@@ -250,6 +250,7 @@ test("library workspace keeps backend resource types out of primary navigation",
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const pages = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const createMenu = await readFile(path.join(root, "src", "KnowledgeCreateMenu.tsx"), "utf8");
+  const createDialog = await readFile(path.join(root, "src", "KnowledgeLibraryCreateDialog.tsx"), "utf8");
   const registry = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.doesNotMatch(workspace, /aria-label="知识库工作区"/);
@@ -257,6 +258,11 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(workspace, /setLibraryDialog\("documents"\)/);
   assert.match(createMenu, /aria-label="新增"/);
   assert.match(createMenu, /新增知识库/);
+  assert.match(createMenu, /填写信息并创建团队知识库/);
+  assert.match(createDialog, /新建团队知识库/);
+  assert.match(createDialog, /知识库名称/);
+  assert.match(createDialog, /用途说明/);
+  assert.match(createDialog, /创建团队知识库/);
   assert.match(createMenu, /pageTypeDefinitions\.filter/);
   assert.match(createMenu, /importPageTypes/);
   assert.match(createMenu, /上传文件/);
@@ -264,6 +270,8 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(createMenu, /新增\{definition\.label\}/);
   assert.doesNotMatch(pages, /createPage\("document"\)/);
   assert.match(workspace, /createSharedLibrary/);
+  assert.match(workspace, /KnowledgeLibraryCreateDialog/);
+  assert.doesNotMatch(workspace, /name: "未命名知识库"/);
   assert.match(workspace, /emptySharedLibraryPicker/);
   assert.match(createMenu, /请先创建团队知识库/);
   assert.match(pages, /parent_page_id: parentPageID/);

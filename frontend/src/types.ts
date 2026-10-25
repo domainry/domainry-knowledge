@@ -890,7 +890,7 @@ export interface KnowledgeClient {
   search(request: KnowledgeSearchRequest): Promise<KnowledgeResult>;
   read(documentID: string, libraryID: string | undefined, signal: AbortSignal): Promise<KnowledgeResult>;
   listLibraries(after: string, limit: number, signal: AbortSignal): Promise<KnowledgeLibraryPage>;
-  createLibrary(request: { kind: "personal" | "shared"; name: string; clientID: string }, signal: AbortSignal): Promise<KnowledgeLibrary>;
+  createLibrary(request: { kind: "personal" | "shared"; name: string; description?: string; clientID: string }, signal: AbortSignal): Promise<KnowledgeLibrary>;
   getLibrary(libraryID: string, signal: AbortSignal): Promise<KnowledgeLibrary>;
   updateLibrary(libraryID: string, request: { name: string; description: string; archived: boolean; expectedRevision: number }, signal: AbortSignal): Promise<KnowledgeLibrary>;
   setLibraryArchived(libraryID: string, archived: boolean, expectedRevision: number, signal: AbortSignal): Promise<KnowledgeLibrary>;

@@ -10,6 +10,8 @@ import { PageTypeIcon, pageTypeDefinitions, pageTypeMeta } from "./pageTypeRegis
 import { knowledgeCitations, knowledgeDocumentHits, knowledgeSearchStatus } from "./search-results.ts";
 import type { KnowledgeAccessExplanation, KnowledgeCitation, KnowledgeClient, KnowledgeLibrary, KnowledgeLibraryMember, KnowledgeLibraryMemberPage, KnowledgeLibraryOrganizationMemberPage, KnowledgeLibraryPage, KnowledgeOrganizationPrincipal, KnowledgePageContentType, KnowledgePageSearchHit, KnowledgePageSearchInput, KnowledgePageSearchLocation, KnowledgePageSearchPage, KnowledgePrincipal, KnowledgeResult } from "./types.ts";
 import { KnowledgeCreateMenu } from "./KnowledgeCreateMenu.tsx";
+import { KnowledgeLibraryCreateDialog } from "./KnowledgeLibraryCreateDialog.tsx";
+import type { KnowledgeLibraryCreateInput } from "./KnowledgeLibraryCreateDialog.tsx";
 
 export type KnowledgeWorkspaceProps = {
   client: KnowledgeClient;
@@ -307,8 +309,8 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   const [libraryView, setLibraryView] = useState<"content" | "search">("content");
   const [searchTarget, setSearchTarget] = useState<{ pageID: string; mode: "read" | "edit"; location: KnowledgePageSearchLocation; revision: number } | null>(null);
 	const [currentPage, setCurrentPage] = useState<{ pageID: string; title: string } | null>(null);
-  const [libraryDialog, setLibraryDialog] = useState<"manage" | null>(null);
-  const createReceipt = useRef<{ kind: "personal" | "shared"; name: string; clientID: string } | null>(null), lock = useRef(false);
+  const [libraryDialog, setLibraryDialog] = useState<"create" | "manage" | null>(null);
+  const createReceipt = useRef<{ kind: "personal" | "shared"; name: string; description: string; clientID: string } | null>(null), lock = useRef(false);
   const blocked = busy || sourceBusy, libraryCursor = libraryCursors.at(-1) || "", memberCursor = memberCursors.at(-1) || "", organizationMemberCursor = organizationMemberCursors.at(-1) || "";
   const visibleLibraries = libraryKind ? page.items.filter(library => library.kind === libraryKind) : page.items;
   const canCreatePersonal = libraryKind !== "shared" && !loading && !page.items.some(item => item.kind === "personal");
@@ -404,18 +406,22 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   async function createPersonalLibrary(signal: AbortSignal) {
     const title = "个人知识库";
     const pending = createReceipt.current;
-    const input = pending?.kind === "personal" ? pending : { kind: "personal" as const, name: title, clientID: crypto.randomUUID() };
+    const input = pending?.kind === "personal" ? pending : { kind: "personal" as const, name: title, description: "", clientID: crypto.randomUUID() };
     createReceipt.current = input;
     const value = await client.createLibrary(input, signal);
     createReceipt.current = null; selectResult(value, "个人知识库已创建。");
   }
-  async function createSharedLibrary(signal: AbortSignal) {
+  async function createSharedLibrary(request: KnowledgeLibraryCreateInput, signal: AbortSignal) {
     const pending = createReceipt.current;
-    const input = pending?.kind === "shared" ? pending : { kind: "shared" as const, name: "未命名知识库", clientID: crypto.randomUUID() };
+    const input = pending?.kind === "shared" && pending.name === request.name && pending.description === request.description
+      ? pending
+      : { kind: "shared" as const, ...request, clientID: crypto.randomUUID() };
     createReceipt.current = input;
     const value = await client.createLibrary(input, signal);
-    createReceipt.current = null; selectResult(value, "团队知识库已创建，可在设置中修改名称。");
+    createReceipt.current = null; setLibraryDialog(null); selectResult(value, `团队知识库“${value.name}”已创建。`);
   }
+  function openSharedLibraryCreate() { createReceipt.current = null; setError(""); setNotice(""); setLibraryDialog("create"); }
+  function closeSharedLibraryCreate() { if (blocked) return; createReceipt.current = null; setError(""); setLibraryDialog(null); }
   async function save(signal: AbortSignal) {
     if (!selected) return;
     selectResult(await client.updateLibrary(selected.id, { name: name.trim(), description, archived: selected.archived, expectedRevision: selected.revision }, signal), "资料库设置已保存。");
@@ -478,7 +484,7 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   return <div className={`managed-library-browser${revealLibraryRail ? " has-library-rail" : ""}`}>
     <aside className="managed-library-list">
       {scopeTabsInLibraryRail && scopeTabs}
-      {emptySharedLibraryPicker ? <div className="knowledge-team-library-picker knowledge-empty-team-library-picker"><Select aria-label="团队知识库" disabled><option>团队知识库</option></Select><KnowledgeCreateMenu disabled={blocked} canCreatePage={false} onCreateLibrary={() => void perform(createSharedLibrary)} /></div> : <div className="knowledge-library-list-header"><h2>{libraryKind === "personal" ? "个人知识库" : libraryKind === "shared" ? "团队知识库" : "知识库"}</h2><Button aria-label="刷新知识库" disabled={blocked || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} /></Button></div>}
+      {emptySharedLibraryPicker ? <div className="knowledge-team-library-picker knowledge-empty-team-library-picker"><Select aria-label="团队知识库" disabled><option>团队知识库</option></Select><KnowledgeCreateMenu disabled={blocked} canCreatePage={false} onCreateLibrary={openSharedLibraryCreate} /></div> : <div className="knowledge-library-list-header"><h2>{libraryKind === "personal" ? "个人知识库" : libraryKind === "shared" ? "团队知识库" : "知识库"}</h2><Button aria-label="刷新知识库" disabled={blocked || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} /></Button></div>}
       {canCreatePersonal && <div className="knowledge-library-create"><Button disabled={blocked} onClick={() => void perform(createPersonalLibrary)}><BookOpen size={15} />创建个人知识库</Button></div>}
       {selected && !page.items.some(item => item.id === selected.id) && <button aria-current="true" disabled={blocked}><BookOpen size={18} /><span><strong>{selected.name}</strong><small>当前知识库 · 不在本页</small></span></button>}
       {loading ? <p className="knowledge-subtle">正在读取知识库…</p> : visibleLibraries.length ? visibleLibraries.map(renderLibrary) : <p className="knowledge-library-group-empty">{libraryKind === "personal" ? "尚未创建个人知识库" : libraryKind === "shared" ? "尚未加入团队知识库" : "暂无可访问的知识库"}</p>}
@@ -487,7 +493,7 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
     </aside>
     <section className="managed-library-content">{notice && <p role="status" className="knowledge-notice">{notice}</p>}{selected ? <>
       <div className={`knowledge-library-surface${libraryView === "search" ? " is-search" : " is-pages"}`}>
-          {libraryView === "search" ? <PageSearchBrowser key={`${selected.id}:${searchRevision}`} client={client} formatError={formatError} library={selected} currentUserID={currentUserID} initialQuery={searchQuery} subtreeRoot={currentPage} onOpen={hit => { setSearchTarget(current => ({ pageID: hit.page_id, mode: hit.publication_status === "unpublished" ? "edit" : "read", location: hit.location, revision: (current?.revision || 0) + 1 })); setLibraryView("content"); }} /> : <KnowledgePagesPanel key={`${selected.id}:${searchTarget?.revision || 0}`} client={client} library={selected} currentUserID={currentUserID} disabled={blocked} formatError={formatError} embedded initialPageID={searchTarget?.pageID || (selected.id === initialLibraryID ? initialPageID : "")} initialBlockID={!searchTarget && selected.id === initialLibraryID ? initialBlockID : undefined} initialSearchLocation={searchTarget?.location} initialPageMode={searchTarget?.mode || (selected.id === initialLibraryID ? initialPageMode : "read")} scopeTabs={!scopeTabsInLibraryRail ? scopeTabs : undefined} teamLibraries={libraryKind === "shared" ? selectableTeamLibraries : undefined} onLibrarySelect={libraryID => { const library = selectableTeamLibraries.find(item => item.id === libraryID); if (library) selectLibrary(library); }} onCreateLibrary={libraryKind === "shared" ? () => void perform(createSharedLibrary) : undefined} onSelectionChange={updateCurrentPage} onManage={selected.role === "manager" ? () => setLibraryDialog("manage") : undefined} />}
+          {libraryView === "search" ? <PageSearchBrowser key={`${selected.id}:${searchRevision}`} client={client} formatError={formatError} library={selected} currentUserID={currentUserID} initialQuery={searchQuery} subtreeRoot={currentPage} onOpen={hit => { setSearchTarget(current => ({ pageID: hit.page_id, mode: hit.publication_status === "unpublished" ? "edit" : "read", location: hit.location, revision: (current?.revision || 0) + 1 })); setLibraryView("content"); }} /> : <KnowledgePagesPanel key={`${selected.id}:${searchTarget?.revision || 0}`} client={client} library={selected} currentUserID={currentUserID} disabled={blocked} formatError={formatError} embedded initialPageID={searchTarget?.pageID || (selected.id === initialLibraryID ? initialPageID : "")} initialBlockID={!searchTarget && selected.id === initialLibraryID ? initialBlockID : undefined} initialSearchLocation={searchTarget?.location} initialPageMode={searchTarget?.mode || (selected.id === initialLibraryID ? initialPageMode : "read")} scopeTabs={!scopeTabsInLibraryRail ? scopeTabs : undefined} teamLibraries={libraryKind === "shared" ? selectableTeamLibraries : undefined} onLibrarySelect={libraryID => { const library = selectableTeamLibraries.find(item => item.id === libraryID); if (library) selectLibrary(library); }} onCreateLibrary={libraryKind === "shared" ? openSharedLibraryCreate : undefined} onSelectionChange={updateCurrentPage} onManage={selected.role === "manager" ? () => setLibraryDialog("manage") : undefined} />}
       </div>
       {libraryDialog === "manage" && selected.role === "manager" && createPortal(<div className="knowledge-modal-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget && !blocked) setLibraryDialog(null); }}><section className="knowledge-manager-dialog knowledge-library-management-dialog" role="dialog" aria-modal="true" aria-label="知识库管理"><header><div><h2>管理“{selected.name}”</h2><p>维护知识库信息、成员权限与外部内容连接。</p></div><Button aria-label="关闭知识库管理" disabled={blocked} onClick={() => setLibraryDialog(null)}><X size={17} /></Button></header><div className="knowledge-dialog-scroll knowledge-management-sections">
         <section className="knowledge-settings"><header><div><h3>基本信息</h3><p>名称和说明会展示给所有知识库成员。</p></div></header><div className="knowledge-form-grid"><label>名称<input value={name} maxLength={128} disabled={blocked} onChange={event => setName(event.target.value)} /></label><label>说明<textarea value={description} maxLength={1024} disabled={blocked} onChange={event => setDescription(event.target.value)} /></label></div><div className="knowledge-actions"><Button className="primary" disabled={blocked || !name.trim()} onClick={() => void perform(save)}>保存信息</Button><Button className={selected.archived ? undefined : "danger"} disabled={blocked} onClick={() => void perform(setArchived)}>{selected.archived ? "恢复知识库" : "归档知识库"}</Button></div></section>
@@ -502,6 +508,7 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
         {error && <p role="alert" className="knowledge-error">{error}</p>}
       </div></section></div>, window.document.body)}
     </> : !loading ? <EmptyState><FolderOpen size={32} /><h3>{visibleLibraries.length > 0 ? "请选择知识库" : libraryKind === "personal" ? "还没有个人知识库" : "还没有可访问的团队知识库"}</h3><p>{libraryKind === "personal" ? "打开个人知识库后，可在自己的空间内检索、编辑和整理内容。" : "可从左侧新增团队知识库，或请团队管理员将你添加为成员。"}</p>{canCreatePersonal && <Button className="primary" disabled={blocked} onClick={() => void perform(createPersonalLibrary)}><BookOpen size={15} />创建个人知识库</Button>}</EmptyState> : null}</section>
+    {libraryDialog === "create" && <KnowledgeLibraryCreateDialog busy={blocked} error={error} onClose={closeSharedLibraryCreate} onCreate={input => void perform(signal => createSharedLibrary(input, signal))} />}
   </div>;
 }
 

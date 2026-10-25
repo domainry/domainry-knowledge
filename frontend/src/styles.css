@@ -321,6 +321,14 @@
 .knowledge-manager-dialog { display: flex; flex-direction: column; width: min(1220px, calc(100vw - 32px)); height: min(920px, calc(100dvh - 32px)); }
 .knowledge-library-management-dialog { width: min(880px, calc(100vw - 32px)); }
 .knowledge-transfer-dialog { display: grid; gap: 13px; width: min(680px, calc(100vw - 32px)); max-height: min(820px, calc(100dvh - 32px)); padding: 20px 22px 24px; overflow-y: auto; }
+.knowledge-library-create-dialog { width: min(560px, calc(100vw - 32px)); }
+.knowledge-library-create-dialog form { display: grid; gap: 18px; }
+.knowledge-library-create-dialog form > .knowledge-actions { justify-content: flex-end; }
+.knowledge-library-create-dialog .knowledge-field-label em { margin-left: 4px; color: var(--knowledge-faint); font-style: normal; font-weight: 500; }
+.knowledge-library-create-scope { display: flex; align-items: flex-start; gap: 11px; padding: 12px; background: var(--knowledge-surface-subtle); border: 1px solid var(--knowledge-border); border-radius: 8px; }
+.knowledge-library-create-scope > span { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; color: var(--knowledge-primary); background: var(--knowledge-primary-soft); border-radius: 8px; }
+.knowledge-library-create-scope strong { font-size: 13px; }
+.knowledge-library-create-scope p { margin: 3px 0 0; color: var(--knowledge-muted); font-size: 12px; line-height: 1.55; }
 .knowledge-preview-dialog > header, .knowledge-manager-dialog > header, .knowledge-transfer-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 16px 18px; border-bottom: 1px solid var(--knowledge-border); }
 .knowledge-transfer-dialog > header { margin: -20px -22px 0; }
 .knowledge-preview-dialog h2, .knowledge-manager-dialog h2, .knowledge-transfer-dialog h2 { margin: 0; overflow-wrap: anywhere; font-size: 18px; font-weight: 720; letter-spacing: -.02em; }

@@ -31,7 +31,7 @@ export function KnowledgeCreateMenu({ disabled = false, canCreatePage, onCreateP
       {onCreateLibrary && <button type="button" role="menuitem" disabled={disabled} onClick={event => {
         event.currentTarget.closest("details")?.removeAttribute("open");
         onCreateLibrary();
-      }}><BookOpen size={16} /><span><strong>新增知识库</strong><small>创建未命名团队知识库</small></span></button>}
+      }}><BookOpen size={16} /><span><strong>新增知识库</strong><small>填写信息并创建团队知识库</small></span></button>}
       {creatablePageTypes.map(definition => <button type="button" role="menuitem" key={definition.id} disabled={unavailable} onClick={event => {
         event.currentTarget.closest("details")?.removeAttribute("open");
         onCreatePage?.(definition.id);

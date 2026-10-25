@@ -189,7 +189,7 @@ export const knowledgeClient: KnowledgeClient = {
     return request<KnowledgeResult>(`/knowledge/retrieval/documents/${encodeURIComponent(documentID)}${query}`, "GET", undefined, signal);
   },
   listLibraries(after, limit, signal) { return request<KnowledgeLibraryPage>(`${librariesPath}?${new URLSearchParams({ after, limit: String(limit) })}`, "GET", undefined, signal); },
-  createLibrary({ kind, name, clientID }, signal) { return request<KnowledgeLibrary>(librariesPath, "POST", { kind, name, client_id: clientID }, signal); },
+  createLibrary({ kind, name, description = "", clientID }, signal) { return request<KnowledgeLibrary>(librariesPath, "POST", { kind, name, description, client_id: clientID }, signal); },
   getLibrary(libraryID, signal) { return request<KnowledgeLibrary>(`${librariesPath}/${encodeURIComponent(libraryID)}`, "GET", undefined, signal); },
   updateLibrary(libraryID, { name, description, expectedRevision }, signal) { return request<KnowledgeLibrary>(`${librariesPath}/${encodeURIComponent(libraryID)}`, "PATCH", { name, description, expected_revision: expectedRevision }, signal); },
   setLibraryArchived(libraryID, archived, expectedRevision, signal) { return request<KnowledgeLibrary>(`${librariesPath}/${encodeURIComponent(libraryID)}/${archived ? "archive" : "restore"}`, "POST", { expected_revision: expectedRevision }, signal); },
