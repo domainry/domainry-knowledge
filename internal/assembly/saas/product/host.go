@@ -19,6 +19,7 @@ import (
 	auditmodule "github.com/domainry/domainry-audit/module"
 	"github.com/domainry/domainry-foundation/modulehttp"
 	sharedoperation "github.com/domainry/domainry-foundation/operation"
+	"github.com/domainry/domainry-foundation/telemetry"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	identitymodule "github.com/domainry/domainry-identity/module"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -100,7 +101,7 @@ func Open(ctx context.Context, options Options) (_ *Host, resultErr error) {
 	if err = os.MkdirAll(filepath.Dir(databasePath), 0o700); err != nil {
 		return nil, fmt.Errorf("create Knowledge database directory: %w", err)
 	}
-	database, err := sql.Open("sqlite", sqliteconfig.DSN(databasePath))
+	database, err := telemetry.OpenObservedSQL("sqlite", sqliteconfig.DSN(databasePath), "runtime", nil)
 	if err != nil {
 		return nil, err
 	}
