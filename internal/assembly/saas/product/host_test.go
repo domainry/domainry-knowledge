@@ -56,8 +56,8 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 		WHERE source_owner = 'module:knowledge' AND definition_status = 'active'`).Scan(&permissionCount, &bundledPermissionCount, &directPermissionCount); err != nil {
 		t.Fatal(err)
 	}
-	if permissionCount != expectedPermissionCount || bundledPermissionCount != expectedPermissionCount || directPermissionCount != 0 {
-		t.Fatalf("Knowledge permissions total=%d bundled=%d direct=%d want=%d/0 direct", permissionCount, bundledPermissionCount, directPermissionCount, expectedPermissionCount)
+	if permissionCount != expectedPermissionCount || bundledPermissionCount != expectedPermissionCount-1 || directPermissionCount != 1 {
+		t.Fatalf("Knowledge permissions total=%d bundled=%d direct=%d want=%d/%d/1", permissionCount, bundledPermissionCount, directPermissionCount, expectedPermissionCount, expectedPermissionCount-1)
 	}
 	expectedRoles, err := knowledgeProjectRoles(actions)
 	if err != nil {

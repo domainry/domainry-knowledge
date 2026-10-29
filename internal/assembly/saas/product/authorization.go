@@ -112,6 +112,13 @@ func (host *Host) AuthorizeKnowledgeLibrary(ctx context.Context, operation strin
 	if err != nil {
 		return err
 	}
+	// Identity owns only product-wide Knowledge capabilities. Once a concrete
+	// library exists, its live reader/editor/manager membership and page ACL
+	// are the authority; requiring the same action in a global role would make
+	// users configure the same permission twice.
+	if !knowledgesdk.RequiresIdentityActionGrant(operation, library) {
+		return nil
+	}
 	permission := action.Permission
 	facts := identitysdk.ResourceFacts{
 		"workspace_id": authority.WorkspaceID, "library_id": library.ID, "library_kind": library.Kind,

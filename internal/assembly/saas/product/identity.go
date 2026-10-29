@@ -28,7 +28,7 @@ func (host *Host) openIdentity(ctx context.Context, options Options) error {
 	}
 	catalog := identitysdk.ProjectRoleCatalog{
 		SourceOwner:                          "module:knowledge",
-		InitialWorkspaceAdministratorRoleKey: knowledgeManagerRoleKey,
+		InitialWorkspaceAdministratorRoleKey: knowledgeAdministratorRoleKey,
 		Roles:                                knowledgeProjectRoleDefinitions(nil),
 	}
 	if err = bootstrap.BindBootstrapProjectRoleCatalog(ctx, catalog); err != nil {
