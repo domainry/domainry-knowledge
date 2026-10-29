@@ -89,7 +89,7 @@ func (host *Host) resolvePrincipal(ctx context.Context, authority knowledgesdk.A
 	if !host.validAuthority(authority) {
 		return identitysdk.PrincipalResolution{}, &knowledgesdk.Error{Class: "forbidden", Code: "knowledge.library_access_denied"}
 	}
-	resolution, err := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(authority.UserID), RoleKey: authority.RoleKey})
+	resolution, err := host.identity.Principals().Resolve(requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID), identitysdk.PrincipalResolutionRequest{SubjectID: identitysdk.SubjectID(authority.UserID), SessionRoleKey: authority.RoleKey})
 	if err != nil {
 		return identitysdk.PrincipalResolution{}, err
 	}
@@ -234,6 +234,107 @@ func (host *Host) ResolveKnowledgeOrganizationPrincipals(ctx context.Context, or
 		}
 		result = append(result, knowledgesdk.KnowledgeOrganizationPrincipal{OrganizationID: organization.OrganizationUnitID, DisplayName: organization.Name, NodeType: organization.NodeType, Status: organization.Status})
 	}
+	return result, nil
+}
+
+func (host *Host) KnowledgePrincipalDirectorySnapshot(ctx context.Context, authority knowledgesdk.Authority) (knowledgesdk.KnowledgePrincipalDirectorySnapshot, error) {
+	if _, err := host.resolvePrincipal(ctx, authority); err != nil {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, err
+	}
+	projection := host.identity.Projection()
+	workspaceContext := requestcontext.WithWorkspaceID(ctx, authority.WorkspaceID)
+	users, err := projection.ListUsers(workspaceContext, identitysdk.ProjectionQuery{})
+	if err != nil {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, err
+	}
+	if len(users) > 5000 {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, &knowledgesdk.Error{Class: "unavailable", Code: "knowledge.principal_directory_limit_exceeded"}
+	}
+	result := knowledgesdk.KnowledgePrincipalDirectorySnapshot{
+		CurrentUserID: authority.UserID,
+		Organizations: []knowledgesdk.KnowledgeDirectoryOrganization{},
+		Members:       []knowledgesdk.KnowledgeDirectoryMember{},
+		Complete:      true,
+	}
+	organizationQueue := []string{}
+	queued := map[string]bool{}
+	for _, user := range users {
+		if user.Status != identitysdk.UserStatusActive {
+			continue
+		}
+		result.Members = append(result.Members, knowledgesdk.KnowledgeDirectoryMember{
+			KnowledgePrincipal: knowledgesdk.KnowledgePrincipal{UserID: user.UserID, DisplayName: user.Name, Email: user.Email, Status: user.Status},
+			OrganizationID:     strings.TrimSpace(user.OrgID),
+		})
+		organizationID := strings.TrimSpace(user.OrgID)
+		if organizationID != "" && !queued[organizationID] {
+			queued[organizationID] = true
+			organizationQueue = append(organizationQueue, organizationID)
+		}
+	}
+	organizations := map[string]identitysdk.OrganizationUnit{}
+	for len(organizationQueue) > 0 {
+		organizationID := organizationQueue[0]
+		organizationQueue = organizationQueue[1:]
+		organization, found, lookupErr := projection.FindOrganizationUnit(workspaceContext, identitysdk.OrganizationUnitLookup{OrgID: organizationID})
+		if lookupErr != nil {
+			return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, lookupErr
+		}
+		if !found || organization.Status != "active" {
+			continue
+		}
+		organizations[organization.OrganizationUnitID] = organization
+		if len(organizations) > 2000 {
+			return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, &knowledgesdk.Error{Class: "unavailable", Code: "knowledge.principal_directory_limit_exceeded"}
+		}
+		for _, ancestorID := range organization.AncestorIDs {
+			ancestorID = strings.TrimSpace(ancestorID)
+			if ancestorID != "" && !queued[ancestorID] {
+				queued[ancestorID] = true
+				organizationQueue = append(organizationQueue, ancestorID)
+			}
+		}
+		if organization.ParentID != nil {
+			parentID := strings.TrimSpace(*organization.ParentID)
+			if parentID != "" && !queued[parentID] {
+				queued[parentID] = true
+				organizationQueue = append(organizationQueue, parentID)
+			}
+		}
+	}
+	for _, organization := range organizations {
+		parentID := ""
+		if organization.ParentID != nil {
+			parentID = strings.TrimSpace(*organization.ParentID)
+		}
+		result.Organizations = append(result.Organizations, knowledgesdk.KnowledgeDirectoryOrganization{
+			OrganizationID: organization.OrganizationUnitID,
+			ParentID:       parentID,
+			DisplayName:    organization.Name,
+			NodeType:       organization.NodeType,
+			Depth:          organization.Depth,
+			SortOrder:      organization.SortOrder,
+			Status:         organization.Status,
+		})
+	}
+	sort.Slice(result.Organizations, func(left, right int) bool {
+		if result.Organizations[left].Depth != result.Organizations[right].Depth {
+			return result.Organizations[left].Depth < result.Organizations[right].Depth
+		}
+		if result.Organizations[left].SortOrder != result.Organizations[right].SortOrder {
+			return result.Organizations[left].SortOrder < result.Organizations[right].SortOrder
+		}
+		if result.Organizations[left].DisplayName != result.Organizations[right].DisplayName {
+			return result.Organizations[left].DisplayName < result.Organizations[right].DisplayName
+		}
+		return result.Organizations[left].OrganizationID < result.Organizations[right].OrganizationID
+	})
+	sort.Slice(result.Members, func(left, right int) bool {
+		if result.Members[left].DisplayName != result.Members[right].DisplayName {
+			return result.Members[left].DisplayName < result.Members[right].DisplayName
+		}
+		return result.Members[left].UserID < result.Members[right].UserID
+	})
 	return result, nil
 }
 

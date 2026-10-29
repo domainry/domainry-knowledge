@@ -1,6 +1,7 @@
 package modulehttptransport
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -249,6 +250,7 @@ func (a *adapter) handlers() map[string]http.HandlerFunc {
 		knowledgesdk.ActionAccessExplain:                    a.explainAccess,
 		knowledgesdk.ActionPrincipalsSearch:                 a.searchPrincipals,
 		knowledgesdk.ActionPrincipalsResolve:                a.resolvePrincipals,
+		knowledgesdk.ActionPrincipalDirectoryRead:           a.readPrincipalDirectory,
 		knowledgesdk.ActionOrganizationPrincipalsResolve:    a.resolveOrganizationPrincipals,
 	}
 }
@@ -2191,6 +2193,22 @@ func (a *adapter) resolveOrganizationPrincipals(response http.ResponseWriter, re
 		return
 	}
 	result, err := a.service.ResolveKnowledgeOrganizationPrincipals(request.Context(), input.OrganizationIDs, authority)
+	writeResult(response, result, err, http.StatusOK)
+}
+
+func (a *adapter) readPrincipalDirectory(response http.ResponseWriter, request *http.Request) {
+	authority, ok := authorityOrWriteError(a, response, request)
+	if !ok {
+		return
+	}
+	provider, ok := a.service.(interface {
+		KnowledgePrincipalDirectorySnapshot(context.Context, knowledgesdk.Authority) (knowledgesdk.KnowledgePrincipalDirectorySnapshot, error)
+	})
+	if !ok {
+		writeCode(response, http.StatusServiceUnavailable, "knowledge.principal_directory_unavailable")
+		return
+	}
+	result, err := provider.KnowledgePrincipalDirectorySnapshot(request.Context(), authority)
 	writeResult(response, result, err, http.StatusOK)
 }
 

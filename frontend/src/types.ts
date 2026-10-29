@@ -612,6 +612,9 @@ export type KnowledgeFormExport = { filename: string; content_type: string; body
 export type KnowledgePrincipal = { user_id: string; display_name: string; email?: string; avatar_url?: string; status: string };
 export type KnowledgePrincipalPage = { items: KnowledgePrincipal[]; next_after?: string; complete: boolean };
 export type KnowledgeOrganizationPrincipal = { organization_id: string; display_name: string; node_type?: string; status: string };
+export type KnowledgeDirectoryOrganization = { organization_id: string; parent_id?: string; display_name: string; node_type?: string; depth: number; sort_order: number; status: string };
+export type KnowledgeDirectoryMember = KnowledgePrincipal & { organization_id?: string };
+export type KnowledgePrincipalDirectorySnapshot = { current_user_id: string; organizations: KnowledgeDirectoryOrganization[]; members: KnowledgeDirectoryMember[]; complete: boolean };
 export type KnowledgeAccessLayer = { allowed: boolean; code: string; label: string; source?: string };
 export type KnowledgeAccessExplanation = {
   user_id: string;
@@ -903,6 +906,7 @@ export interface KnowledgeClient {
   searchPrincipals(query: string, after: string, limit: number, signal: AbortSignal): Promise<KnowledgePrincipalPage>;
   resolvePrincipals(userIDs: string[], signal: AbortSignal): Promise<KnowledgePrincipal[]>;
   resolveOrganizationPrincipals(organizationIDs: string[], signal: AbortSignal): Promise<KnowledgeOrganizationPrincipal[]>;
+  getPrincipalDirectory(signal: AbortSignal): Promise<KnowledgePrincipalDirectorySnapshot>;
   searchLibraryMembers(libraryID: string, query: string, after: string, limit: number, signal: AbortSignal): Promise<KnowledgePrincipalPage>;
   explainAccess(libraryID: string, request: { user_id: string; page_id?: string; action: string; share_id?: string; proposed_role?: KnowledgeLibraryMember["role"] }, signal: AbortSignal): Promise<KnowledgeAccessExplanation>;
   listPages(libraryID: string, parentPageID: string, after: string, limit: number, includeArchived: boolean, signal: AbortSignal): Promise<KnowledgePagePage>;

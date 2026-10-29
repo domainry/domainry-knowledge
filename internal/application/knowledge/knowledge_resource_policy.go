@@ -143,6 +143,7 @@ var KnowledgeResourcePolicy = map[string]KnowledgeResourceRule{
 	knowledgesdk.ActionPrincipalsSearch:                 {AllowNoResource: true},
 	knowledgesdk.ActionPrincipalsResolve:                {AllowNoResource: true},
 	knowledgesdk.ActionOrganizationPrincipalsResolve:    {AllowNoResource: true},
+	knowledgesdk.ActionPrincipalDirectoryRead:           {AllowNoResource: true},
 }
 
 func resourceRoleLevel(role string) int {

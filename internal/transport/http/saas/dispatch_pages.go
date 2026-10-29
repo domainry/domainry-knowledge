@@ -1016,6 +1016,21 @@ func (server *Server) dispatchPageService(ctx context.Context, operation string,
 		}
 		value, err := service.ResolveKnowledgeOrganizationPrincipals(ctx, input.OrganizationIDs, input.Authority)
 		return value, err, true
+	case knowledgesdk.ActionPrincipalDirectoryRead:
+		var input struct {
+			Authority agentsdk.Authority `json:"authority"`
+		}
+		if err := decodeInput(raw, &input); err != nil {
+			return nil, err, true
+		}
+		provider, ok := service.(interface {
+			KnowledgePrincipalDirectorySnapshot(context.Context, agentsdk.Authority) (agentsdk.KnowledgePrincipalDirectorySnapshot, error)
+		})
+		if !ok {
+			return nil, &agentsdk.Error{Class: "unavailable", Code: "knowledge.principal_directory_unavailable"}, true
+		}
+		value, err := provider.KnowledgePrincipalDirectorySnapshot(ctx, input.Authority)
+		return value, err, true
 	case knowledgesdk.ActionLibraryMembersSearch:
 		var input struct {
 			LibraryID string             `json:"library_id"`

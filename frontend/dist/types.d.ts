@@ -837,6 +837,24 @@ export type KnowledgeOrganizationPrincipal = {
     node_type?: string;
     status: string;
 };
+export type KnowledgeDirectoryOrganization = {
+    organization_id: string;
+    parent_id?: string;
+    display_name: string;
+    node_type?: string;
+    depth: number;
+    sort_order: number;
+    status: string;
+};
+export type KnowledgeDirectoryMember = KnowledgePrincipal & {
+    organization_id?: string;
+};
+export type KnowledgePrincipalDirectorySnapshot = {
+    current_user_id: string;
+    organizations: KnowledgeDirectoryOrganization[];
+    members: KnowledgeDirectoryMember[];
+    complete: boolean;
+};
 export type KnowledgeAccessLayer = {
     allowed: boolean;
     code: string;
@@ -1095,6 +1113,7 @@ export interface KnowledgeClient {
     createLibrary(request: {
         kind: "personal" | "shared";
         name: string;
+        description?: string;
         clientID: string;
     }, signal: AbortSignal): Promise<KnowledgeLibrary>;
     getLibrary(libraryID: string, signal: AbortSignal): Promise<KnowledgeLibrary>;
@@ -1114,6 +1133,7 @@ export interface KnowledgeClient {
     searchPrincipals(query: string, after: string, limit: number, signal: AbortSignal): Promise<KnowledgePrincipalPage>;
     resolvePrincipals(userIDs: string[], signal: AbortSignal): Promise<KnowledgePrincipal[]>;
     resolveOrganizationPrincipals(organizationIDs: string[], signal: AbortSignal): Promise<KnowledgeOrganizationPrincipal[]>;
+    getPrincipalDirectory(signal: AbortSignal): Promise<KnowledgePrincipalDirectorySnapshot>;
     searchLibraryMembers(libraryID: string, query: string, after: string, limit: number, signal: AbortSignal): Promise<KnowledgePrincipalPage>;
     explainAccess(libraryID: string, request: {
         user_id: string;

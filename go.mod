@@ -9,7 +9,7 @@ require (
 	github.com/domainry/domainry-audit v0.1.45
 	github.com/domainry/domainry-connector-sdk v0.1.18
 	github.com/domainry/domainry-connectors v0.1.25
-	github.com/domainry/domainry-identity v0.2.74
+	github.com/domainry/domainry-identity v0.2.75
 	github.com/domainry/domainry-metadata v0.1.39
 	github.com/domainry/domainry-orm v0.1.34
 	github.com/domainry/domainry-report-sdk v0.1.29
@@ -21,8 +21,8 @@ require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/domainry/domainry-audit-sdk v0.1.21
 	github.com/domainry/domainry-foundation v0.2.19
-	github.com/domainry/domainry-identity-sdk v0.1.39
-	github.com/domainry/domainry-knowledge-sdk v0.1.35
+	github.com/domainry/domainry-identity-sdk v0.1.40
+	github.com/domainry/domainry-knowledge-sdk v0.1.36
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	golang.org/x/crypto v0.55.0

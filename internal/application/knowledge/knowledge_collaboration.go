@@ -307,6 +307,30 @@ func (s *Service) ResolveKnowledgeOrganizationPrincipals(ctx context.Context, or
 	return result, err
 }
 
+func (s *Service) KnowledgePrincipalDirectorySnapshot(ctx context.Context, a agentsdk.Authority) (knowledgesdk.KnowledgePrincipalDirectorySnapshot, error) {
+	if err := s.authorize(a); err != nil {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, err
+	}
+	directory, ok := s.options.PrincipalDirectory.(knowledgesdk.KnowledgePrincipalDirectorySnapshotProvider)
+	if !ok {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, conversationFailure("unavailable", "principal_directory_unavailable")
+	}
+	if err := s.authorizeLibraryAction(ctx, knowledgesdk.ActionPrincipalDirectoryRead, agentsdk.KnowledgeLibrary{}, a); err != nil {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, err
+	}
+	result, err := directory.KnowledgePrincipalDirectorySnapshot(ctx, a)
+	if err == nil {
+		err = s.authorizeLibraryAction(ctx, knowledgesdk.ActionPrincipalDirectoryRead, agentsdk.KnowledgeLibrary{}, a)
+	}
+	if err != nil {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, err
+	}
+	if !result.Complete || len(result.Organizations) > 2000 || len(result.Members) > 5000 {
+		return knowledgesdk.KnowledgePrincipalDirectorySnapshot{}, conversationFailure("unavailable", "principal_directory_incomplete")
+	}
+	return result, nil
+}
+
 func (s *Service) SearchKnowledgeLibraryMembers(ctx context.Context, libraryID, query, after string, limit int, a agentsdk.Authority) (knowledgesdk.KnowledgePrincipalPage, error) {
 	libraries, err := s.LibraryAccess(ctx, knowledgesdk.ActionLibraryMembersSearch, a)
 	if err != nil {
