@@ -28,14 +28,12 @@ func (host *Host) openIdentity(ctx context.Context, options Options) error {
 	}
 	catalog := identitysdk.ProjectRoleCatalog{
 		SourceOwner:                          "module:knowledge",
-		InitialWorkspaceAdministratorRoleKey: administratorRoleKey,
-		Roles: []identitysdk.ProjectRoleDefinition{{
-			Key: administratorRoleKey, Name: "Knowledge administrator", Description: "Knowledge product administrator", Audience: "user", AssignmentMode: "manual", RiskLevel: "privileged",
-		}},
+		InitialWorkspaceAdministratorRoleKey: knowledgeManagerRoleKey,
+		Roles:                                knowledgeProjectRoleDefinitions(nil),
 	}
 	if err = bootstrap.BindBootstrapProjectRoleCatalog(ctx, catalog); err != nil {
 		_ = bootstrap.Close(context.Background())
-		return fmt.Errorf("bind Knowledge administrator role catalog: %w", err)
+		return fmt.Errorf("bind Knowledge role catalog: %w", err)
 	}
 	request := identitysdk.WorkspaceIdentityBootstrapRequest{
 		ContractVersion: identitysdk.WorkspaceIdentityBootstrapContractVersion,

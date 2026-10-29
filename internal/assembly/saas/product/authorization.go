@@ -20,14 +20,12 @@ func (host *Host) registerKnowledgePermissions(ctx context.Context) error {
 		return err
 	}
 	definitions := make([]identitysdk.PermissionDefinition, 0, len(actions))
-	grants := make([]identitysdk.ProjectRolePermission, 0, len(actions))
 	for _, action := range actions {
 		permission := action.Permission
 		if permission == nil {
 			continue
 		}
 		definitions = append(definitions, knowledgePermissionDefinition(action))
-		grants = append(grants, identitysdk.ProjectRolePermission{PermissionKey: permission.Key, DataScope: identitysdk.DataScopeAll})
 	}
 	reader, ok := host.identity.Permissions().(identitysdk.PermissionSnapshotReader)
 	if !ok {
@@ -52,9 +50,11 @@ func (host *Host) registerKnowledgePermissions(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("Identity project role catalog publisher is required")
 	}
-	if _, err = rolePublisher.PublishProjectRoles(ctx, identitysdk.ProjectRoleCatalog{SourceOwner: knowledgesdk.AuthorizationOwner, Roles: []identitysdk.ProjectRoleDefinition{{
-		Key: administratorRoleKey, Name: "Knowledge administrator", Description: "Knowledge product administrator", Audience: "user", AssignmentMode: "manual", RiskLevel: "privileged", Permissions: grants,
-	}}}); err != nil {
+	roles, err := knowledgeProjectRoles(actions)
+	if err != nil {
+		return err
+	}
+	if _, err = rolePublisher.PublishProjectRoles(ctx, identitysdk.ProjectRoleCatalog{SourceOwner: knowledgesdk.AuthorizationOwner, Roles: roles}); err != nil {
 		return err
 	}
 	return nil

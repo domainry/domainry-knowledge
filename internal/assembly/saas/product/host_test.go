@@ -37,6 +37,61 @@ func TestStandaloneProductComposesIdentityAndKnowledgeModules(t *testing.T) {
 		return host
 	}
 	host := open()
+	actions, err := knowledgesdk.AuthorizationActions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedPermissionCount := 0
+	for _, action := range actions {
+		if action.Permission != nil {
+			expectedPermissionCount++
+		}
+	}
+	var permissionCount, bundledPermissionCount, directPermissionCount int
+	if err := host.database.QueryRowContext(t.Context(), `
+		SELECT COUNT(*),
+		       SUM(CASE WHEN grant_mode = 'bundled' THEN 1 ELSE 0 END),
+		       SUM(CASE WHEN grant_mode = 'direct' THEN 1 ELSE 0 END)
+		FROM _identity_permissions
+		WHERE source_owner = 'module:knowledge' AND definition_status = 'active'`).Scan(&permissionCount, &bundledPermissionCount, &directPermissionCount); err != nil {
+		t.Fatal(err)
+	}
+	if permissionCount != expectedPermissionCount || bundledPermissionCount != expectedPermissionCount || directPermissionCount != 0 {
+		t.Fatalf("Knowledge permissions total=%d bundled=%d direct=%d want=%d/0 direct", permissionCount, bundledPermissionCount, directPermissionCount, expectedPermissionCount)
+	}
+	expectedRoles, err := knowledgeProjectRoles(actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roleRows, err := host.database.QueryContext(t.Context(), `
+		SELECT role_key, json_array_length(json_extract(definition_json, '$.permissions'))
+		FROM _identity_roles
+		WHERE source_owner = 'module:knowledge' AND status = 'active'
+		ORDER BY role_key`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer roleRows.Close()
+	actualRolePermissionCounts := map[string]int{}
+	for roleRows.Next() {
+		var key string
+		var count int
+		if err := roleRows.Scan(&key, &count); err != nil {
+			t.Fatal(err)
+		}
+		actualRolePermissionCounts[key] = count
+	}
+	if err := roleRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(actualRolePermissionCounts) != len(expectedRoles) {
+		t.Fatalf("published Knowledge roles=%v want=%d roles", actualRolePermissionCounts, len(expectedRoles))
+	}
+	for _, role := range expectedRoles {
+		if actualRolePermissionCounts[role.Key] != len(role.Permissions) {
+			t.Fatalf("published role %q permissions=%d want=%d", role.Key, actualRolePermissionCounts[role.Key], len(role.Permissions))
+		}
+	}
 	navigation := httptest.NewRequest(http.MethodGet, "http://knowledge.test/", nil)
 	navigation.Host = "knowledge.test"
 	navigation.Header.Set("Sec-Fetch-Site", "cross-site")

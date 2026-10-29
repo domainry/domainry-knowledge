@@ -40,7 +40,11 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const administratorRoleKey = "knowledge_admin"
+const (
+	knowledgeReaderRoleKey  = "knowledge_reader"
+	knowledgeEditorRoleKey  = "knowledge_editor"
+	knowledgeManagerRoleKey = "knowledge_manager"
+)
 
 type Options struct {
 	RuntimeID, WorkspaceID, ApplicationKey string
