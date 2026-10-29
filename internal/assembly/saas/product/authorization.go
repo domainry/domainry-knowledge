@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	actioncontract "github.com/domainry/domainry-foundation/action"
 	"github.com/domainry/domainry-foundation/requestcontext"
 	identitysdk "github.com/domainry/domainry-identity-sdk"
 	"github.com/domainry/domainry-identity-sdk/authorization/evaluator"
@@ -25,21 +26,18 @@ func (host *Host) registerKnowledgePermissions(ctx context.Context) error {
 		if permission == nil {
 			continue
 		}
-		definitions = append(definitions, identitysdk.PermissionDefinition{
-			PermissionKey: permission.Key, ResourceKey: permission.ResourceKey, OperationKey: permission.OperationKey,
-			Label: permission.Label, Category: permission.Category, SourceKind: action.SourceKind,
-		})
+		definitions = append(definitions, knowledgePermissionDefinition(action))
 		grants = append(grants, identitysdk.ProjectRolePermission{PermissionKey: permission.Key, DataScope: identitysdk.DataScopeAll})
 	}
 	reader, ok := host.identity.Permissions().(identitysdk.PermissionSnapshotReader)
 	if !ok {
 		return fmt.Errorf("Identity permission snapshot reader is required")
 	}
-	previous, err := reader.CurrentSourceSnapshot(ctx, identitysdk.PermissionSourceSnapshotRequest{Application: host.application, SourceOwner: knowledgesdk.AuthorizationOwner})
+	previous, err := reader.CurrentSourceSnapshot(ctx, identitysdk.PermissionSourceSnapshotRequest{SourceOwner: knowledgesdk.AuthorizationOwner})
 	if err != nil {
 		return err
 	}
-	request, err := identitysdk.NewPermissionReconcileRequest(host.application, knowledgesdk.AuthorizationOwner, previous.SnapshotHash, definitions)
+	request, err := identitysdk.NewPermissionReconcileRequest(knowledgesdk.AuthorizationOwner, previous.SnapshotHash, definitions)
 	if err != nil {
 		return err
 	}
@@ -54,21 +52,33 @@ func (host *Host) registerKnowledgePermissions(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("Identity project role catalog publisher is required")
 	}
-	if _, err = rolePublisher.PublishProjectRoles(ctx, identitysdk.ProjectRoleCatalog{Application: host.application, Roles: []identitysdk.ProjectRoleDefinition{{
-		Key: administratorRoleKey, Name: "Knowledge administrator", Audience: "user", AssignmentMode: "manual", ProvisionToWorkspaces: true,
+	if _, err = rolePublisher.PublishProjectRoles(ctx, identitysdk.ProjectRoleCatalog{SourceOwner: knowledgesdk.AuthorizationOwner, Roles: []identitysdk.ProjectRoleDefinition{{
+		Key: administratorRoleKey, Name: "Knowledge administrator", Description: "Knowledge product administrator", Audience: "user", AssignmentMode: "manual", RiskLevel: "privileged", Permissions: grants,
 	}}}); err != nil {
 		return err
 	}
-	publisher, ok := host.identity.(identitysdk.ProjectRolePermissionBundlePublisher)
-	if !ok {
-		return fmt.Errorf("Identity project role permission bundle publisher is required")
+	return nil
+}
+
+func knowledgePermissionDefinition(action actioncontract.ActionDefinition) identitysdk.PermissionDefinition {
+	permission := action.Permission
+	if permission == nil {
+		return identitysdk.PermissionDefinition{}
 	}
-	_, err = publisher.PublishProjectRolePermissionBundle(ctx, identitysdk.ProjectRolePermissionBundleRequest{
-		Application: host.application, SourceOwner: knowledgesdk.AuthorizationOwner, RoleKey: administratorRoleKey,
-		ActorID: identitysdk.SubjectID(host.workspaceID + "-admin"), Permissions: grants,
-		BusinessReason: "Install the Knowledge product administrator permission bundle", OperationID: "knowledge-product-permissions-v1",
-	})
-	return err
+	localized := make(identitysdk.PermissionLocalizedText, len(permission.I18n))
+	for locale, text := range permission.I18n {
+		localized[locale] = identitysdk.PermissionText{
+			ModuleLabel: text.ModuleLabel, GroupLabel: text.GroupLabel, ResourceLabel: text.ResourceLabel,
+			OperationLabel: text.OperationLabel, Label: text.Label, Description: text.Description,
+		}
+	}
+	return identitysdk.PermissionDefinition{
+		PermissionKey: permission.Key, ModuleKey: permission.ModuleKey, GroupKey: permission.GroupKey,
+		ResourceKey: permission.ResourceKey, OperationKey: permission.OperationKey,
+		Label: permission.Label, Description: permission.Description, Category: permission.Category,
+		SourceKind: action.SourceKind, GrantMode: string(permission.GrantMode), ScopeKind: string(permission.ScopeKind),
+		ObjectKey: permission.ObjectKey, DefaultLocale: permission.DefaultLocale, I18n: localized,
+	}
 }
 
 func (host *Host) validAuthority(authority knowledgesdk.Authority) bool {

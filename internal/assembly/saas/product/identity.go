@@ -27,10 +27,10 @@ func (host *Host) openIdentity(ctx context.Context, options Options) error {
 		return fmt.Errorf("bind Identity bootstrap Operations persistence: %w", err)
 	}
 	catalog := identitysdk.ProjectRoleCatalog{
-		Application:                          identitysdk.ApplicationRef{ApplicationKey: host.application.ApplicationKey},
+		SourceOwner:                          "module:knowledge",
 		InitialWorkspaceAdministratorRoleKey: administratorRoleKey,
 		Roles: []identitysdk.ProjectRoleDefinition{{
-			Key: administratorRoleKey, Name: "Knowledge administrator", Audience: "user", AssignmentMode: "manual", ProvisionToWorkspaces: true,
+			Key: administratorRoleKey, Name: "Knowledge administrator", Description: "Knowledge product administrator", Audience: "user", AssignmentMode: "manual", RiskLevel: "privileged",
 		}},
 	}
 	if err = bootstrap.BindBootstrapProjectRoleCatalog(ctx, catalog); err != nil {
