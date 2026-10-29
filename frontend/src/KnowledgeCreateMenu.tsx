@@ -1,3 +1,4 @@
+import { kt } from "./i18n/runtime.ts";
 import { useRef } from "react";
 import { BookOpen, Plus, Upload } from "lucide-react";
 import { PageTypeIcon, importPageTypes, pageTypeDefinitions } from "./pageTypeRegistry.ts";
@@ -24,22 +25,22 @@ export function KnowledgeCreateMenu({ disabled = false, canCreatePage, onCreateP
     event.currentTarget.removeAttribute("open");
     (event.currentTarget.querySelector("summary") as HTMLElement | null)?.focus();
   }}>
-    <summary aria-label="新增" title="新增" aria-disabled={disabled} onClick={event => {
+    <summary aria-label={kt("knowledge.auto.0006d696d8e1ec28")} title={kt("knowledge.auto.0006d696d8e1ec28")} aria-disabled={disabled} onClick={event => {
       if (disabled) event.preventDefault();
     }}><Plus size={16} /></summary>
-    <div role="menu" aria-label="新增">
+    <div role="menu" aria-label={kt("knowledge.auto.0006d696d8e1ec28")}>
       {onCreateLibrary && <button type="button" role="menuitem" disabled={disabled} onClick={event => {
         event.currentTarget.closest("details")?.removeAttribute("open");
         onCreateLibrary();
-      }}><BookOpen size={16} /><span><strong>新增知识库</strong><small>填写信息并创建团队知识库</small></span></button>}
+      }}><BookOpen size={16} /><span><strong>{kt("knowledge.auto.601bdf61c4cb8e38")}</strong><small>{kt("knowledge.auto.b94c2e7f144ea29c")}</small></span></button>}
       {creatablePageTypes.map(definition => <button type="button" role="menuitem" key={definition.id} disabled={unavailable} onClick={event => {
         event.currentTarget.closest("details")?.removeAttribute("open");
         onCreatePage?.(definition.id);
-      }}><PageTypeIcon type={definition.id} size={16} /><span><strong>新增{definition.label}</strong><small>{unavailable && !disabled ? "请先创建团队知识库" : definition.description}</small></span></button>)}
+      }}><PageTypeIcon type={definition.id} size={16} /><span><strong>{kt("knowledge.auto.0006d696d8e1ec28")}{definition.label}</strong><small>{unavailable && !disabled ? kt("knowledge.auto.0e0bf0fe317b269e") : definition.description}</small></span></button>)}
       {importPageTypes.length > 0 && <button type="button" role="menuitem" disabled={disabled || importDisabled || importing || !onImportFile} onClick={event => {
         event.currentTarget.closest("details")?.removeAttribute("open");
         importInput.current?.click();
-      }}><Upload size={16} /><span><strong>{importing ? "正在上传文件…" : "上传文件"}</strong><small>{importDisabled ? "当前知识库未配置文件存储" : "上传后作为文件页面加入当前节点"}</small></span></button>}
+      }}><Upload size={16} /><span><strong>{importing ? kt("knowledge.auto.98d7eb0850ca162b") : kt("knowledge.auto.bb5caa9c59767eb8")}</strong><small>{importDisabled ? kt("knowledge.auto.e2c26d0c5d453a6b") : kt("knowledge.auto.6ef563be6e65cc0b")}</small></span></button>}
     </div>
     <input ref={importInput} hidden type="file" accept={importAccept} disabled={disabled || importDisabled || importing || !onImportFile} onChange={event => {
       const file = event.currentTarget.files?.[0];

@@ -1,3 +1,4 @@
+import { formatKnowledgeDate, kt, ktf } from "../i18n/runtime.ts";
 import { BlockNoteSchema, createCodeBlockSpec, filterSuggestionItems, getDefaultSlashMenuItems, imageParse, insertOrUpdateBlockForSlashMenu } from "@blocknote/core";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { SourceBlockWithPreviewExtension, SourceInlineContentWithPreviewExtension } from "@blocknote/core/extensions";
@@ -65,7 +66,7 @@ function KnowledgeImageVisual({ block, source, onPreview }: { block: ReactCustom
       transform: `scale(${block.props.cropZoom / 100})`,
       transformOrigin: `${block.props.cropX}% ${block.props.cropY}%`,
     } : undefined}
-  /> : <div className="bn-visual-media knowledge-image-loading" role="status">正在加载图片…</div>;
+  /> : <div className="bn-visual-media knowledge-image-loading" role="status">{kt("knowledge.auto.e661c55e357ba932")}</div>;
   return <div
     className={`knowledge-image-visual${cropped ? " is-cropped" : ""}`}
     style={cropped ? {
@@ -75,7 +76,7 @@ function KnowledgeImageVisual({ block, source, onPreview }: { block: ReactCustom
     } : undefined}
   >
     {image}
-    {source && onPreview && <button type="button" className="knowledge-image-preview-button" contentEditable={false} aria-label="预览图片" title="预览图片" onClick={event => { event.preventDefault(); event.stopPropagation(); onPreview(); }}><Maximize2 size={15} /></button>}
+    {source && onPreview && <button type="button" className="knowledge-image-preview-button" contentEditable={false} aria-label={kt("knowledge.auto.de078ce976cebdbd")} title={kt("knowledge.auto.de078ce976cebdbd")} onClick={event => { event.preventDefault(); event.stopPropagation(); onPreview(); }}><Maximize2 size={15} /></button>}
   </div>;
 }
 
@@ -94,10 +95,10 @@ function KnowledgeImageBlockView(props: ReactCustomBlockRenderProps<typeof knowl
       <KnowledgeImageVisual block={props.block} source={source} onPreview={() => setPreviewOpen(true)} />
     </ResizableFileBlockWrapper>
     {previewOpen && source && typeof document !== "undefined" && createPortal(<div className="knowledge-image-preview-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setPreviewOpen(false); }}>
-      <section className="knowledge-image-preview-dialog" role="dialog" aria-modal="true" aria-label={props.block.props.name ? `预览图片：${props.block.props.name}` : "预览图片"}>
-        <button type="button" aria-label="关闭图片预览" title="关闭" onClick={() => setPreviewOpen(false)}><X size={18} /></button>
+      <section className="knowledge-image-preview-dialog" role="dialog" aria-modal="true" aria-label={props.block.props.name ? ktf("knowledge.auto.06806b476b2305ee", { value0: props.block.props.name }) : kt("knowledge.auto.de078ce976cebdbd")}>
+        <button type="button" aria-label={kt("knowledge.auto.b097f500ba2b0c50")} title={kt("knowledge.auto.3fd47edce45b3603")} onClick={() => setPreviewOpen(false)}><X size={18} /></button>
         <KnowledgeImageVisual block={props.block} source={source} />
-        {(props.block.props.name || props.block.props.caption) && <footer><strong>{props.block.props.name || "图片"}</strong>{props.block.props.caption && <span>{props.block.props.caption}</span>}</footer>}
+        {(props.block.props.name || props.block.props.caption) && <footer><strong>{props.block.props.name || kt("knowledge.auto.d24c10d37db0feea")}</strong>{props.block.props.caption && <span>{props.block.props.caption}</span>}</footer>}
       </section>
     </div>, document.body)}
   </>;
@@ -115,10 +116,10 @@ const knowledgeImageBlock = createReactBlockSpec(knowledgeImageBlockConfig, {
 });
 
 const calloutToneOptions = [
-  { tone: "info", label: "信息", icon: "💡" },
-  { tone: "success", label: "成功", icon: "✅" },
-  { tone: "warning", label: "提醒", icon: "🔔" },
-  { tone: "danger", label: "警告", icon: "⚠️" },
+  { tone: "info", get label() { return kt("knowledge.auto.e7028601e7da793d"); }, icon: "💡" },
+  { tone: "success", get label() { return kt("knowledge.auto.053461ce86d26572"); }, icon: "✅" },
+  { tone: "warning", get label() { return kt("knowledge.auto.8f29b3132ccf2182"); }, icon: "🔔" },
+  { tone: "danger", get label() { return kt("knowledge.auto.a8b7a4480407ac8a"); }, icon: "⚠️" },
 ] as const;
 
 const calloutBlock = createReactBlockSpec(
@@ -135,7 +136,7 @@ const calloutBlock = createReactBlockSpec(
       const currentIndex = Math.max(0, calloutToneOptions.findIndex(item => item.tone === block.props.tone));
       const current = calloutToneOptions[currentIndex], next = calloutToneOptions[(currentIndex + 1) % calloutToneOptions.length];
       return <aside className={`knowledge-block-callout is-${current.tone}`}>
-        {editor.isEditable ? <button type="button" contentEditable={false} className="knowledge-callout-tone" aria-label={`提示类型：${current.label}。点击切换为${next.label}`} title={`${current.label} · 点击切换为${next.label}`} onClick={() => editor.updateBlock(block, { props: { tone: next.tone, icon: next.icon } })}>{current.icon}</button> : <span className="knowledge-callout-tone" role="img" aria-label={`提示类型：${current.label}`}>{current.icon}</span>}
+        {editor.isEditable ? <button type="button" contentEditable={false} className="knowledge-callout-tone" aria-label={ktf("knowledge.auto.b87dd6b1d665c15b", { value0: current.label, value1: next.label })} title={ktf("knowledge.auto.3ef23b7a0f9e6b4c", { value0: current.label, value1: next.label })} onClick={() => editor.updateBlock(block, { props: { tone: next.tone, icon: next.icon } })}>{current.icon}</button> : <span className="knowledge-callout-tone" role="img" aria-label={ktf("knowledge.auto.41d7b046aa34e442", { value0: current.label })}>{current.icon}</span>}
         <div ref={contentRef} className="knowledge-block-callout-content" />
       </aside>;
     },
@@ -190,9 +191,9 @@ function FormulaBlockView({ block, contentRef, editor }: ReactCustomBlockRenderP
     source={current.source}
     preview={rendered.preview}
     error={rendered.error}
-    emptySourcePlaceholder="添加公式"
-    errorPreview="公式语法无效"
-    sourcePlaceholder="输入 LaTeX 公式"
+    emptySourcePlaceholder={kt("knowledge.auto.65c22aa67409ddef")}
+    errorPreview={kt("knowledge.auto.17646aac0c7362fb")}
+    sourcePlaceholder={kt("knowledge.auto.c056cf068e63539e")}
   />;
 }
 
@@ -223,9 +224,9 @@ function InlineFormulaView({ inlineContent, contentRef, editor, node, getPos }: 
     source={current.source}
     preview={rendered.preview}
     error={rendered.error}
-    emptySourcePlaceholder="添加行内公式"
-    errorPreview="公式语法无效"
-    sourcePlaceholder="输入 LaTeX 公式"
+    emptySourcePlaceholder={kt("knowledge.auto.5447940a50500d6f")}
+    errorPreview={kt("knowledge.auto.17646aac0c7362fb")}
+    sourcePlaceholder={kt("knowledge.auto.c056cf068e63539e")}
   />;
 }
 
@@ -353,7 +354,7 @@ type MentionResolution = { label: string; detail?: string; available: boolean };
 
 function stableMentionFallback(kind: "person" | "page" | "block", id: string) {
   const compact = id.length > 20 ? `${id.slice(0, 10)}…${id.slice(-6)}` : id;
-  return `${kind === "person" ? "成员" : kind === "page" ? "页面" : "Block"} ${compact || "不可用"}`;
+  return `${kind === "person" ? kt("knowledge.auto.6e6d6ddbb7c1a453") : kind === "page" ? kt("knowledge.auto.452c7b10d57a86a7") : "Block"} ${compact || kt("knowledge.auto.460b3574e4bdb8ca")}`;
 }
 
 function findMentionBlock(editor: BlockNoteEditor<any, any, any>, blockID: string): MentionResolution {
@@ -373,7 +374,7 @@ function findMentionBlock(editor: BlockNoteEditor<any, any, any>, blockID: strin
 
 function useMentionResolution(editor: BlockNoteEditor<any, any, any>, kind: "person" | "date" | "page" | "block", primaryID: string, pageID = "") {
   const fallback: MentionResolution = kind === "date"
-    ? { label: primaryID || "未选择日期", detail: primaryID, available: /^\d{4}-\d{2}-\d{2}$/.test(primaryID) }
+    ? { label: primaryID || kt("knowledge.auto.11758421d795b045"), detail: primaryID, available: /^\d{4}-\d{2}-\d{2}$/.test(primaryID) }
     : { label: stableMentionFallback(kind, primaryID), detail: primaryID, available: false };
   const [resolution, setResolution] = useState<MentionResolution>(fallback);
   const [runtimeRevision, setRuntimeRevision] = useState(0);
@@ -381,7 +382,7 @@ function useMentionResolution(editor: BlockNoteEditor<any, any, any>, kind: "per
   useEffect(() => {
     if (kind === "date") {
       const date = /^\d{4}-\d{2}-\d{2}$/.test(primaryID) ? new Date(`${primaryID}T00:00:00`) : null;
-      setResolution(date && !Number.isNaN(date.getTime()) ? { label: new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "short", day: "numeric", weekday: "short" }).format(date), detail: primaryID, available: true } : fallback);
+      setResolution(date && !Number.isNaN(date.getTime()) ? { label: formatKnowledgeDate(date, { year: "numeric", month: "short", day: "numeric", weekday: "short" }), detail: primaryID, available: true } : fallback);
       return;
     }
     if (kind === "block") {
@@ -443,7 +444,7 @@ const buttonBlock = createReactBlockSpec(
   {
     type: "button",
     propSchema: {
-      label: { default: "按钮" }, href: { default: "" },
+      label: { get default() { return kt("knowledge.auto.ad1c50c9367c756d"); } }, href: { default: "" },
       appearance: { default: "primary", values: ["primary", "secondary"] as const },
     },
     content: "none",
@@ -451,8 +452,8 @@ const buttonBlock = createReactBlockSpec(
   {
     render: ({ block, editor }) => <div className="knowledge-block-button" contentEditable={false}>
       {editor.isEditable ? <>
-        <input aria-label="按钮文字" value={block.props.label} maxLength={80} onChange={event => editor.updateBlock(block, { props: { label: event.target.value } })} />
-        <input aria-label="按钮链接" value={block.props.href} maxLength={2048} placeholder="https:// 或 knowledge-page:" onChange={event => editor.updateBlock(block, { props: { href: event.target.value } })} />
+        <input aria-label={kt("knowledge.auto.2b79301b1f55ec48")} value={block.props.label} maxLength={80} onChange={event => editor.updateBlock(block, { props: { label: event.target.value } })} />
+        <input aria-label={kt("knowledge.auto.1d1f9c4bbf957733")} value={block.props.href} maxLength={2048} placeholder={kt("knowledge.auto.dce2802e4902bf82")} onChange={event => editor.updateBlock(block, { props: { href: event.target.value } })} />
       </> : <a className={`is-${block.props.appearance}`} href={block.props.href || undefined} target="_blank" rel="noreferrer">{block.props.label}</a>}
     </div>,
   },
@@ -460,23 +461,23 @@ const buttonBlock = createReactBlockSpec(
 
 const knowledgeTaskConfig = {
   type: "knowledgeTask",
-  propSchema: { title: { default: "待办任务" } },
+  propSchema: { title: { get default() { return kt("knowledge.auto.416e65ac1701e085"); } } },
   content: "none",
 } as const;
 
 const taskStatusOptions: { value: KnowledgeTaskStatus; label: string }[] = [
-  { value: "todo", label: "待处理" },
-  { value: "in_progress", label: "进行中" },
-  { value: "done", label: "已完成" },
-  { value: "canceled", label: "已取消" },
+  { value: "todo", get label() { return kt("knowledge.auto.999a459c3f3f2d16"); } },
+  { value: "in_progress", get label() { return kt("knowledge.auto.dc9591e56d502b43"); } },
+  { value: "done", get label() { return kt("knowledge.auto.f28461bb49c85647"); } },
+  { value: "canceled", get label() { return kt("knowledge.auto.a37778f17c5f3ee5"); } },
 ];
 
 const taskPriorityOptions: { value: KnowledgeTaskPriority; label: string }[] = [
-  { value: "none", label: "无优先级" },
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "urgent", label: "紧急" },
+  { value: "none", get label() { return kt("knowledge.auto.ba91dcb7c9ad1b40"); } },
+  { value: "low", get label() { return kt("knowledge.auto.aa9e366f68d3d097"); } },
+  { value: "medium", get label() { return kt("knowledge.auto.a567bdaa11367f26"); } },
+  { value: "high", get label() { return kt("knowledge.auto.b1c27820fec23edb"); } },
+  { value: "urgent", get label() { return kt("knowledge.auto.0efa477b24b1f3c7"); } },
 ];
 
 function taskStatusLabel(status: KnowledgeTaskStatus) {
@@ -496,8 +497,8 @@ function TaskAssigneePicker({ task, runtime, disabled, onUpdate }: { task: Knowl
     return () => { window.clearTimeout(timer); abort.abort(); };
   }, [disabled, pickerOpen, query, runtime, task.assignee_user_ids.join("\u0000")]);
   return <div className="knowledge-task-assignees">
-    <div className="knowledge-task-chips">{task.assignee_user_ids.map(userID => <span key={userID}><UserRound size={13} />{runtime.memberName(userID)}{!disabled && <button type="button" aria-label={`移除负责人 ${runtime.memberName(userID)}`} onClick={() => void onUpdate(task.assignee_user_ids.filter(id => id !== userID))}><X size={12} /></button>}</span>)}{task.assignee_user_ids.length === 0 && <small>未指派</small>}</div>
-    {!disabled && <details open={pickerOpen} onToggle={event => setPickerOpen(event.currentTarget.open)}><summary><UserPlus size={14} />添加负责人</summary><div className="knowledge-task-member-picker"><input aria-label="搜索任务负责人" value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="按姓名或邮箱搜索" />{candidates.map(person => <button key={person.user_id} type="button" onClick={() => { void onUpdate([...task.assignee_user_ids, person.user_id]); setQuery(""); }}><span>{(person.display_name || "?").slice(0, 1)}</span><strong>{person.display_name || person.user_id}<small>{person.email || person.user_id}</small></strong></button>)}{query && candidates.length === 0 && <small>没有可指派的当前知识库成员</small>}</div></details>}
+    <div className="knowledge-task-chips">{task.assignee_user_ids.map(userID => <span key={userID}><UserRound size={13} />{runtime.memberName(userID)}{!disabled && <button type="button" aria-label={ktf("knowledge.auto.0e2b2799cb0b0ede", { value0: runtime.memberName(userID) })} onClick={() => void onUpdate(task.assignee_user_ids.filter(id => id !== userID))}><X size={12} /></button>}</span>)}{task.assignee_user_ids.length === 0 && <small>{kt("knowledge.auto.350c68309b7bfcd8")}</small>}</div>
+    {!disabled && <details open={pickerOpen} onToggle={event => setPickerOpen(event.currentTarget.open)}><summary><UserPlus size={14} />{kt("knowledge.auto.b533e5f5dbb7192e")}</summary><div className="knowledge-task-member-picker"><input aria-label={kt("knowledge.auto.777b3dceb0fbea87")} value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder={kt("knowledge.auto.44d42e02a5e4d4d1")} />{candidates.map(person => <button key={person.user_id} type="button" onClick={() => { void onUpdate([...task.assignee_user_ids, person.user_id]); setQuery(""); }}><span>{(person.display_name || "?").slice(0, 1)}</span><strong>{person.display_name || person.user_id}<small>{person.email || person.user_id}</small></strong></button>)}{query && candidates.length === 0 && <small>{kt("knowledge.auto.15f6fbba6fd1958d")}</small>}</div></details>}
   </div>;
 }
 
@@ -508,13 +509,13 @@ function KnowledgeTaskBlockView({ block, editor }: ReactCustomBlockRenderProps<t
   useEffect(() => {
     if (!runtime?.ready || !runtime.canCreate || task || busy) return;
     setBusy(true); setError("");
-    void runtime.ensureTask(block.id, block.props.title).catch(failure => setError(failure instanceof Error ? failure.message : "任务创建失败")).finally(() => setBusy(false));
+    void runtime.ensureTask(block.id, block.props.title).catch(failure => setError(failure instanceof Error ? failure.message : kt("knowledge.auto.2197e510663b8ad1"))).finally(() => setBusy(false));
   }, [block.id, block.props.title, busy, runtime, task]);
   const update = async (patch: Parameters<KnowledgeTaskRuntime["updateTask"]>[1]) => {
     if (!runtime || !task || busy) return;
     setBusy(true); setError("");
     try { await runtime.updateTask(task, patch); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : "任务更新失败"); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : kt("knowledge.auto.d0f09f906f2ca6d5")); }
     finally { setBusy(false); }
   };
   const canManage = Boolean(task && runtime?.canManage(task));
@@ -522,15 +523,15 @@ function KnowledgeTaskBlockView({ block, editor }: ReactCustomBlockRenderProps<t
   const title = task?.title || block.props.title;
   return <article className={`knowledge-task-block${task?.status === "done" ? " is-done" : ""}`} contentEditable={false} data-task-status={task?.status || "pending"}>
     <header>
-      <button type="button" className="knowledge-task-check" aria-label={task?.status === "done" ? "重新打开任务" : "完成任务"} disabled={!task || !canUpdateStatus || busy} onClick={() => void update({ status: task?.status === "done" ? "todo" : "done" })}>{task?.status === "done" ? <CheckCircle2 size={20} /> : busy ? <LoaderCircle className="knowledge-spin" size={20} /> : <Circle size={20} />}</button>
-      <div>{editor.isEditable ? <input className="knowledge-task-title" aria-label="任务标题" value={block.props.title} maxLength={512} onChange={event => editor.updateBlock(block, { props: { title: event.currentTarget.value } })} onBlur={event => { const next = event.currentTarget.value.trim() || "待办任务"; if (next !== event.currentTarget.value) editor.updateBlock(block, { props: { title: next } }); if (task && canManage && next !== task.title) void update({ title: next }); }} /> : <strong>{title}</strong>}<small>{task ? `${taskStatusLabel(task.status)} · 独立任务 revision ${task.revision}` : runtime?.ready ? "任务尚未登记" : "正在读取任务状态…"}</small></div>
-      {task && <Select aria-label="任务状态" value={task.status} disabled={!canUpdateStatus || busy} onChange={event => void update({ status: event.currentTarget.value as KnowledgeTaskStatus })}>{taskStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select>}
+      <button type="button" className="knowledge-task-check" aria-label={task?.status === "done" ? kt("knowledge.auto.1a7d93a62d9546d1") : kt("knowledge.auto.56be09301c395913")} disabled={!task || !canUpdateStatus || busy} onClick={() => void update({ status: task?.status === "done" ? "todo" : "done" })}>{task?.status === "done" ? <CheckCircle2 size={20} /> : busy ? <LoaderCircle className="knowledge-spin" size={20} /> : <Circle size={20} />}</button>
+      <div>{editor.isEditable ? <input className="knowledge-task-title" aria-label={kt("knowledge.auto.f118de64d6ec8f5b")} value={block.props.title} maxLength={512} onChange={event => editor.updateBlock(block, { props: { title: event.currentTarget.value } })} onBlur={event => { const next = event.currentTarget.value.trim() || kt("knowledge.auto.416e65ac1701e085"); if (next !== event.currentTarget.value) editor.updateBlock(block, { props: { title: next } }); if (task && canManage && next !== task.title) void update({ title: next }); }} /> : <strong>{title}</strong>}<small>{task ? ktf("knowledge.auto.4bf633822d338aaa", { value0: taskStatusLabel(task.status), value1: task.revision }) : runtime?.ready ? kt("knowledge.auto.0ae14aa009ba36a0") : kt("knowledge.auto.801012d91506bace")}</small></div>
+      {task && <Select aria-label={kt("knowledge.auto.f850d949259b7c23")} value={task.status} disabled={!canUpdateStatus || busy} onChange={event => void update({ status: event.currentTarget.value as KnowledgeTaskStatus })}>{taskStatusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select>}
     </header>
     {task && <div className="knowledge-task-fields">
       <TaskAssigneePicker task={task} runtime={runtime!} disabled={!canManage || busy} onUpdate={assignee_user_ids => update({ assignee_user_ids })} />
-      <label><Flag size={14} /><span>优先级</span><Select aria-label="任务优先级" value={task.priority} disabled={!canManage || busy} onChange={event => void update({ priority: event.currentTarget.value as KnowledgeTaskPriority })}>{taskPriorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></label>
-      <label><CalendarDays size={14} /><span>截止</span><input key={`due-${task.due_at || "empty"}`} aria-label="任务截止时间" type="datetime-local" defaultValue={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy} onBlur={event => { const due_at = taskDateTimeISO(event.currentTarget.value); void update(due_at ? { due_at } : { due_at: undefined, reminder_at: undefined }); }} /></label>
-      <label><Bell size={14} /><span>提醒</span><input key={`reminder-${task.reminder_at || "empty"}`} aria-label="任务提醒时间" type="datetime-local" defaultValue={taskDateTimeInputValue(task.reminder_at)} max={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy || !task.due_at} onBlur={event => void update({ reminder_at: taskDateTimeISO(event.currentTarget.value) })} /></label>
+      <label><Flag size={14} /><span>{kt("knowledge.auto.565d64601d4d174f")}</span><Select aria-label={kt("knowledge.auto.a10abc806ce48092")} value={task.priority} disabled={!canManage || busy} onChange={event => void update({ priority: event.currentTarget.value as KnowledgeTaskPriority })}>{taskPriorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></label>
+      <label><CalendarDays size={14} /><span>{kt("knowledge.auto.fb37c61898d5a2c7")}</span><input key={`due-${task.due_at || "empty"}`} aria-label={kt("knowledge.auto.e65397c31ea2c569")} type="datetime-local" defaultValue={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy} onBlur={event => { const due_at = taskDateTimeISO(event.currentTarget.value); void update(due_at ? { due_at } : { due_at: undefined, reminder_at: undefined }); }} /></label>
+      <label><Bell size={14} /><span>{kt("knowledge.auto.8f29b3132ccf2182")}</span><input key={`reminder-${task.reminder_at || "empty"}`} aria-label={kt("knowledge.auto.c462af2fd1c28def")} type="datetime-local" defaultValue={taskDateTimeInputValue(task.reminder_at)} max={taskDateTimeInputValue(task.due_at)} disabled={!canManage || busy || !task.due_at} onBlur={event => void update({ reminder_at: taskDateTimeISO(event.currentTarget.value) })} /></label>
     </div>}
     {error && <p role="alert" className="knowledge-task-error">{error}</p>}
   </article>;
@@ -543,7 +544,7 @@ const knowledgeTaskBlock = createReactBlockSpec(knowledgeTaskConfig, {
 
 const knowledgePollConfig = {
   type: "knowledgePoll",
-  propSchema: { question: { default: "请选择一个选项" } },
+  propSchema: { question: { get default() { return kt("knowledge.auto.dfa0249f7b131b40"); } } },
   content: "none",
 } as const;
 
@@ -564,14 +565,14 @@ function KnowledgePollBlockView({ block, editor }: ReactCustomBlockRenderProps<t
   useEffect(() => {
     if (!runtime?.ready || !runtime.canCreate || poll || busy) return;
     setBusy(true); setError("");
-    void runtime.ensurePoll(block.id, block.props.question).catch(failure => setError(failure instanceof Error ? failure.message : "投票创建失败")).finally(() => setBusy(false));
+    void runtime.ensurePoll(block.id, block.props.question).catch(failure => setError(failure instanceof Error ? failure.message : kt("knowledge.auto.4fd4ade0cac1716b"))).finally(() => setBusy(false));
   }, [block.id, block.props.question, busy, poll, runtime]);
 
   const update = async (patch: Parameters<KnowledgePollRuntime["updatePoll"]>[1]) => {
     if (!runtime || !poll || busy) return;
     setBusy(true); setError("");
     try { await runtime.updatePoll(poll, patch); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : "投票更新失败"); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : kt("knowledge.auto.881dd8a76efa52b1")); }
     finally { setBusy(false); }
   };
   const vote = async (optionID: string) => {
@@ -581,21 +582,21 @@ function KnowledgePollBlockView({ block, editor }: ReactCustomBlockRenderProps<t
     else { selected.clear(); selected.add(optionID); }
     setBusy(true); setError("");
     try { await runtime.votePoll(poll, [...selected]); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : "投票失败"); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : kt("knowledge.auto.75452c6c1046d328")); }
     finally { setBusy(false); }
   };
   const canManage = Boolean(poll && runtime?.canManage(poll));
   const structureLocked = Boolean(poll && poll.total_voters > 0);
   const commitQuestion = () => {
     if (!poll || !canManage || structureLocked) return;
-    const question = questionDraft.trim() || "请选择一个选项";
+    const question = questionDraft.trim() || kt("knowledge.auto.dfa0249f7b131b40");
     setQuestionDraft(question);
     editor.updateBlock(block, { props: { question } });
     if (question !== poll.poll.question) void update({ question });
   };
   const commitOption = (index: number) => {
     if (!poll || !canManage || structureLocked) return;
-    const label = optionDrafts[index]?.trim() || `选项 ${index + 1}`;
+    const label = optionDrafts[index]?.trim() || ktf("knowledge.auto.2b387c1d00165616", { value0: index + 1 });
     const options = poll.poll.options.map((option, optionIndex) => ({ id: option.id, label: optionIndex === index ? label : optionDrafts[optionIndex]?.trim() || option.label }));
     if (options[index]?.label !== optionDrafts[index]) setOptionDrafts(current => current.map((value, optionIndex) => optionIndex === index ? label : value));
     if (options.some((option, optionIndex) => option.label !== poll.poll.options[optionIndex]?.label)) void update({ options });
@@ -606,11 +607,11 @@ function KnowledgePollBlockView({ block, editor }: ReactCustomBlockRenderProps<t
       <span className="knowledge-poll-icon" aria-hidden="true"><ListChecks size={19} /></span>
       <div>
         {editor.isEditable && canManage && !structureLocked
-          ? <input className="knowledge-poll-question" aria-label="投票问题" value={questionDraft} maxLength={1024} onChange={event => setQuestionDraft(event.currentTarget.value)} onBlur={commitQuestion} />
+          ? <input className="knowledge-poll-question" aria-label={kt("knowledge.auto.9717eea92267e626")} value={questionDraft} maxLength={1024} onChange={event => setQuestionDraft(event.currentTarget.value)} onBlur={commitQuestion} />
           : <strong>{poll?.poll.question || block.props.question}</strong>}
-        <small>{poll ? `${poll.poll.multiple ? "多选" : "单选"} · ${poll.total_voters} 人参与 · 配置 revision ${poll.poll.revision}` : runtime?.ready ? "投票尚未登记" : "正在读取投票状态…"}</small>
+        <small>{poll ? ktf("knowledge.auto.497870592146f290", { value0: poll.poll.multiple ? kt("knowledge.auto.461e085d5ca266fb") : kt("knowledge.auto.4214b9af7ae0cdcc"), value1: poll.total_voters, value2: poll.poll.revision }) : runtime?.ready ? kt("knowledge.auto.afbf1810a59cbbe5") : kt("knowledge.auto.28e9eb9bffb6cc2d")}</small>
       </div>
-      {poll && canManage && <button type="button" className="knowledge-poll-status" disabled={busy} onClick={() => void update({ status: poll.poll.status === "open" ? "closed" : "open" })}>{poll.poll.status === "open" ? "结束投票" : "重新开启"}</button>}
+      {poll && canManage && <button type="button" className="knowledge-poll-status" disabled={busy} onClick={() => void update({ status: poll.poll.status === "open" ? "closed" : "open" })}>{poll.poll.status === "open" ? kt("knowledge.auto.47cde5d25f48e0f1") : kt("knowledge.auto.157d24e1568aa10b")}</button>}
     </header>
     {poll && <div className="knowledge-poll-options" role={poll.poll.multiple ? "group" : "radiogroup"} aria-label={poll.poll.question}>
       {poll.poll.options.map((option, index) => {
@@ -619,28 +620,28 @@ function KnowledgePollBlockView({ block, editor }: ReactCustomBlockRenderProps<t
         const checked = poll.selected_option_ids.includes(option.id);
         return <div key={option.id} className={`knowledge-poll-option${checked ? " is-selected" : ""}`}>
           <div className="knowledge-poll-option-main">
-            <button type="button" className="knowledge-poll-vote" role={poll.poll.multiple ? "checkbox" : "radio"} aria-checked={checked} aria-label={`选择 ${option.label}`} disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}><span className="knowledge-poll-choice">{checked ? <Check size={14} /> : null}</span></button>
-            <span className="knowledge-poll-label">{editor.isEditable && canManage && !structureLocked ? <input aria-label={`投票选项 ${index + 1}`} value={optionDrafts[index] ?? option.label} maxLength={256} onChange={event => { const value = event.currentTarget.value; setOptionDrafts(current => current.map((draft, optionIndex) => optionIndex === index ? value : draft)); }} onBlur={() => commitOption(index)} /> : <button type="button" disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}>{option.label}</button>}</span>
-            <strong>{votes} 票</strong><small>{pollPercentage(votes, poll.total_voters)}%</small>
+            <button type="button" className="knowledge-poll-vote" role={poll.poll.multiple ? "checkbox" : "radio"} aria-checked={checked} aria-label={ktf("knowledge.auto.8ddfacf922016fcf", { value0: option.label })} disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}><span className="knowledge-poll-choice">{checked ? <Check size={14} /> : null}</span></button>
+            <span className="knowledge-poll-label">{editor.isEditable && canManage && !structureLocked ? <input aria-label={ktf("knowledge.auto.2885573d6e043243", { value0: index + 1 })} value={optionDrafts[index] ?? option.label} maxLength={256} onChange={event => { const value = event.currentTarget.value; setOptionDrafts(current => current.map((draft, optionIndex) => optionIndex === index ? value : draft)); }} onBlur={() => commitOption(index)} /> : <button type="button" disabled={busy || poll.poll.status !== "open"} onClick={() => void vote(option.id)}>{option.label}</button>}</span>
+            <strong>{votes} {kt("knowledge.auto.f7f6ebe84bfee267")}</strong><small>{pollPercentage(votes, poll.total_voters)}%</small>
           </div>
           <span className="knowledge-poll-bar" aria-hidden="true"><i style={{ width: `${pollPercentage(votes, poll.total_voters)}%` }} /></span>
-          {editor.isEditable && canManage && !structureLocked && poll.poll.options.length > 2 && <button type="button" className="knowledge-poll-remove" aria-label={`删除选项 ${option.label}`} disabled={busy} onClick={() => void update({ options: poll.poll.options.filter(item => item.id !== option.id) })}><X size={14} /></button>}
+          {editor.isEditable && canManage && !structureLocked && poll.poll.options.length > 2 && <button type="button" className="knowledge-poll-remove" aria-label={ktf("knowledge.auto.cd4eea099aebb03e", { value0: option.label })} disabled={busy} onClick={() => void update({ options: poll.poll.options.filter(item => item.id !== option.id) })}><X size={14} /></button>}
         </div>;
       })}
       {editor.isEditable && canManage && !structureLocked && <div className="knowledge-poll-config">
-        <button type="button" disabled={busy || poll.poll.options.length >= 12} onClick={() => void update({ options: [...poll.poll.options, { label: `选项 ${poll.poll.options.length + 1}` }] })}>+ 添加选项</button>
-        <label><input type="checkbox" checked={poll.poll.multiple} disabled={busy} onChange={event => void update({ multiple: event.currentTarget.checked })} />允许多选</label>
+        <button type="button" disabled={busy || poll.poll.options.length >= 12} onClick={() => void update({ options: [...poll.poll.options, { label: ktf("knowledge.auto.2b387c1d00165616", { value0: poll.poll.options.length + 1 }) }] })}>{kt("knowledge.auto.63d251d09b5dd46c")}</button>
+        <label><input type="checkbox" checked={poll.poll.multiple} disabled={busy} onChange={event => void update({ multiple: event.currentTarget.checked })} />{kt("knowledge.auto.1523dab0bf07e14d")}</label>
       </div>}
-      {structureLocked && canManage && <p className="knowledge-poll-lock">已有成员投票，问题与选项已锁定；仍可结束或重新开启投票。</p>}
+      {structureLocked && canManage && <p className="knowledge-poll-lock">{kt("knowledge.auto.4b3fe17c051ce40f")}</p>}
     </div>}
-    {busy && <p className="knowledge-poll-progress"><LoaderCircle className="knowledge-spin" size={14} />正在同步投票…</p>}
+    {busy && <p className="knowledge-poll-progress"><LoaderCircle className="knowledge-spin" size={14} />{kt("knowledge.auto.08062316a0be2eab")}</p>}
     {error && <p role="alert" className="knowledge-task-error">{error}</p>}
   </article>;
 }
 
 const knowledgePollBlock = createReactBlockSpec(knowledgePollConfig, {
   render: KnowledgePollBlockView,
-  toExternalHTML: ({ block }) => <div data-knowledge-poll="true">投票：{block.props.question}</div>,
+  toExternalHTML: ({ block }) => <div data-knowledge-poll="true">{kt("knowledge.auto.34817e6276b6c81a")}{block.props.question}</div>,
 });
 
 function normalizeCardMetadata(value: string, maximum: number) {
@@ -706,7 +707,7 @@ function externalEmbedLocalFallback(provider: "youtube" | "bilibili", source: st
   const videoID = new URL(source).pathname.slice(7);
   return {
     poster: `https://i.ytimg.com/vi/${videoID}/hqdefault.jpg`,
-    reason: "YouTube 不允许 localhost 作为嵌入来源，请在平台中播放",
+    reason: kt("knowledge.auto.8db4e7a3b9483665"),
   };
 }
 
@@ -722,7 +723,7 @@ function CardInput({ label, value, maximum, placeholder, normalize, onCommit }: 
   return <input
     aria-label={label}
     aria-invalid={invalid || undefined}
-    title={invalid ? `${label}格式不受支持` : undefined}
+    title={invalid ? ktf("knowledge.auto.ce2048a5c77ff54c", { value0: label }) : undefined}
     value={draft}
     maxLength={maximum}
     placeholder={placeholder}
@@ -734,7 +735,7 @@ function CardInput({ label, value, maximum, placeholder, normalize, onCommit }: 
 
 const bookmarkBlockConfig = {
   type: "bookmark",
-  propSchema: { url: { default: "" }, title: { default: "新网页书签" }, description: { default: "" }, siteName: { default: "" } },
+  propSchema: { url: { default: "" }, title: { get default() { return kt("knowledge.auto.fc5afe46eb8e2a7f"); } }, description: { default: "" }, siteName: { default: "" } },
   content: "none",
 } as const;
 
@@ -743,13 +744,13 @@ function BookmarkBlockView({ block, editor }: ReactCustomBlockRenderProps<typeof
   const update = (props: Partial<typeof block.props>) => editor.updateBlock(block, { props });
   return <article className="knowledge-block-card knowledge-block-bookmark" contentEditable={false}>
     <span className="knowledge-block-card-icon"><Globe2 size={19} /></span>
-    <div className="knowledge-block-card-copy"><strong>{block.props.title || "未命名网页书签"}</strong>{block.props.description && <p>{block.props.description}</p>}<small>{block.props.siteName || (href ? new URL(href).hostname : "等待填写安全 HTTPS 地址")}</small></div>
-    {href && <a className="knowledge-block-card-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={`打开网页书签：${block.props.title || href}`}><ExternalLink size={16} /></a>}
+    <div className="knowledge-block-card-copy"><strong>{block.props.title || kt("knowledge.auto.19835b9c457338fe")}</strong>{block.props.description && <p>{block.props.description}</p>}<small>{block.props.siteName || (href ? new URL(href).hostname : kt("knowledge.auto.08f832ded8f086e4"))}</small></div>
+    {href && <a className="knowledge-block-card-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={ktf("knowledge.auto.1770b7f2f22f0847", { value0: block.props.title || href })}><ExternalLink size={16} /></a>}
     {editor.isEditable && <div className="knowledge-block-card-fields">
-      <CardInput label="网页书签地址" value={block.props.url} maximum={2048} placeholder="https://…" normalize={value => value.trim() === "" ? "" : safeBookmarkURL(value)} onCommit={url => update({ url })} />
-      <CardInput label="网页书签标题" value={block.props.title} maximum={256} onCommit={title => update({ title })} />
-      <CardInput label="网页书签描述" value={block.props.description} maximum={1024} onCommit={description => update({ description })} />
-      <CardInput label="网页站点名称" value={block.props.siteName} maximum={128} onCommit={siteName => update({ siteName })} />
+      <CardInput label={kt("knowledge.auto.3cbfdb49f05dc8de")} value={block.props.url} maximum={2048} placeholder="https://…" normalize={value => value.trim() === "" ? "" : safeBookmarkURL(value)} onCommit={url => update({ url })} />
+      <CardInput label={kt("knowledge.auto.757cdef371d9b573")} value={block.props.title} maximum={256} onCommit={title => update({ title })} />
+      <CardInput label={kt("knowledge.auto.7836bf6ed6bd7adc")} value={block.props.description} maximum={1024} onCommit={description => update({ description })} />
+      <CardInput label={kt("knowledge.auto.ecfe8ab860f6e547")} value={block.props.siteName} maximum={128} onCommit={siteName => update({ siteName })} />
     </div>}
   </article>;
 }
@@ -758,7 +759,7 @@ const bookmarkBlock = createReactBlockSpec(bookmarkBlockConfig, { render: Bookma
 
 const personCardConfig = {
   type: "personCard",
-  propSchema: { userId: { default: "" }, displayName: { default: "未选择成员" }, email: { default: "" } },
+  propSchema: { userId: { default: "" }, displayName: { get default() { return kt("knowledge.auto.0a198bb2ded27d7e"); } }, email: { default: "" } },
   content: "none",
 } as const;
 
@@ -767,12 +768,12 @@ function PersonCardView({ block, editor }: ReactCustomBlockRenderProps<typeof pe
   const initial = [...(block.props.displayName || block.props.email || block.props.userId || "?")][0]?.toLocaleUpperCase() || "?";
   return <article className="knowledge-block-card knowledge-block-person" contentEditable={false}>
     <span className="knowledge-person-avatar" aria-hidden="true">{initial}</span>
-    <div className="knowledge-block-card-copy"><strong>{block.props.displayName || "未选择成员"}</strong><p>{block.props.email || "成员展示资料将在目录解析后更新"}</p><small>{block.props.userId || "等待填写稳定用户 ID"}</small></div>
+    <div className="knowledge-block-card-copy"><strong>{block.props.displayName || kt("knowledge.auto.0a198bb2ded27d7e")}</strong><p>{block.props.email || kt("knowledge.auto.b3a81cc3240930c6")}</p><small>{block.props.userId || kt("knowledge.auto.f5c2d9726fc51611")}</small></div>
     <UserRound className="knowledge-block-card-mark" size={17} aria-hidden="true" />
     {editor.isEditable && <div className="knowledge-block-card-fields">
-      <CardInput label="人员用户 ID" value={block.props.userId} maximum={255} placeholder="稳定用户 ID" normalize={value => { const next = value.trim(); return /[\u0000-\u001f\u007f-\u009f]/.test(next) ? null : next; }} onCommit={userId => update({ userId })} />
-      <CardInput label="人员姓名" value={block.props.displayName} maximum={256} onCommit={displayName => update({ displayName })} />
-      <CardInput label="人员邮箱" value={block.props.email} maximum={320} placeholder="name@example.com" normalize={value => { const next = value.trim(); return next === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next) ? next : null; }} onCommit={email => update({ email })} />
+      <CardInput label={kt("knowledge.auto.3d5a4a529722471d")} value={block.props.userId} maximum={255} placeholder={kt("knowledge.auto.15479ea7779a264a")} normalize={value => { const next = value.trim(); return /[\u0000-\u001f\u007f-\u009f]/.test(next) ? null : next; }} onCommit={userId => update({ userId })} />
+      <CardInput label={kt("knowledge.auto.9614417e05ac02c1")} value={block.props.displayName} maximum={256} onCommit={displayName => update({ displayName })} />
+      <CardInput label={kt("knowledge.auto.acc9534b03fc5fb4")} value={block.props.email} maximum={320} placeholder="name@example.com" normalize={value => { const next = value.trim(); return next === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(next) ? next : null; }} onCommit={email => update({ email })} />
     </div>}
   </article>;
 }
@@ -780,12 +781,12 @@ function PersonCardView({ block, editor }: ReactCustomBlockRenderProps<typeof pe
 const personCardBlock = createReactBlockSpec(personCardConfig, { render: PersonCardView });
 
 const applicationCardKinds: { id: KnowledgeApplicationCardKind; label: string }[] = [
-  { id: "calendar_event", label: "日程" },
-  { id: "meeting", label: "会议" },
-  { id: "group", label: "群组" },
-  { id: "task", label: "任务" },
+  { id: "calendar_event", get label() { return kt("knowledge.auto.a14f23af70166ec2"); } },
+  { id: "meeting", get label() { return kt("knowledge.auto.63d30f1a037d0771"); } },
+  { id: "group", get label() { return kt("knowledge.auto.f3f8bcf3f57de41f"); } },
+  { id: "task", get label() { return kt("knowledge.auto.5253040db8643c85"); } },
   { id: "jira", label: "Jira" },
-  { id: "web", label: "网页应用" },
+  { id: "web", get label() { return kt("knowledge.auto.bc84ce60940f1049"); } },
 ];
 
 const applicationCardConfig = {
@@ -820,32 +821,32 @@ function ApplicationCardView({ block, editor }: ReactCustomBlockRenderProps<type
     setLoading(true);
     runtime.resolveApplicationCard({ provider: block.props.provider.trim(), kind: block.props.kind, resource_id: block.props.resourceId.trim() }, controller.signal)
       .then(setCard)
-      .catch(failure => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : "应用卡片暂时不可用"); })
+      .catch(failure => { if (!controller.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.73bef168ba0c129b")); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [block.props.kind, block.props.provider, block.props.resourceId, referenceReady, refresh, runtime]);
   const update = (props: Partial<typeof block.props>) => editor.updateBlock(block, { props });
   const KindIcon = applicationCardIcon(block.props.kind);
-  const kindLabel = applicationCardKinds.find(item => item.id === block.props.kind)?.label || "应用";
+  const kindLabel = applicationCardKinds.find(item => item.id === block.props.kind)?.label || kt("knowledge.auto.63c73c4730f4473e");
   const href = card?.url && safeBookmarkURL(card.url);
   return <article className="knowledge-block-card knowledge-block-application" contentEditable={false}>
     <span className="knowledge-block-card-icon"><KindIcon size={19} /></span>
     <div className="knowledge-block-card-copy">
-      <strong>{loading ? "正在读取应用数据…" : card?.title || (referenceReady ? `${kindLabel}不可用` : `添加${kindLabel}卡片`)}</strong>
-      <p>{card?.subtitle || error || (!runtime?.resolveApplicationCard ? "宿主尚未配置应用连接器" : referenceReady ? "可刷新重试，页面正文不会保存第三方响应" : "填写连接器与资源 ID 后读取实时数据")}</p>
-      <small>{card?.status ? `${card.status}${card.updated_at ? ` · ${new Date(card.updated_at).toLocaleString()}` : ""}` : referenceReady ? `${block.props.provider} · ${block.props.resourceId}` : "只保存稳定引用，不保存凭据"}</small>
+      <strong>{loading ? kt("knowledge.auto.40e4b14ed35fe7bc") : card?.title || (referenceReady ? ktf("knowledge.auto.82ebc3d6c0036708", { value0: kindLabel }) : ktf("knowledge.auto.ed91deb7fcd4d228", { value0: kindLabel }))}</strong>
+      <p>{card?.subtitle || error || (!runtime?.resolveApplicationCard ? kt("knowledge.auto.e9bebdfccdb01707") : referenceReady ? kt("knowledge.auto.645b2e57250dcbd3") : kt("knowledge.auto.cbef336bf4166677"))}</p>
+      <small>{card?.status ? `${card.status}${card.updated_at ? ` · ${formatKnowledgeDate(card.updated_at)}` : ""}` : referenceReady ? `${block.props.provider} · ${block.props.resourceId}` : kt("knowledge.auto.e335cfeff83bacd2")}</small>
     </div>
     <div className="knowledge-block-application-actions">
-      {loading ? <LoaderCircle className="knowledge-spin" size={16} /> : referenceReady && runtime?.resolveApplicationCard ? <button type="button" aria-label="刷新应用卡片" title="刷新" onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15} /></button> : null}
-      {href && <a className="knowledge-block-card-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={`打开${card?.title || kindLabel}`}><ExternalLink size={16} /></a>}
+      {loading ? <LoaderCircle className="knowledge-spin" size={16} /> : referenceReady && runtime?.resolveApplicationCard ? <button type="button" aria-label={kt("knowledge.auto.82e1461e5b02523a")} title={kt("knowledge.auto.aee88743413144a2")} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={15} /></button> : null}
+      {href && <a className="knowledge-block-card-open" href={href} target="_blank" rel="noopener noreferrer" aria-label={ktf("knowledge.auto.db63215f052da897", { value0: card?.title || kindLabel })}><ExternalLink size={16} /></a>}
     </div>
     {editor.isEditable && <div className="knowledge-block-card-fields knowledge-block-application-fields">
-      <Select aria-label="应用卡片类型" value={block.props.kind} onChange={event => {
+      <Select aria-label={kt("knowledge.auto.e64b3b37abb61225")} value={block.props.kind} onChange={event => {
         const kind = event.currentTarget.value as KnowledgeApplicationCardKind;
         update({ kind, provider: kind === "web" && !block.props.provider.trim() ? "web" : kind !== "web" && block.props.provider === "web" ? "" : block.props.provider });
       }}>{applicationCardKinds.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</Select>
-      <CardInput label="应用连接器" value={block.props.provider} maximum={64} placeholder="例如 jira、google-calendar" normalize={value => { const next = value.trim(); return next === "" || /^[a-z0-9][a-z0-9_-]{0,63}$/.test(next) ? next : null; }} onCommit={provider => update({ provider })} />
-      <CardInput label="应用资源 ID" value={block.props.resourceId} maximum={2048} placeholder="稳定资源 ID（不是访问令牌）" normalize={value => { const next = value.trim(); return /[\u0000-\u001f\u007f-\u009f]/.test(next) ? null : next; }} onCommit={resourceId => update({ resourceId })} />
+      <CardInput label={kt("knowledge.auto.d1806bda27f311ee")} value={block.props.provider} maximum={64} placeholder={kt("knowledge.auto.9a290f46f55d0816")} normalize={value => { const next = value.trim(); return next === "" || /^[a-z0-9][a-z0-9_-]{0,63}$/.test(next) ? next : null; }} onCommit={provider => update({ provider })} />
+      <CardInput label={kt("knowledge.auto.1a55e1eacf30167a")} value={block.props.resourceId} maximum={2048} placeholder={kt("knowledge.auto.ed8da0c3eb7b451d")} normalize={value => { const next = value.trim(); return /[\u0000-\u001f\u007f-\u009f]/.test(next) ? null : next; }} onCommit={resourceId => update({ resourceId })} />
     </div>}
   </article>;
 }
@@ -857,7 +858,7 @@ const applicationCardBlock = createReactBlockSpec(applicationCardConfig, {
 
 const externalEmbedConfig = {
   type: "externalEmbed",
-  propSchema: { provider: { default: "youtube", values: ["youtube", "bilibili"] as const }, url: { default: "" }, title: { default: "外部视频" } },
+  propSchema: { provider: { default: "youtube", values: ["youtube", "bilibili"] as const }, url: { default: "" }, title: { get default() { return kt("knowledge.auto.b8b6f16538c3c33d"); } } },
   content: "none",
 } as const;
 
@@ -869,26 +870,26 @@ function ExternalEmbedView({ block, editor }: ReactCustomBlockRenderProps<typeof
   const update = (props: Partial<typeof block.props>) => editor.updateBlock(block, { props });
   return <figure className="knowledge-block-embed" contentEditable={false}>
     <header>
-      <span><PlaySquare size={17} />{block.props.title || "外部视频"}</span>
+      <span><PlaySquare size={17} />{block.props.title || kt("knowledge.auto.b8b6f16538c3c33d")}</span>
       <div className="knowledge-block-embed-actions">
-        <small>{block.props.provider === "youtube" ? "YouTube 播放器" : "哔哩哔哩播放器"}</small>
-        {platformURL && <a style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }} href={platformURL} target="_blank" rel="noopener noreferrer" aria-label={`在${block.props.provider === "youtube" ? "YouTube" : "哔哩哔哩"}打开视频`}><ExternalLink size={14} />平台播放</a>}
+        <small>{block.props.provider === "youtube" ? kt("knowledge.auto.5631501881c1ded4") : kt("knowledge.auto.31a0abd7a03ecac1")}</small>
+        {platformURL && <a style={{ color: "inherit", display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }} href={platformURL} target="_blank" rel="noopener noreferrer" aria-label={ktf("knowledge.auto.bd59676c2babe22a", { value0: block.props.provider === "youtube" ? "YouTube" : kt("knowledge.auto.cfc3d445066f6e83") })}><ExternalLink size={14} />{kt("knowledge.auto.ef4ee47c18b9703e")}</a>}
       </div>
     </header>
-    {localFallback && platformURL ? <a className="knowledge-block-embed-fallback" style={{ position: "relative", display: "grid", placeItems: "center", width: "100%", aspectRatio: "16 / 9", overflow: "hidden", color: "#fff", background: "#101814", textDecoration: "none" }} href={platformURL} target="_blank" rel="noopener noreferrer" aria-label="YouTube 本地预览不可用，前往平台播放">
+    {localFallback && platformURL ? <a className="knowledge-block-embed-fallback" href={platformURL} target="_blank" rel="noopener noreferrer" aria-label={kt("knowledge.auto.71034b2f01f58512")}>
       <img style={{ width: "100%", height: "100%", objectFit: "cover", opacity: .48 }} src={localFallback.poster} alt="" />
-      <span style={{ position: "absolute", display: "grid", justifyItems: "center", gap: 7, padding: "16px 22px", textAlign: "center", background: "rgb(10 27 19 / 82%)", border: "1px solid rgb(255 255 255 / 26%)", borderRadius: 12 }}><PlaySquare size={34} /><strong>前往 YouTube 播放</strong><small style={{ maxWidth: 420, color: "#d7e5dd" }}>{localFallback.reason}</small></span>
+      <span><PlaySquare size={34} /><strong>{kt("knowledge.auto.2c3e7797803a6918")}</strong><small>{localFallback.reason}</small></span>
     </a> : playerSource ? <iframe
       src={playerSource}
-      title={block.props.title || "受控外部视频"}
+      title={block.props.title || kt("knowledge.auto.62245270a89f1640")}
       referrerPolicy="strict-origin-when-cross-origin"
       allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
       allowFullScreen
-    /> : <div className="knowledge-block-embed-empty"><PlaySquare size={30} /><span>填写受支持的视频地址后显示预览</span></div>}
+    /> : <div className="knowledge-block-embed-empty"><PlaySquare size={30} /><span>{kt("knowledge.auto.565dc6cb12c2f4ea")}</span></div>}
     {editor.isEditable && <figcaption>
-      <label>服务<Select aria-label="外部嵌入服务" value={block.props.provider} onChange={event => update({ provider: event.currentTarget.value as typeof block.props.provider, url: "" })}><option value="youtube">YouTube</option><option value="bilibili">哔哩哔哩</option></Select></label>
-      <CardInput label="外部嵌入地址" value={block.props.url} maximum={2048} placeholder={block.props.provider === "youtube" ? "YouTube 视频地址" : "哔哩哔哩视频地址"} normalize={value => value.trim() === "" ? "" : canonicalExternalEmbedURL(block.props.provider, value)} onCommit={url => update({ url })} />
-      <CardInput label="外部嵌入标题" value={block.props.title} maximum={256} onCommit={title => update({ title })} />
+      <label>{kt("knowledge.auto.ec309ab207ef7fa3")}<Select aria-label={kt("knowledge.auto.7ecb1213f0fdde2c")} value={block.props.provider} onChange={event => update({ provider: event.currentTarget.value as typeof block.props.provider, url: "" })}><option value="youtube">YouTube</option><option value="bilibili">{kt("knowledge.auto.cfc3d445066f6e83")}</option></Select></label>
+      <CardInput label={kt("knowledge.auto.8ff10f58045cb3d3")} value={block.props.url} maximum={2048} placeholder={block.props.provider === "youtube" ? kt("knowledge.auto.b6531b7dfab82694") : kt("knowledge.auto.ac3b0fa95502c7d8")} normalize={value => value.trim() === "" ? "" : canonicalExternalEmbedURL(block.props.provider, value)} onCommit={url => update({ url })} />
+      <CardInput label={kt("knowledge.auto.1c415a6a0078f9c0")} value={block.props.title} maximum={256} onCommit={title => update({ title })} />
     </figcaption>}
   </figure>;
 }
@@ -898,7 +899,7 @@ const externalEmbedBlock = createReactBlockSpec(externalEmbedConfig, { render: E
 const knowledgeReferenceConfig = {
   type: "knowledgeReference",
   propSchema: {
-    targetPageId: { default: "" }, title: { default: "未选择知识条目" },
+    targetPageId: { default: "" }, title: { get default() { return kt("knowledge.auto.6df69025e1c498fc"); } },
     targetType: { default: "document", values: ["document", "multidimensional_table", "spreadsheet", "presentation", "form", "mind_note", "whiteboard", "mind_map", "flowchart", "file"] as const },
     display: { default: "card", values: ["card", "embed"] as const },
     referenceMode: { default: "live", values: ["live", "fixed"] as const },
@@ -921,7 +922,7 @@ function KnowledgeReferenceBlockView({ block, editor }: ReactCustomBlockRenderPr
     if (!pickerOpen || !runtime) return;
     const abort = new AbortController();
     setBusy(true); setFailure("");
-    void runtime.searchPages(query, abort.signal).then(items => { if (!abort.signal.aborted) setPages(items.filter(page => page.pageID !== runtime.currentPageID)); }).catch(() => { if (!abort.signal.aborted) setFailure("无法加载可引用页面"); }).finally(() => { if (!abort.signal.aborted) setBusy(false); });
+    void runtime.searchPages(query, abort.signal).then(items => { if (!abort.signal.aborted) setPages(items.filter(page => page.pageID !== runtime.currentPageID)); }).catch(() => { if (!abort.signal.aborted) setFailure(kt("knowledge.auto.a78d1ee240cade06")); }).finally(() => { if (!abort.signal.aborted) setBusy(false); });
     return () => abort.abort();
   }, [pickerOpen, query, runtime]);
   useEffect(() => {
@@ -936,35 +937,35 @@ function KnowledgeReferenceBlockView({ block, editor }: ReactCustomBlockRenderPr
   };
   const setReferenceMode = async (mode: "live" | "fixed") => {
     if (mode === "live") { update({ referenceMode: "live", targetVersion: 0 }); return; }
-    if (!runtime || !block.props.targetPageId) { setFailure("请先选择一个页面"); return; }
+    if (!runtime || !block.props.targetPageId) { setFailure(kt("knowledge.auto.52d5b234b30c2548")); return; }
     setBusy(true); setFailure("");
     try {
       const items = await runtime.listPageVersions(block.props.targetPageId, AbortSignal.timeout(10_000));
       setVersions(items);
-      if (!items[0]) { setFailure("目标页面还没有可固定的发布版本"); return; }
+      if (!items[0]) { setFailure(kt("knowledge.auto.1eaa915e5f0311ea")); return; }
       update({ referenceMode: "fixed", targetVersion: items[0].version, embeddedEdit: false });
-    } catch { setFailure("无法读取目标页面版本"); }
+    } catch { setFailure(kt("knowledge.auto.cd151c8ceee4f97c")); }
     finally { setBusy(false); }
   };
   const unresolved = !block.props.targetPageId;
   return <article className={`knowledge-block-reference${block.props.display === "embed" ? " is-embed" : " is-card"}`} contentEditable={false}>
-    {unresolved ? <div className="knowledge-reference-empty"><span className="knowledge-block-reference-icon"><BookOpen size={18} /></span><div><strong>选择要引用的知识条目</strong><small>只能从你当前有权限访问的页面中选择</small></div></div> : runtime?.renderReference({
+    {unresolved ? <div className="knowledge-reference-empty"><span className="knowledge-block-reference-icon"><BookOpen size={18} /></span><div><strong>{kt("knowledge.auto.1a8b7cfcf27e0caa")}</strong><small>{kt("knowledge.auto.e5b51517fee07062")}</small></div></div> : runtime?.renderReference({
       blockID: block.id, targetPageID: block.props.targetPageId, title: block.props.title, contentType: block.props.targetType as KnowledgePageContentType,
       display: block.props.display, referenceMode: block.props.referenceMode, targetVersion: block.props.targetVersion, embeddedEdit: block.props.embeddedEdit,
-    }) || <div className="knowledge-reference-empty"><span className="knowledge-block-reference-icon"><BookOpen size={18} /></span><div><strong>{block.props.title}</strong><small>{block.props.targetType} · {block.props.referenceMode === "fixed" ? `固定版本 ${block.props.targetVersion}` : "实时引用"}</small></div></div>}
+    }) || <div className="knowledge-reference-empty"><span className="knowledge-block-reference-icon"><BookOpen size={18} /></span><div><strong>{block.props.title}</strong><small>{block.props.targetType} · {block.props.referenceMode === "fixed" ? ktf("knowledge.auto.4cf17f7f064e0413", { value0: block.props.targetVersion }) : kt("knowledge.auto.0830515fbec6fab4")}</small></div></div>}
     {editor.isEditable && <div className="knowledge-block-reference-fields">
-      <button type="button" onClick={() => setPickerOpen(value => !value)}><Search size={14} />{unresolved ? "选择页面" : "更换页面"}</button>
-      {!unresolved && <><Select aria-label="引用显示方式" value={block.props.display} onChange={event => { const display = event.target.value as "card" | "embed"; update({ display, embeddedEdit: display === "embed" && block.props.referenceMode === "live" && block.props.embeddedEdit }); }}><option value="card">卡片</option><option value="embed">内嵌</option></Select>
-        <Select aria-label="引用更新方式" value={block.props.referenceMode} onChange={event => void setReferenceMode(event.target.value as "live" | "fixed")}><option value="live">实时引用</option><option value="fixed">固定版本</option></Select>
-        {block.props.referenceMode === "fixed" && <Select aria-label="固定版本" value={block.props.targetVersion} onChange={event => update({ targetVersion: Number(event.target.value) })}>{versions.map(version => <option key={version.version} value={version.version}>版本 {version.version}</option>)}</Select>}
-        {block.props.display === "embed" && block.props.referenceMode === "live" && <label><input type="checkbox" checked={block.props.embeddedEdit} onChange={event => update({ embeddedEdit: event.target.checked })} />允许内嵌编辑</label>}</>}
+      <button type="button" onClick={() => setPickerOpen(value => !value)}><Search size={14} />{unresolved ? kt("knowledge.auto.a84927a698321ed4") : kt("knowledge.auto.91d8266c29904aa5")}</button>
+      {!unresolved && <><Select aria-label={kt("knowledge.auto.281ae53a449bad60")} value={block.props.display} onChange={event => { const display = event.target.value as "card" | "embed"; update({ display, embeddedEdit: display === "embed" && block.props.referenceMode === "live" && block.props.embeddedEdit }); }}><option value="card">{kt("knowledge.auto.fb5640f8e12e3337")}</option><option value="embed">{kt("knowledge.auto.975f9da19eee1b16")}</option></Select>
+        <Select aria-label={kt("knowledge.auto.a18f1f9062b1279f")} value={block.props.referenceMode} onChange={event => void setReferenceMode(event.target.value as "live" | "fixed")}><option value="live">{kt("knowledge.auto.0830515fbec6fab4")}</option><option value="fixed">{kt("knowledge.auto.70198e08ddebe7e4")}</option></Select>
+        {block.props.referenceMode === "fixed" && <Select aria-label={kt("knowledge.auto.70198e08ddebe7e4")} value={block.props.targetVersion} onChange={event => update({ targetVersion: Number(event.target.value) })}>{versions.map(version => <option key={version.version} value={version.version}>{kt("knowledge.auto.5f76b2bf82dd2c5d")}{version.version}</option>)}</Select>}
+        {block.props.display === "embed" && block.props.referenceMode === "live" && <label><input type="checkbox" checked={block.props.embeddedEdit} onChange={event => update({ embeddedEdit: event.target.checked })} />{kt("knowledge.auto.b0e4fc1299cd721d")}</label>}</>}
     </div>}
-    {pickerOpen && <div className="knowledge-reference-picker" role="dialog" aria-label="选择引用页面">
-      <label><Search size={14} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索有权限的页面" /></label>
-      {busy && <p><LoaderCircle className="knowledge-spin" size={14} />正在加载…</p>}
-      {!busy && pages.length === 0 && <p>没有可选择的页面</p>}
+    {pickerOpen && <div className="knowledge-reference-picker" role="dialog" aria-label={kt("knowledge.auto.d670e0d67efecaf7")}>
+      <label><Search size={14} /><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={kt("knowledge.auto.02e240d46269080f")} /></label>
+      {busy && <p><LoaderCircle className="knowledge-spin" size={14} />{kt("knowledge.auto.21bd738e0d7191a7")}</p>}
+      {!busy && pages.length === 0 && <p>{kt("knowledge.auto.0df83fe133f63354")}</p>}
       <div>{pages.map(page => <button type="button" key={page.pageID} onClick={() => selectPage(page)}><FileText size={15} /><span><strong>{page.title}</strong><small>{pageTypeDefinitions.find(item => item.id === page.contentType)?.label || page.contentType}</small></span></button>)}</div>
-      <button type="button" onClick={() => setPickerOpen(false)}>关闭</button>
+      <button type="button" onClick={() => setPickerOpen(false)}>{kt("knowledge.auto.3fd47edce45b3603")}</button>
     </div>}
     {failure && <p className="knowledge-reference-error" role="alert">{failure}</p>}
   </article>;
@@ -975,13 +976,13 @@ const knowledgeReferenceBlock = createReactBlockSpec(knowledgeReferenceConfig, {
 const syncedBlock = createReactBlockSpec(
   {
     type: "syncedBlock",
-    propSchema: { targetPageId: { default: "" }, targetBlockId: { default: "" }, title: { default: "同步内容块" } },
+    propSchema: { targetPageId: { default: "" }, targetBlockId: { default: "" }, title: { get default() { return kt("knowledge.auto.4f35c4a2d26f6306"); } } },
     content: "none",
   },
   {
     render: ({ block, editor }) => <article className="knowledge-block-synced" contentEditable={false}>
-      <Link2 size={17} /><div><strong>{block.props.title}</strong><small>{block.props.targetPageId && block.props.targetBlockId ? `${block.props.targetPageId} / ${block.props.targetBlockId}` : "填写来源页面和 Block ID 后建立同步引用"}</small></div>
-      {editor.isEditable && <div><input aria-label="同步来源页面" value={block.props.targetPageId} placeholder="kpage_…" onChange={event => editor.updateBlock(block, { props: { targetPageId: event.target.value } })} /><input aria-label="同步来源 Block" value={block.props.targetBlockId} placeholder="Block ID" onChange={event => editor.updateBlock(block, { props: { targetBlockId: event.target.value } })} /></div>}
+      <Link2 size={17} /><div><strong>{block.props.title}</strong><small>{block.props.targetPageId && block.props.targetBlockId ? `${block.props.targetPageId} / ${block.props.targetBlockId}` : kt("knowledge.auto.d65c0051f3903ee3")}</small></div>
+      {editor.isEditable && <div><input aria-label={kt("knowledge.auto.d73a16a52f7e0e79")} value={block.props.targetPageId} placeholder="kpage_…" onChange={event => editor.updateBlock(block, { props: { targetPageId: event.target.value } })} /><input aria-label={kt("knowledge.auto.b9ed2d868db62252")} value={block.props.targetBlockId} placeholder="Block ID" onChange={event => editor.updateBlock(block, { props: { targetBlockId: event.target.value } })} /></div>}
     </article>,
   },
 );
@@ -1031,9 +1032,9 @@ function TableOfContentsView({ block, editor }: ReactCustomBlockRenderProps<type
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
     if (editor.isEditable) editor.setTextCursorPosition(id, "start");
   };
-  return <nav className="knowledge-block-toc" aria-label="页面目录" contentEditable={false}>
-    <header><strong>目录</strong>{editor.isEditable && <label>层级<Select aria-label="目录层级" value={block.props.maxDepth} onChange={event => editor.updateBlock(block, { props: { maxDepth: Number(event.target.value) as 1 | 2 | 3 } })}><option value={1}>H1</option><option value={2}>H1–H2</option><option value={3}>H1–H3</option></Select></label>}</header>
-    {headings.length ? <ol>{headings.map(heading => <li key={heading.id} data-level={heading.level}><button type="button" onClick={() => jumpTo(heading.id)}>{heading.text}</button></li>)}</ol> : <p>添加标题后会自动生成目录。</p>}
+  return <nav className="knowledge-block-toc" aria-label={kt("knowledge.auto.af0ae3351923fc5d")} contentEditable={false}>
+    <header><strong>{kt("knowledge.auto.52daa71ebc310581")}</strong>{editor.isEditable && <label>{kt("knowledge.auto.ab033612a2daa62e")}<Select aria-label={kt("knowledge.auto.e6b251d0f03f11c8")} value={block.props.maxDepth} onChange={event => editor.updateBlock(block, { props: { maxDepth: Number(event.target.value) as 1 | 2 | 3 } })}><option value={1}>H1</option><option value={2}>H1–H2</option><option value={3}>H1–H3</option></Select></label>}</header>
+    {headings.length ? <ol>{headings.map(heading => <li key={heading.id} data-level={heading.level}><button type="button" onClick={() => jumpTo(heading.id)}>{heading.text}</button></li>)}</ol> : <p>{kt("knowledge.auto.0502b2eadbb3300a")}</p>}
   </nav>;
 }
 
@@ -1058,13 +1059,13 @@ function SubpageListView({ block, editor }: ReactCustomBlockRenderProps<typeof s
     void runtime.listChildPages(block.props.maxItems, abort.signal).then(items => {
       if (!abort.signal.aborted) setPages(items);
     }, failure => {
-      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "子页面加载失败");
+      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.5436e478223e431e"));
     }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [block.props.maxItems, refresh, runtime]);
   return <section className="knowledge-block-subpages" contentEditable={false}>
-    <header><span><BookOpen size={16} /><strong>子页面</strong><small>{pages.length} 项</small></span><span>{editor.isEditable && <label>显示<Select aria-label="子页面显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 | 50 } })}><option value={5}>5 项</option><option value={10}>10 项</option><option value={20}>20 项</option><option value={50}>50 项</option></Select></label>}<button type="button" aria-label="刷新子页面" title="刷新子页面" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
-    {!runtime ? <p>历史快照不执行动态子页面查询。</p> : error ? <p role="alert">{error}</p> : loading && pages.length === 0 ? <p>正在读取当前页面的子页面…</p> : pages.length === 0 ? <p>当前页面还没有可见子页面。</p> : <ol>{pages.map(page => <li key={page.pageID}><button type="button" onClick={() => runtime.openPage(page.pageID)}><FileText size={15} /><span><strong>{page.title}</strong><small>{page.contentType}</small></span><ChevronRight size={14} /></button></li>)}</ol>}
+    <header><span><BookOpen size={16} /><strong>{kt("knowledge.auto.9c3b27c3f2a2680d")}</strong><small>{pages.length} {kt("knowledge.auto.49ccde43a1549791")}</small></span><span>{editor.isEditable && <label>{kt("knowledge.auto.4e1449e7d5e50593")}<Select aria-label={kt("knowledge.auto.04fccd9f77e1a1bc")} value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 | 50 } })}><option value={5}>{kt("knowledge.auto.c186f5e9c01cd361")}</option><option value={10}>{kt("knowledge.auto.98bb26f244759dd5")}</option><option value={20}>{kt("knowledge.auto.20427486b61ff7c3")}</option><option value={50}>{kt("knowledge.auto.d1528d109cb07aa6")}</option></Select></label>}<button type="button" aria-label={kt("knowledge.auto.7689fe0e740bcfb7")} title={kt("knowledge.auto.7689fe0e740bcfb7")} disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
+    {!runtime ? <p>{kt("knowledge.auto.4fa465f1198b62af")}</p> : error ? <p role="alert">{error}</p> : loading && pages.length === 0 ? <p>{kt("knowledge.auto.41423bf6485f1f55")}</p> : pages.length === 0 ? <p>{kt("knowledge.auto.88ad858a77afa691")}</p> : <ol>{pages.map(page => <li key={page.pageID}><button type="button" onClick={() => runtime.openPage(page.pageID)}><FileText size={15} /><span><strong>{page.title}</strong><small>{page.contentType}</small></span><ChevronRight size={14} /></button></li>)}</ol>}
   </section>;
 }
 
@@ -1072,7 +1073,7 @@ const subpageListBlock = createReactBlockSpec(subpageListConfig, { render: Subpa
 
 const informationCollectionConfig = {
   type: "informationCollection",
-  propSchema: { targetPageId: { default: "" }, title: { default: "信息收集" } },
+  propSchema: { targetPageId: { default: "" }, title: { get default() { return kt("knowledge.auto.642e311b86088b2d"); } } },
   content: "none",
 } as const;
 
@@ -1089,9 +1090,9 @@ function InformationCollectionView({ block, editor }: ReactCustomBlockRenderProp
     return () => abort.abort();
   }, [block.props.targetPageId, runtime]);
   return <section className="knowledge-block-collection" contentEditable={false}>
-    <span><ClipboardList size={20} /></span><div><strong>{block.props.title || "信息收集"}</strong><small>{target ? `表单 · ${target.title}` : block.props.targetPageId && resolved ? "目标不是可访问的表单页面" : "关联一个表单页面后开始收集"}</small></div>
-    {target && <button type="button" onClick={() => runtime?.openPage(target.pageID)}>打开表单<ChevronRight size={14} /></button>}
-    {editor.isEditable && <div className="knowledge-block-collection-fields"><input aria-label="信息收集标题" maxLength={256} value={block.props.title} onChange={event => editor.updateBlock(block, { props: { title: event.currentTarget.value } })} /><input aria-label="表单页面 ID" maxLength={128} value={block.props.targetPageId} placeholder="kpage_…" onChange={event => editor.updateBlock(block, { props: { targetPageId: event.currentTarget.value.trim() } })} /></div>}
+    <span><ClipboardList size={20} /></span><div><strong>{block.props.title || kt("knowledge.auto.642e311b86088b2d")}</strong><small>{target ? ktf("knowledge.auto.ced232fc05d0da87", { value0: target.title }) : block.props.targetPageId && resolved ? kt("knowledge.auto.bcdf2a9dd897e627") : kt("knowledge.auto.e2e87920d426690a")}</small></div>
+    {target && <button type="button" onClick={() => runtime?.openPage(target.pageID)}>{kt("knowledge.auto.15b36c8164c0d6ea")}<ChevronRight size={14} /></button>}
+    {editor.isEditable && <div className="knowledge-block-collection-fields"><input aria-label={kt("knowledge.auto.c6b37e15cf0b6fe6")} maxLength={256} value={block.props.title} onChange={event => editor.updateBlock(block, { props: { title: event.currentTarget.value } })} /><input aria-label={kt("knowledge.auto.5a24ac851edd782b")} maxLength={128} value={block.props.targetPageId} placeholder="kpage_…" onChange={event => editor.updateBlock(block, { props: { targetPageId: event.currentTarget.value.trim() } })} /></div>}
   </section>;
 }
 
@@ -1110,18 +1111,18 @@ function KnowledgeActivityView({ block, editor }: ReactCustomBlockRenderProps<ty
   useEffect(() => {
     if (!runtime) { setItems([]); return; }
     const abort = new AbortController(); setLoading(true); setError("");
-    void runtime.listPageActivity(block.props.maxItems, abort.signal).then(value => { if (!abort.signal.aborted) setItems(value); }, failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "动态加载失败"); }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
+    void runtime.listPageActivity(block.props.maxItems, abort.signal).then(value => { if (!abort.signal.aborted) setItems(value); }, failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.b8780cdbe3bed916")); }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [block.props.maxItems, refresh, runtime]);
-  return <section className="knowledge-block-activity" contentEditable={false}><header><span><Activity size={16} /><strong>知识库动态</strong></span><span>{editor.isEditable && <Select aria-label="动态显示数量" value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 } })}><option value={5}>5 条</option><option value={10}>10 条</option><option value={20}>20 条</option></Select>}<button type="button" aria-label="刷新知识库动态" disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
-    {!runtime ? <p>历史快照不执行动态查询。</p> : error ? <p role="alert">{error}</p> : items.length === 0 ? <p>当前页面还没有发布、评论或任务动态。</p> : <ol>{items.map(item => <li key={item.id}><Activity size={13} /><span><strong>{item.title}</strong><small>{new Date(item.at).toLocaleString()} · {item.detail}</small></span></li>)}</ol>}
+  return <section className="knowledge-block-activity" contentEditable={false}><header><span><Activity size={16} /><strong>{kt("knowledge.auto.014fef237bb8a1d9")}</strong></span><span>{editor.isEditable && <Select aria-label={kt("knowledge.auto.73b7d434c98c6c44")} value={block.props.maxItems} onChange={event => editor.updateBlock(block, { props: { maxItems: Number(event.currentTarget.value) as 5 | 10 | 20 } })}><option value={5}>{kt("knowledge.auto.2ce52ff2dd5d0cd6")}</option><option value={10}>{kt("knowledge.auto.3c8770d805c1d12e")}</option><option value={20}>{kt("knowledge.auto.a288d84117e7b4dc")}</option></Select>}<button type="button" aria-label={kt("knowledge.auto.87de3e0c2f526c4b")} disabled={!runtime || loading} onClick={() => setRefresh(value => value + 1)}><RefreshCw className={loading ? "knowledge-spin" : undefined} size={14} /></button></span></header>
+    {!runtime ? <p>{kt("knowledge.auto.d3d4f54aff20ab5c")}</p> : error ? <p role="alert">{error}</p> : items.length === 0 ? <p>{kt("knowledge.auto.7eb3fd6a2e302dac")}</p> : <ol>{items.map(item => <li key={item.id}><Activity size={13} /><span><strong>{item.title}</strong><small>{formatKnowledgeDate(item.at)} · {item.detail}</small></span></li>)}</ol>}
   </section>;
 }
 
 const knowledgeActivityBlock = createReactBlockSpec(knowledgeActivityConfig, { render: KnowledgeActivityView });
 
 export const knowledgeCodeLanguages = {
-  text: { name: "纯文本", aliases: ["none", "plaintext", "txt"] },
+  text: { get name() { return kt("knowledge.auto.f9124b40e8ccbeab"); }, aliases: ["none", "plaintext", "txt"] },
   javascript: { name: "JavaScript", aliases: ["js", "jsx"] },
   typescript: { name: "TypeScript", aliases: ["ts", "tsx"] },
   json: { name: "JSON" },
@@ -1193,7 +1194,7 @@ const knowledgeCodeBlockSpec = () => {
         const languageSelect = shell.querySelector("select");
         const languageControl = languageSelect?.parentElement;
         if (languageSelect && languageControl) {
-          languageSelect.setAttribute("aria-label", "代码语言");
+          languageSelect.setAttribute("aria-label", kt("knowledge.auto.18c5619717ebe452"));
           languageControl.classList.add("knowledge-code-language");
           toolbar.appendChild(languageControl);
         }
@@ -1202,9 +1203,9 @@ const knowledgeCodeBlockSpec = () => {
         actions.className = "knowledge-code-actions";
         const wrapButton = document.createElement("button");
         wrapButton.type = "button";
-        wrapButton.textContent = "换行";
-        wrapButton.title = "切换长代码自动换行";
-        wrapButton.setAttribute("aria-label", "切换代码自动换行");
+        wrapButton.textContent = kt("knowledge.auto.bd609a8e2d40f3ef");
+        wrapButton.title = kt("knowledge.auto.7798594d5c0be695");
+        wrapButton.setAttribute("aria-label", kt("knowledge.auto.5378ad34f805bd16"));
         wrapButton.setAttribute("aria-pressed", String(block.props.wrap !== false));
         wrapButton.disabled = !editor.isEditable;
         const toggleWrap = () => {
@@ -1218,9 +1219,9 @@ const knowledgeCodeBlockSpec = () => {
 
         const copyButton = document.createElement("button");
         copyButton.type = "button";
-        copyButton.textContent = "复制";
-        copyButton.title = "复制代码";
-        copyButton.setAttribute("aria-label", "复制代码");
+        copyButton.textContent = kt("knowledge.auto.63d90d977348ab1f");
+        copyButton.title = kt("knowledge.auto.420c20dd9fcca860");
+        copyButton.setAttribute("aria-label", kt("knowledge.auto.420c20dd9fcca860"));
         copyButton.hidden = !knowledgeContentActionByEditor.has(editor);
         let copiedTimer = 0;
         const copy = async () => {
@@ -1229,12 +1230,12 @@ const knowledgeCodeBlockSpec = () => {
             if (!authorize) throw new Error("copy denied");
             await authorize("copy");
             await copyCodeText(rendered.contentDOM?.textContent || "");
-            copyButton.textContent = "已复制";
+            copyButton.textContent = kt("knowledge.auto.8f6f8d979c981ced");
           } catch {
-            copyButton.textContent = "复制失败";
+            copyButton.textContent = kt("knowledge.auto.753d8bb0da9913ce");
           }
           window.clearTimeout(copiedTimer);
-          copiedTimer = window.setTimeout(() => { copyButton.textContent = "复制"; }, 1600);
+          copiedTimer = window.setTimeout(() => { copyButton.textContent = kt("knowledge.auto.63d90d977348ab1f"); }, 1600);
         };
         copyButton.addEventListener("click", copy);
         actions.append(wrapButton, copyButton);
@@ -1302,24 +1303,24 @@ const layoutBlockDefinitions: BlockDefinition[] = [
 ];
 
 const customBlockDefinitions: BlockDefinition[] = [
-  { id: "callout", blockNoteSpec: calloutBlock, slash: { title: "高亮提示块", subtext: "突出显示信息、结论或风险", aliases: ["提示", "高亮", "callout"], group: "内容", icon: AlertTriangle, block: { type: "callout" } }, serverValidator: "callout", readonlyRenderer: "blocknote-spec", extractTextKeys: ["text", "icon"], requiredCapability: "page.write", trusted: true },
-  { id: "formula", blockNoteSpec: formulaBlock, slash: { title: "公式块", subtext: "使用 KaTeX 安全渲染独立公式", aliases: ["数学", "latex", "formula", "公式"], group: "内容", icon: FunctionSquare, block: { type: "formula", content: "" } }, serverValidator: "formula", readonlyRenderer: "blocknote-spec", extractTextKeys: ["text"], requiredCapability: "page.write", trusted: true },
+  { id: "callout", blockNoteSpec: calloutBlock, slash: { get title() { return kt("knowledge.auto.374e3aadd8963595"); }, get subtext() { return kt("knowledge.auto.e75f7369920af3f4"); }, aliases: ["Tips", "Highlight", "callout"], get group() { return kt("knowledge.auto.7a688306423bec17"); }, icon: AlertTriangle, block: { type: "callout" } }, serverValidator: "callout", readonlyRenderer: "blocknote-spec", extractTextKeys: ["text", "icon"], requiredCapability: "page.write", trusted: true },
+  { id: "formula", blockNoteSpec: formulaBlock, slash: { get title() { return kt("knowledge.auto.4d9d3292d6c8a843"); }, get subtext() { return kt("knowledge.auto.66e4266e7749afb0"); }, aliases: ["Mathematics", "latex", "formula", "formula"], get group() { return kt("knowledge.auto.7a688306423bec17"); }, icon: FunctionSquare, block: { type: "formula", content: "" } }, serverValidator: "formula", readonlyRenderer: "blocknote-spec", extractTextKeys: ["text"], requiredCapability: "page.write", trusted: true },
   { id: "knowledgeTask", blockNoteSpec: knowledgeTaskBlock, slash: [
-    { title: "任务", subtext: "指派成员、设置截止时间与提醒", aliases: ["待办", "任务", "task", "todo"], group: "协作", icon: CheckCircle2, block: { type: "knowledgeTask" } },
-    { id: "dateReminder", title: "日期提醒", subtext: "创建带截止时间和提醒的独立任务", aliases: ["日期", "提醒", "reminder", "date"], group: "协作", icon: Bell, block: { type: "knowledgeTask", props: { title: "日期提醒" } } },
+    { get title() { return kt("knowledge.auto.5253040db8643c85"); }, get subtext() { return kt("knowledge.auto.61fc572e25000091"); }, aliases: ["To-do", "Task", "task", "todo"], get group() { return kt("knowledge.auto.19bf536853e2e78a"); }, icon: CheckCircle2, block: { type: "knowledgeTask" } },
+    { id: "dateReminder", get title() { return kt("knowledge.auto.734bfa95fd19f44b"); }, get subtext() { return kt("knowledge.auto.eccb3e2db187227c"); }, aliases: ["Date", "reminder", "reminder", "date"], get group() { return kt("knowledge.auto.19bf536853e2e78a"); }, icon: Bell, block: { type: "knowledgeTask", props: { get title() { return kt("knowledge.auto.734bfa95fd19f44b"); } } } },
   ], serverValidator: "knowledgeTask", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
-  { id: "knowledgePoll", blockNoteSpec: knowledgePollBlock, slash: { title: "投票", subtext: "创建由服务端聚合统计的单选或多选投票", aliases: ["投票", "问卷", "poll", "vote"], group: "协作", icon: ListChecks, block: { type: "knowledgePoll" } }, serverValidator: "knowledgePoll", readonlyRenderer: "blocknote-spec", extractTextKeys: ["question"], requiredCapability: "page.write", trusted: true },
-  { id: "button", blockNoteSpec: buttonBlock, slash: { title: "按钮", subtext: "创建可跳转的操作按钮", aliases: ["链接", "button"], group: "交互", icon: Link2, block: { type: "button" } }, serverValidator: "button", readonlyRenderer: "blocknote-spec", extractTextKeys: ["label"], requiredCapability: "page.write", trusted: true },
-  { id: "bookmark", blockNoteSpec: bookmarkBlock, slash: { title: "网页书签", subtext: "添加经过服务端校验的网页卡片", aliases: ["网页", "链接", "bookmark", "url"], group: "嵌入", icon: Globe2, block: { type: "bookmark" } }, serverValidator: "bookmark", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title", "description", "siteName"], requiredCapability: "page.write", trusted: true },
-  { id: "knowledgeReference", blockNoteSpec: knowledgeReferenceBlock, slash: { title: "子文档 / 知识条目", subtext: "引用另一条知识内容", aliases: ["页面", "子文档", "引用"], group: "知识库", icon: FileText, block: { type: "knowledgeReference" } }, serverValidator: "knowledgeReference", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
-  { id: "personCard", blockNoteSpec: personCardBlock, slash: { title: "人员卡片", subtext: "使用稳定用户 ID 引用知识库成员", aliases: ["成员", "人员", "person", "user"], group: "协作", icon: UserRound, block: { type: "personCard" } }, serverValidator: "personCard", readonlyRenderer: "blocknote-spec", extractTextKeys: ["displayName", "email"], requiredCapability: "page.write", trusted: true },
-  { id: "applicationCard", blockNoteSpec: applicationCardBlock, slash: { title: "应用卡片", subtext: "关联日程、会议、群组、任务、Jira 或网页应用", aliases: ["应用", "日程", "会议", "群组", "任务", "jira", "web"], group: "嵌入", icon: CalendarDays, block: { type: "applicationCard" } }, serverValidator: "applicationCard", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "application-card.resolve", trusted: true },
-  { id: "externalEmbed", blockNoteSpec: externalEmbedBlock, slash: { title: "外部视频", subtext: "嵌入白名单内的视频播放器", aliases: ["视频", "youtube", "bilibili", "嵌入"], group: "嵌入", icon: PlaySquare, block: { type: "externalEmbed" } }, serverValidator: "externalEmbed", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
-  { id: "syncedBlock", blockNoteSpec: syncedBlock, slash: { title: "同步块", subtext: "引用并同步另一页面中的内容块", aliases: ["同步", "sync"], group: "知识库", icon: Link2, block: { type: "syncedBlock" } }, serverValidator: "syncedBlock", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
-  { id: "tableOfContents", blockNoteSpec: tableOfContentsBlock, slash: { title: "页面目录", subtext: "根据 H1–H3 自动生成可跳转目录", aliases: ["目录", "toc", "outline"], group: "知识库", icon: ListTree, block: { type: "tableOfContents" } }, serverValidator: "tableOfContents", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
-  { id: "subpageList", blockNoteSpec: subpageListBlock, slash: { title: "子页面列表", subtext: "实时展示当前页面下有权访问的子页面", aliases: ["子页面", "子文档", "children", "subpages"], group: "知识库", icon: BookOpen, block: { type: "subpageList" } }, serverValidator: "subpageList", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
-  { id: "informationCollection", blockNoteSpec: informationCollectionBlock, slash: { title: "信息收集", subtext: "关联真实表单页面并收集信息", aliases: ["表单", "收集", "form", "collection"], group: "协作", icon: ClipboardList, block: { type: "informationCollection" } }, serverValidator: "informationCollection", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
-  { id: "knowledgeActivity", blockNoteSpec: knowledgeActivityBlock, slash: { title: "知识库动态", subtext: "实时汇总发布、评论和任务动态", aliases: ["活动", "动态", "activity"], group: "知识库", icon: Activity, block: { type: "knowledgeActivity" } }, serverValidator: "knowledgeActivity", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
+  { id: "knowledgePoll", blockNoteSpec: knowledgePollBlock, slash: { get title() { return kt("knowledge.auto.3c5a0fdbcf55aaa8"); }, get subtext() { return kt("knowledge.auto.4564229503428085"); }, aliases: ["vote", "Questionnaire", "poll", "vote"], get group() { return kt("knowledge.auto.19bf536853e2e78a"); }, icon: ListChecks, block: { type: "knowledgePoll" } }, serverValidator: "knowledgePoll", readonlyRenderer: "blocknote-spec", extractTextKeys: ["question"], requiredCapability: "page.write", trusted: true },
+  { id: "button", blockNoteSpec: buttonBlock, slash: { get title() { return kt("knowledge.auto.ad1c50c9367c756d"); }, get subtext() { return kt("knowledge.auto.ba2e2bcaba0df123"); }, aliases: ["link", "button"], get group() { return kt("knowledge.auto.99f1b08f6464952c"); }, icon: Link2, block: { type: "button" } }, serverValidator: "button", readonlyRenderer: "blocknote-spec", extractTextKeys: ["label"], requiredCapability: "page.write", trusted: true },
+  { id: "bookmark", blockNoteSpec: bookmarkBlock, slash: { get title() { return kt("knowledge.auto.ef1738f3cb9bcb4d"); }, get subtext() { return kt("knowledge.auto.482c3895d5238a5a"); }, aliases: ["web page", "link", "bookmark", "url"], get group() { return kt("knowledge.auto.00a0cf27422e5fa3"); }, icon: Globe2, block: { type: "bookmark" } }, serverValidator: "bookmark", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title", "description", "siteName"], requiredCapability: "page.write", trusted: true },
+  { id: "knowledgeReference", blockNoteSpec: knowledgeReferenceBlock, slash: { get title() { return kt("knowledge.auto.5e78c80960128108"); }, get subtext() { return kt("knowledge.auto.e5ce3c09173f138a"); }, aliases: ["Page", "subdocument", "Quote"], get group() { return kt("knowledge.auto.975b35f9c2b1148c"); }, icon: FileText, block: { type: "knowledgeReference" } }, serverValidator: "knowledgeReference", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
+  { id: "personCard", blockNoteSpec: personCardBlock, slash: { get title() { return kt("knowledge.auto.0d56349f2f8ccfc1"); }, get subtext() { return kt("knowledge.auto.afee9a3a5fcf6a75"); }, aliases: ["member", "personnel", "person", "user"], get group() { return kt("knowledge.auto.19bf536853e2e78a"); }, icon: UserRound, block: { type: "personCard" } }, serverValidator: "personCard", readonlyRenderer: "blocknote-spec", extractTextKeys: ["displayName", "email"], requiredCapability: "page.write", trusted: true },
+  { id: "applicationCard", blockNoteSpec: applicationCardBlock, slash: { get title() { return kt("knowledge.auto.19b64b24daed8794"); }, get subtext() { return kt("knowledge.auto.1f6b4dc5b1f544f8"); }, aliases: ["Application", "schedule", "meeting", "group", "Task", "jira", "web"], get group() { return kt("knowledge.auto.00a0cf27422e5fa3"); }, icon: CalendarDays, block: { type: "applicationCard" } }, serverValidator: "applicationCard", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "application-card.resolve", trusted: true },
+  { id: "externalEmbed", blockNoteSpec: externalEmbedBlock, slash: { get title() { return kt("knowledge.auto.b8b6f16538c3c33d"); }, get subtext() { return kt("knowledge.auto.5482a0fbc056527e"); }, aliases: ["video", "youtube", "bilibili", "Embed"], get group() { return kt("knowledge.auto.00a0cf27422e5fa3"); }, icon: PlaySquare, block: { type: "externalEmbed" } }, serverValidator: "externalEmbed", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
+  { id: "syncedBlock", blockNoteSpec: syncedBlock, slash: { get title() { return kt("knowledge.auto.32cfe9d4bea953ca"); }, get subtext() { return kt("knowledge.auto.c94645d8eef0df0a"); }, aliases: ["sync", "sync"], get group() { return kt("knowledge.auto.975b35f9c2b1148c"); }, icon: Link2, block: { type: "syncedBlock" } }, serverValidator: "syncedBlock", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
+  { id: "tableOfContents", blockNoteSpec: tableOfContentsBlock, slash: { get title() { return kt("knowledge.auto.af0ae3351923fc5d"); }, get subtext() { return kt("knowledge.auto.4a338284e0e8692a"); }, aliases: ["Directory", "toc", "outline"], get group() { return kt("knowledge.auto.975b35f9c2b1148c"); }, icon: ListTree, block: { type: "tableOfContents" } }, serverValidator: "tableOfContents", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
+  { id: "subpageList", blockNoteSpec: subpageListBlock, slash: { get title() { return kt("knowledge.auto.79ffaea2fe5ae234"); }, get subtext() { return kt("knowledge.auto.c9a389be08cf226c"); }, aliases: ["subpage", "subdocument", "children", "subpages"], get group() { return kt("knowledge.auto.975b35f9c2b1148c"); }, icon: BookOpen, block: { type: "subpageList" } }, serverValidator: "subpageList", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
+  { id: "informationCollection", blockNoteSpec: informationCollectionBlock, slash: { get title() { return kt("knowledge.auto.642e311b86088b2d"); }, get subtext() { return kt("knowledge.auto.2bd599620996d477"); }, aliases: ["form", "collect", "form", "collection"], get group() { return kt("knowledge.auto.19bf536853e2e78a"); }, icon: ClipboardList, block: { type: "informationCollection" } }, serverValidator: "informationCollection", readonlyRenderer: "blocknote-spec", extractTextKeys: ["title"], requiredCapability: "page.write", trusted: true },
+  { id: "knowledgeActivity", blockNoteSpec: knowledgeActivityBlock, slash: { get title() { return kt("knowledge.auto.014fef237bb8a1d9"); }, get subtext() { return kt("knowledge.auto.8db8b25b7d6d193a"); }, aliases: ["Activities", "Dynamic", "activity"], get group() { return kt("knowledge.auto.975b35f9c2b1148c"); }, icon: Activity, block: { type: "knowledgeActivity" } }, serverValidator: "knowledgeActivity", readonlyRenderer: "blocknote-spec", extractTextKeys: [], requiredCapability: "page.write", trusted: true },
 ];
 
 export const blockDefinitions = Object.freeze([...defaultBlockDefinitions, ...layoutBlockDefinitions, ...customBlockDefinitions]);
@@ -1359,18 +1360,18 @@ export const knowledgeDocumentSchema = BlockNoteSchema.create().extend({
 const defaultIcons: Record<string, ReactElement> = Object.fromEntries(defaultBlockDefinitions.flatMap(definition => (definition.defaultSlashKeys || []).map(key => [key, createElement(definition.icon!, { size: 18 })])));
 
 const customSlashSubmenus: Partial<Record<string, string>> = {
-  button: "交互与卡片",
-  bookmark: "交互与卡片",
-  externalEmbed: "交互与卡片",
-  applicationCard: "交互与卡片",
-  knowledgeReference: "知识与协作",
-  personCard: "知识与协作",
-  knowledgeTask: "知识与协作",
-  syncedBlock: "知识与协作",
-  tableOfContents: "知识与协作",
-  subpageList: "知识与协作",
-  informationCollection: "知识与协作",
-  knowledgeActivity: "知识与协作",
+  get button() { return kt("knowledge.auto.f1ed2cb71aa1c8c5"); },
+  get bookmark() { return kt("knowledge.auto.f1ed2cb71aa1c8c5"); },
+  get externalEmbed() { return kt("knowledge.auto.f1ed2cb71aa1c8c5"); },
+  get applicationCard() { return kt("knowledge.auto.f1ed2cb71aa1c8c5"); },
+  get knowledgeReference() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get personCard() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get knowledgeTask() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get syncedBlock() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get tableOfContents() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get subpageList() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get informationCollection() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
+  get knowledgeActivity() { return kt("knowledge.auto.dc6d73eb4129cbb8"); },
 };
 
 function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): KnowledgeSlashMenuItem[] {
@@ -1381,8 +1382,8 @@ function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): Knowledge
     return definitions.map(slash => ({ id: `block:${slash.id || definition.id}`, title: slash.title, subtext: slash.subtext, aliases: [...slash.aliases], group: slash.group, submenu: customSlashSubmenus[definition.id], icon: <slash.icon size={18} />, formulaInput: definition.id === "formula" ? { displayMode: "block" as const } : undefined, onItemClick: definition.id === "formula" ? () => undefined : insert(slash.block) }));
   });
   const pageItems = pageTypeDefinitions.filter(definition => definition.id !== "document" && definition.capabilities & pageTypeCapability.create).map(definition => ({
-    id: `page:${definition.id}`, title: definition.label, subtext: definition.description, aliases: [definition.id], group: "原生应用", submenu: "原生应用", icon: <definition.icon size={18} />,
-    disabledReason: dynamicRuntime?.canCreateChild ? undefined : "当前页面未连接原生应用创建服务。",
+    id: `page:${definition.id}`, title: definition.label, subtext: definition.description, aliases: [definition.id], group: kt("knowledge.auto.f88e8ea8818b9a05"), submenu: kt("knowledge.auto.f88e8ea8818b9a05"), icon: <definition.icon size={18} />,
+    disabledReason: dynamicRuntime?.canCreateChild ? undefined : kt("knowledge.auto.fe524396569f96c5"),
     onItemClick: () => {
       if (!dynamicRuntime?.canCreateChild) return;
       let blockID = "";
@@ -1391,7 +1392,7 @@ function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): Knowledge
       void dynamicRuntime.createChildReference({
         blockID,
         parentContent: serializeDocumentBlocks(editor.document as never),
-        title: `未命名${definition.label}`,
+        title: ktf("knowledge.auto.271dbaca298ee0fc", { value0: definition.label }),
         contentType: definition.id,
         display: "embed",
       });
@@ -1399,10 +1400,10 @@ function customSlashMenuItems(editor: BlockNoteEditor<any, any, any>): Knowledge
   }));
   const inlineFormulaItem: KnowledgeSlashMenuItem = {
     id: "inline:inline-formula",
-    title: "行内公式",
-    subtext: "在当前段落插入 KaTeX 公式",
-    aliases: ["数学", "latex", "inline formula", "行内公式"],
-    group: "内容",
+    title: kt("knowledge.auto.e3efe95c7f617abf"),
+    subtext: kt("knowledge.auto.fad89d631167e554"),
+    aliases: [kt("knowledge.auto.872c1fa141b5ed8d"), "latex", "inline formula", kt("knowledge.auto.e3efe95c7f617abf")],
+    group: kt("knowledge.auto.7a688306423bec17"),
     icon: <FunctionSquare size={18} />,
     formulaInput: { displayMode: "inline" },
     onItemClick: () => undefined,
@@ -1434,8 +1435,8 @@ function mentionBlockChoices(editor: BlockNoteEditor<any, any, any>, pageID: str
     const compactID = block.id.length > 16 ? `${block.id.slice(0, 8)}…${block.id.slice(-4)}` : block.id;
     items.push({
       title: `${[...label].slice(0, 80).join("")} · ${compactID}`,
-      subtext: "引用当前页面中的内容块",
-      aliases: [label, block.id, "block", "内容块"],
+      subtext: kt("knowledge.auto.865cdcca092d5964"),
+      aliases: [label, block.id, "block", kt("knowledge.auto.73012a38cd4eaf64")],
       group: "Block",
       icon: <Hash size={17} />,
       onItemClick: () => editor.insertInlineContent([{ type: "blockMention", props: { pageId: pageID, blockId: block.id } }, " "] as never, { updateSelection: true }),
@@ -1456,31 +1457,31 @@ export async function getKnowledgeMentionMenuItems(editor: BlockNoteEditor<any, 
   const peopleItems: DefaultReactSuggestionItem[] = people.slice(0, 12).map(person => ({
     title: person.displayName,
     subtext: person.email || person.userID,
-    aliases: [person.displayName, person.email || "", person.userID, "人员", "成员"],
-    group: "人员",
+    aliases: [person.displayName, person.email || "", person.userID, kt("knowledge.auto.06fea8eab68db0ad"), kt("knowledge.auto.6e6d6ddbb7c1a453")],
+    group: kt("knowledge.auto.06fea8eab68db0ad"),
     icon: <UserRound size={17} />,
     onItemClick: () => editor.insertInlineContent([{ type: "personMention", props: { userId: person.userID } }, " "] as never, { updateSelection: true }),
   }));
   const pageItems: DefaultReactSuggestionItem[] = pages.slice(0, 12).map(page => ({
     title: page.title,
     subtext: `${page.path.map(item => item.title).join(" / ") || page.title} · ${page.contentType}`,
-    aliases: [page.title, ...page.aliases, ...page.path.map(item => item.title), page.pageID, "页面", "知识条目"],
-    group: "页面",
+    aliases: [page.title, ...page.aliases, ...page.path.map(item => item.title), page.pageID, kt("knowledge.auto.452c7b10d57a86a7"), kt("knowledge.auto.72e0fa874a76e345")],
+    group: kt("knowledge.auto.452c7b10d57a86a7"),
     icon: <BookOpen size={17} />,
     onItemClick: () => editor.insertInlineContent([{ type: "pageMention", props: { pageId: page.pageID } }, " "] as never, { updateSelection: true }),
   }));
   const blockItems = runtime ? filterSuggestionItems(mentionBlockChoices(editor, runtime.currentPageID), normalizedQuery).slice(0, 12) : [];
   const dates = [
-    { title: `今天 · ${localDateKey(0)}`, date: localDateKey(0), aliases: ["今天", "today"] },
-    { title: `明天 · ${localDateKey(1)}`, date: localDateKey(1), aliases: ["明天", "tomorrow"] },
-    { title: `一周后 · ${localDateKey(7)}`, date: localDateKey(7), aliases: ["一周", "下周", "week"] },
+    { title: ktf("knowledge.auto.f3cb8e442500b40f", { value0: localDateKey(0) }), date: localDateKey(0), aliases: [kt("knowledge.auto.d5f5a7a010731feb"), "today"] },
+    { title: ktf("knowledge.auto.8109a87e9b4d1afc", { value0: localDateKey(1) }), date: localDateKey(1), aliases: [kt("knowledge.auto.b1d841b978fb524c"), "tomorrow"] },
+    { title: ktf("knowledge.auto.bdbb6ab6a6643fbb", { value0: localDateKey(7) }), date: localDateKey(7), aliases: [kt("knowledge.auto.d94daba316055842"), kt("knowledge.auto.7f5fab4d966e23f6"), "week"] },
   ];
   if (validDateKey(normalizedQuery) && !dates.some(item => item.date === normalizedQuery)) dates.unshift({ title: normalizedQuery, date: normalizedQuery, aliases: [normalizedQuery] });
   const dateItems = filterSuggestionItems(dates.map(item => ({
     title: item.title,
-    subtext: "插入稳定 ISO 日期",
-    aliases: [...item.aliases, item.date, "日期"],
-    group: "日期",
+    subtext: kt("knowledge.auto.6bde298fc4e4881a"),
+    aliases: [...item.aliases, item.date, kt("knowledge.auto.70d0c1b33626ba4b")],
+    group: kt("knowledge.auto.70d0c1b33626ba4b"),
     icon: <CalendarDays size={17} />,
     onItemClick: () => editor.insertInlineContent([{ type: "dateMention", props: { date: item.date } }, " "] as never, { updateSelection: true }),
   })), normalizedQuery);
@@ -1492,10 +1493,10 @@ export async function getKnowledgeSlashMenuItems(editor: BlockNoteEditor<any, an
   fileAccept?: { all: string; image: string; video: string; audio: string };
 } = { canUploadFiles: true }): Promise<KnowledgeSlashMenuItem[]> {
   const mediaPickers = {
-    image: { blockType: "image", accept: capabilities.fileAccept?.image || "image/*", subtext: "选择本地图片并直接插入" },
-    video: { blockType: "video", accept: capabilities.fileAccept?.video || "video/*", subtext: "选择本地视频并直接插入" },
-    audio: { blockType: "audio", accept: capabilities.fileAccept?.audio || "audio/*", subtext: "选择本地音频并直接插入" },
-    file: { blockType: "file", accept: capabilities.fileAccept?.all || "*/*", subtext: "选择本地文件并直接插入" },
+    image: { blockType: "image", accept: capabilities.fileAccept?.image || "image/*", subtext: kt("knowledge.auto.1ffa249fb9cbbc24") },
+    video: { blockType: "video", accept: capabilities.fileAccept?.video || "video/*", subtext: kt("knowledge.auto.ee098d59af10fbf3") },
+    audio: { blockType: "audio", accept: capabilities.fileAccept?.audio || "audio/*", subtext: kt("knowledge.auto.f008a4a2f275d3bc") },
+    file: { blockType: "file", accept: capabilities.fileAccept?.all || "*/*", subtext: kt("knowledge.auto.b89cac8dd2461347") },
   } as const;
   const defaults = getDefaultSlashMenuItems(editor)
     .filter(item => defaultIcons[String(item.key)])
@@ -1505,13 +1506,13 @@ export async function getKnowledgeSlashMenuItems(editor: BlockNoteEditor<any, an
         ...item,
         id: `default:${String(key)}`,
         icon: defaultIcons[String(key)],
-        group: item.group || "基础",
+        group: item.group || kt("knowledge.auto.89e5e14c8db996da"),
         subtext: media?.subtext || item.subtext,
-        submenu: media ? "媒体与文件" : undefined,
+        submenu: media ? kt("knowledge.auto.479e6a89c4ad2472") : undefined,
         filePicker: media ? { blockType: media.blockType, accept: media.accept } : undefined,
-        disabledReason: media && !capabilities.canUploadFiles ? "当前知识库未配置受权文件存储，无法插入媒体或文件。" : undefined,
+        disabledReason: media && !capabilities.canUploadFiles ? kt("knowledge.auto.d61def01a2e5c329") : undefined,
       };
     });
-  const columns = getMultiColumnSlashMenuItems(editor).map((item, index): KnowledgeSlashMenuItem => ({ ...item, id: `layout:columns-${index + 1}`, group: "布局", submenu: "布局" }));
+  const columns = getMultiColumnSlashMenuItems(editor).map((item, index): KnowledgeSlashMenuItem => ({ ...item, id: `layout:columns-${index + 1}`, group: kt("knowledge.auto.faa2f2ed67357847"), submenu: kt("knowledge.auto.faa2f2ed67357847") }));
   return arrangeKnowledgeSlashMenuItems([...defaults, ...columns, ...customSlashMenuItems(editor)], query);
 }

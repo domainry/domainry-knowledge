@@ -1,3 +1,4 @@
+import { kt } from "../i18n/runtime.ts";
 import type { OfficeResult } from "./office-types.ts";
 
 export async function loadOffice(blob: Blob, kind: "docx" | "xlsx" | "pptx", signal: AbortSignal): Promise<OfficeResult> {
@@ -12,9 +13,9 @@ export async function loadOffice(blob: Blob, kind: "docx" | "xlsx" | "pptx", sig
       if (error) reject(error); else resolve(value!);
     };
     const abort = () => done(new DOMException("Aborted", "AbortError"));
-    const timer = setTimeout(() => done(Error("文件预览处理超时，请下载原文件查看。")), 20_000);
+    const timer = setTimeout(() => done(Error(kt("knowledge.auto.e82f90dc589b343a"))), 20_000);
     signal.addEventListener("abort", abort, { once: true });
-    worker.onerror = () => done(Error("文件预览失败，请下载原文件查看。"));
+    worker.onerror = () => done(Error(kt("knowledge.auto.827d729c9e25b65d")));
     worker.onmessage = event => event.data.error ? done(Error(event.data.error)) : done(undefined, event.data);
     worker.postMessage({ data, kind }, [data]);
   });

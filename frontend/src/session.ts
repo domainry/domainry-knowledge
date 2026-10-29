@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { readHTTPErrorResponse } from "./http-error.ts";
 import { knowledgeMutationIdempotencyKey } from "./request-idempotency.ts";
 
@@ -161,34 +162,34 @@ export function loadProductSession(signal?: AbortSignal) {
 }
 
 export function formatError(error: unknown) {
-  if (error instanceof DOMException && error.name === "AbortError") return "操作已取消。";
+  if (error instanceof DOMException && error.name === "AbortError") return kt("knowledge.auto.83f4727f2b4672a6");
   if (error instanceof APIError) {
     const messages: Record<string, string> = {
-      "auth.invalid_credentials": "账号或密码不正确。",
-      "auth.refresh_token_required": "登录已失效，请重新登录。",
-      "identity.challenge_required": "该账号需要完成额外验证，当前登录页暂未启用此验证方式。",
-      "knowledge.origin_required": "请求来源校验失败，请从当前站点重新打开。",
-      "knowledge.retrieval_unavailable": "知识检索服务尚未配置。",
-      "knowledge.page_form_required": "当前页面不是可提交的问卷。",
-      "knowledge.page_form_unavailable": "问卷当前不可提交，请刷新后重试。",
-      "knowledge.page_form_submit_denied": "你没有提交这份问卷的权限。",
-      "knowledge.page_form_not_open": "问卷尚未开放提交。",
-      "knowledge.page_form_closed": "问卷已截止提交。",
-      "knowledge.page_form_duplicate_submission": "你已经提交过这份问卷，不能重复提交。",
-      "knowledge.page_form_submission_limit": "这份问卷的答卷数量已达到上限。",
-      "knowledge.page_form_answer_required": "请完成所有必填问题。",
-      "knowledge.page_form_answer_hidden": "答卷包含当前条件下不可见的问题，请刷新后重新填写。",
-      "knowledge.page_form_answer_unknown": "答卷包含问卷中不存在的问题，请刷新后重新填写。",
-      "knowledge.page_form_answer_invalid": "部分答案格式不正确，请检查后重新提交。",
-      "knowledge.page_form_answers_invalid": "答卷格式不正确，请刷新后重新填写。",
-      "knowledge.page_form_answers_too_large": "答卷内容过大，请精简后重新提交。",
-      "knowledge.page_form_unpublished": "问卷尚未发布，暂时没有可统计的答卷。",
-      "knowledge.page_form_export_limit": "答卷数量超过单次导出上限，请缩小导出范围。",
-      "knowledge.page_share_redeem_required": "请先验证当前登录账号的分享访问资格。",
-      "knowledge.page_share_password_invalid": "访问密码不正确。",
-      "knowledge.page_share_not_found": "分享已撤销、已过期、账号不在允许范围，或页面不再发布。",
+      "auth.invalid_credentials": kt("knowledge.auto.08d293478deaf6fa"),
+      "auth.refresh_token_required": kt("knowledge.auto.6d3e9013e1fa296a"),
+      "identity.challenge_required": kt("knowledge.auto.421a424dfb9bf9d2"),
+      "knowledge.origin_required": kt("knowledge.auto.d4862e758a3b9c8c"),
+      "knowledge.retrieval_unavailable": kt("knowledge.auto.df8cd5e448acfe0a"),
+      "knowledge.page_form_required": kt("knowledge.auto.7915800f9c59370c"),
+      "knowledge.page_form_unavailable": kt("knowledge.auto.377cc50efdef862f"),
+      "knowledge.page_form_submit_denied": kt("knowledge.auto.3ee1e9bd7ad2d238"),
+      "knowledge.page_form_not_open": kt("knowledge.auto.1a8ec4edf5ef0586"),
+      "knowledge.page_form_closed": kt("knowledge.auto.03b29c9e3c45145a"),
+      "knowledge.page_form_duplicate_submission": kt("knowledge.auto.bbc8948debe29dc3"),
+      "knowledge.page_form_submission_limit": kt("knowledge.auto.f051205de6ea62ae"),
+      "knowledge.page_form_answer_required": kt("knowledge.auto.a27e9173e3b1f334"),
+      "knowledge.page_form_answer_hidden": kt("knowledge.auto.cfb05381f80235d8"),
+      "knowledge.page_form_answer_unknown": kt("knowledge.auto.c7c1c3f48431a6da"),
+      "knowledge.page_form_answer_invalid": kt("knowledge.auto.bc5b88911fe1568f"),
+      "knowledge.page_form_answers_invalid": kt("knowledge.auto.6fd948976d00020e"),
+      "knowledge.page_form_answers_too_large": kt("knowledge.auto.f4fc3f663a27466e"),
+      "knowledge.page_form_unpublished": kt("knowledge.auto.c922ab47f0e4878c"),
+      "knowledge.page_form_export_limit": kt("knowledge.auto.170aae97e2597a27"),
+      "knowledge.page_share_redeem_required": kt("knowledge.auto.ce1d11e36c933cc5"),
+      "knowledge.page_share_password_invalid": kt("knowledge.auto.3411d2eb5fd6bbbe"),
+      "knowledge.page_share_not_found": kt("knowledge.auto.4140376178e8dc19"),
     };
-    return messages[error.code] || `请求失败：${error.message}`;
+    return messages[error.code] || ktf("knowledge.auto.e263826c975f4da8", { value0: error.message });
   }
-  return error instanceof Error ? error.message : "请求失败，请稍后重试。";
+  return error instanceof Error ? error.message : kt("knowledge.auto.8977b79aa82e74ff");
 }

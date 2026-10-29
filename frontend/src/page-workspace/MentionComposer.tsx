@@ -1,3 +1,4 @@
+import { formatKnowledgeDate, kt, ktf } from "../i18n/runtime.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -52,7 +53,7 @@ export function MentionComposer({
   submittingLabel,
   submitting = false,
   submitDisabled = false,
-  hint = "输入 @ 提及成员",
+  hint = kt("knowledge.auto.08efb11432dbc6b4"),
   maxLength = 16_384,
   focusRequest = 0,
   className = "",
@@ -224,23 +225,23 @@ export function MentionComposer({
   }
 
   const menuID = `${ariaLabel.replace(/\s+/g, "-")}-mention-menu`;
-  const menuPopover = menu ? <div ref={popoverRef} style={popoverStyle} className={`knowledge-composer-popover is-floating is-${menu}`} role="menu" aria-label={menu === "format" ? "文字样式" : menu === "emoji" ? "选择表情" : "更多内容"} onMouseDown={event => event.preventDefault()}>
+  const menuPopover = menu ? <div ref={popoverRef} style={popoverStyle} className={`knowledge-composer-popover is-floating is-${menu}`} role="menu" aria-label={menu === "format" ? kt("knowledge.auto.87dfacebd8786686") : menu === "emoji" ? kt("knowledge.auto.b40ffb08299185d1") : kt("knowledge.auto.bafc324d9d0744f1")} onMouseDown={event => event.preventDefault()}>
     {menu === "format" && <>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("**", "**", "加粗文字")}><Bold size={15} /><span><strong>加粗</strong><small>强调重要内容</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("*", "*", "斜体文字")}><Italic size={15} /><span><strong>斜体</strong><small>轻量强调</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("~~", "~~", "删除线文字")}><Strikethrough size={15} /><span><strong>删除线</strong><small>标记不再适用</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("`", "`", "代码")}><Code2 size={15} /><span><strong>行内代码</strong><small>命令或字段名</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("[", "](https://)", "链接文字")}><Link2 size={15} /><span><strong>链接</strong><small>插入可点击地址</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("> ", "", "引用内容")}><Quote size={15} /><span><strong>引用</strong><small>突出上下文</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("- ", "", "列表项")}><List size={15} /><span><strong>无序列表</strong><small>整理多个要点</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("1. ", "", "列表项")}><ListOrdered size={15} /><span><strong>有序列表</strong><small>按步骤表达</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("**", "**", kt("knowledge.auto.eb4d955648e50ef7"))}><Bold size={15} /><span><strong>{kt("knowledge.auto.5ceac65ed8ee2ca6")}</strong><small>{kt("knowledge.auto.6c29976ae1958917")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("*", "*", kt("knowledge.auto.1ebce64190dc9b39"))}><Italic size={15} /><span><strong>{kt("knowledge.auto.217901c51a44d8b1")}</strong><small>{kt("knowledge.auto.4a4ae902d0f956c6")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("~~", "~~", kt("knowledge.auto.d0a7a932150b9775"))}><Strikethrough size={15} /><span><strong>{kt("knowledge.auto.5b050892a8d5f07f")}</strong><small>{kt("knowledge.auto.c676963513636777")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("`", "`", kt("knowledge.auto.e6f04ffbaa424001"))}><Code2 size={15} /><span><strong>{kt("knowledge.auto.6711d91085b910f7")}</strong><small>{kt("knowledge.auto.5b704036e055b328")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("[", "](https://)", kt("knowledge.auto.6f64e476be601da2"))}><Link2 size={15} /><span><strong>{kt("knowledge.auto.305378ddd2b86b60")}</strong><small>{kt("knowledge.auto.f97ca032da59dc64")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("> ", "", kt("knowledge.auto.dad60ee6bdc98b74"))}><Quote size={15} /><span><strong>{kt("knowledge.auto.e0ec651f0dae7cf3")}</strong><small>{kt("knowledge.auto.ab30f2f7657cbcf9")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("- ", "", kt("knowledge.auto.795dec6ac7650b6e"))}><List size={15} /><span><strong>{kt("knowledge.auto.9ee5773e25a9d739")}</strong><small>{kt("knowledge.auto.b6ade44cef2c2b28")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("1. ", "", kt("knowledge.auto.795dec6ac7650b6e"))}><ListOrdered size={15} /><span><strong>{kt("knowledge.auto.5d0bb2712dc8b22b")}</strong><small>{kt("knowledge.auto.2237cf8c6307fc7f")}</small></span></button>
     </>}
-    {menu === "emoji" && composerEmojis.map(emoji => <button key={emoji} type="button" role="menuitem" aria-label={`插入 ${emoji}`} onClick={() => insertText(emoji)}>{emoji}</button>)}
+    {menu === "emoji" && composerEmojis.map(emoji => <button key={emoji} type="button" role="menuitem" aria-label={ktf("knowledge.auto.50c35d572eb43d6d", { value0: emoji })} onClick={() => insertText(emoji)}>{emoji}</button>)}
     {menu === "more" && <>
-      <button type="button" role="menuitem" onClick={() => insertText(new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }))}><CalendarDays size={15} /><span><strong>日期</strong><small>插入今天的日期</small></span></button>
-      <button type="button" role="menuitem" onClick={() => insertText(`${value && !value.endsWith("\n") ? "\n" : ""}- [ ] `)}><CheckSquare2 size={15} /><span><strong>待办事项</strong><small>插入可勾选的事项</small></span></button>
-      <button type="button" role="menuitem" onClick={() => replaceSelection("```\n", "\n```", "代码片段")}><FileCode2 size={15} /><span><strong>代码块</strong><small>插入多行代码内容</small></span></button>
-      <button type="button" role="menuitem" onClick={() => insertText(`${value && !value.endsWith("\n") ? "\n" : ""}---\n`)}><Minus size={15} /><span><strong>分隔线</strong><small>分隔不同内容主题</small></span></button>
+      <button type="button" role="menuitem" onClick={() => insertText(formatKnowledgeDate(new Date(), { year: "numeric", month: "2-digit", day: "2-digit" }))}><CalendarDays size={15} /><span><strong>{kt("knowledge.auto.70d0c1b33626ba4b")}</strong><small>{kt("knowledge.auto.c444d45cdb7e3fcd")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => insertText(`${value && !value.endsWith("\n") ? "\n" : ""}- [ ] `)}><CheckSquare2 size={15} /><span><strong>{kt("knowledge.auto.5e415ae2bb8630c1")}</strong><small>{kt("knowledge.auto.f55dc502ed138e36")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => replaceSelection("```\n", "\n```", kt("knowledge.auto.cdc931b12a561a6d"))}><FileCode2 size={15} /><span><strong>{kt("knowledge.auto.ddb4a628815d1385")}</strong><small>{kt("knowledge.auto.80a4b3cf8ac2f7a7")}</small></span></button>
+      <button type="button" role="menuitem" onClick={() => insertText(`${value && !value.endsWith("\n") ? "\n" : ""}---\n`)}><Minus size={15} /><span><strong>{kt("knowledge.auto.c64dd5eb2135d0ba")}</strong><small>{kt("knowledge.auto.7dd8584d0abf8e9f")}</small></span></button>
     </>}
   </div> : null;
   return <div ref={composerRef} className={`knowledge-mention-composer ${className}`.trim()}>
@@ -256,22 +257,22 @@ export function MentionComposer({
       onChange={event => updateValue(event.target.value, event.target.selectionStart)}
       onKeyDown={handleKeyDown}
     />
-    {mention && <div id={menuID} className="knowledge-mention-composer-menu" role="listbox" aria-label="可提及成员">
+    {mention && <div id={menuID} className="knowledge-mention-composer-menu" role="listbox" aria-label={kt("knowledge.auto.d86a6f01457bc0ac")}>
       {candidates.length > 0 ? candidates.map((member, index) => <button key={member.user_id} type="button" role="option" aria-selected={index === activeIndex} onMouseDown={event => event.preventDefault()} onClick={() => insertMention(member)}>
         <span aria-hidden="true">{(member.display_name || member.email || "?").slice(0, 1)}</span>
         <strong>{member.display_name || member.email}</strong>
         {member.email && member.display_name && <small>{member.email}</small>}
-      </button>) : <p>{loading ? "正在读取成员…" : mention.query ? "没有匹配成员" : "当前资料库没有可提及成员"}</p>}
+      </button>) : <p>{loading ? kt("knowledge.auto.a0ce5a06b70d3652") : mention.query ? kt("knowledge.auto.ac51b03397450a1e") : kt("knowledge.auto.bff333b73aad08e5")}</p>}
     </div>}
     <footer>
-      <div className="knowledge-composer-toolbar" aria-label="输入工具栏">
-        <button ref={node => { menuButtonRefs.current.format = node; }} type="button" aria-label="文字样式" title="文字样式" aria-expanded={menu === "format"} onClick={() => setMenu(current => current === "format" ? "" : "format")}><Type size={17} /></button>
-        <button ref={node => { menuButtonRefs.current.emoji = node; }} type="button" aria-label="插入表情" title="插入表情" aria-expanded={menu === "emoji"} onClick={() => setMenu(current => current === "emoji" ? "" : "emoji")}><Smile size={17} /></button>
-        <button type="button" aria-label="提及成员" title="提及成员" onClick={() => insertText("@", true)}><AtSign size={18} /></button>
-        <button ref={node => { menuButtonRefs.current.more = node; }} type="button" aria-label="更多内容" title="更多内容" aria-expanded={menu === "more"} onClick={() => setMenu(current => current === "more" ? "" : "more")}><Ellipsis size={18} /></button>
+      <div className="knowledge-composer-toolbar" aria-label={kt("knowledge.auto.c3c09faea1cd1fa8")}>
+        <button ref={node => { menuButtonRefs.current.format = node; }} type="button" aria-label={kt("knowledge.auto.87dfacebd8786686")} title={kt("knowledge.auto.87dfacebd8786686")} aria-expanded={menu === "format"} onClick={() => setMenu(current => current === "format" ? "" : "format")}><Type size={17} /></button>
+        <button ref={node => { menuButtonRefs.current.emoji = node; }} type="button" aria-label={kt("knowledge.auto.d405f59076940eb3")} title={kt("knowledge.auto.d405f59076940eb3")} aria-expanded={menu === "emoji"} onClick={() => setMenu(current => current === "emoji" ? "" : "emoji")}><Smile size={17} /></button>
+        <button type="button" aria-label={kt("knowledge.auto.ef2f58033d8b216f")} title={kt("knowledge.auto.ef2f58033d8b216f")} onClick={() => insertText("@", true)}><AtSign size={18} /></button>
+        <button ref={node => { menuButtonRefs.current.more = node; }} type="button" aria-label={kt("knowledge.auto.bafc324d9d0744f1")} title={kt("knowledge.auto.bafc324d9d0744f1")} aria-expanded={menu === "more"} onClick={() => setMenu(current => current === "more" ? "" : "more")}><Ellipsis size={18} /></button>
         <span>{hint}</span>
       </div>
-      <Button className="primary" disabled={submitting || submitDisabled} onClick={onSubmit}>{submitting ? submittingLabel || "提交中…" : submitLabel}</Button>
+      <Button className="primary" disabled={submitting || submitDisabled} onClick={onSubmit}>{submitting ? submittingLabel || kt("knowledge.auto.18931020ad52e63a") : submitLabel}</Button>
     </footer>
     {typeof document !== "undefined" && menuPopover ? createPortal(menuPopover, document.body) : null}
   </div>;

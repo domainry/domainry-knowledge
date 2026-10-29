@@ -1,3 +1,4 @@
+import { kt, ktf } from "../i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "katex/dist/katex.min.css";
@@ -25,18 +26,25 @@ import type PptxGenJS from "pptxgenjs";
 
 const presentationReferencePattern = /^knowledge-document:kdoc_[a-f0-9]{32}$/;
 const presentationShapeLabels: Record<PresentationShapeType, string> = {
-  rectangle: "矩形",
-  rounded_rectangle: "圆角矩形",
-  ellipse: "椭圆",
-  triangle: "三角形",
-  diamond: "菱形",
-  hexagon: "六边形",
-  star: "星形",
-  arrow_right: "右箭头",
-  callout: "标注气泡",
-  line: "直线",
+  get rectangle() { return kt("knowledge.auto.88b75a101595a23a"); },
+  get rounded_rectangle() { return kt("knowledge.auto.ff2a1ce911fc64f1"); },
+  get ellipse() { return kt("knowledge.auto.7cd7a8146fca51e0"); },
+  get triangle() { return kt("knowledge.auto.3ecb2130838315af"); },
+  get diamond() { return kt("knowledge.auto.960748c01415d344"); },
+  get hexagon() { return kt("knowledge.auto.8d27753418bad716"); },
+  get star() { return kt("knowledge.auto.59983f97d2e08a29"); },
+  get arrow_right() { return kt("knowledge.auto.e0ed6e5879472601"); },
+  get callout() { return kt("knowledge.auto.be37540cc9d42c17"); },
+  get line() { return kt("knowledge.auto.c94b5ebf51692703"); },
 };
-const presentationChartLabels: Record<PresentationChartType, string> = { column: "柱状图", bar: "条形图", line: "折线图", area: "面积图", pie: "饼图", donut: "环形图" };
+const presentationChartLabels: Record<PresentationChartType, string> = {
+  get column() { return kt("knowledge.auto.8aece403ca0b24e6"); },
+  get bar() { return kt("knowledge.auto.a7cdeaf06b1273ad"); },
+  get line() { return kt("knowledge.auto.c24656699bd0194b"); },
+  get area() { return kt("knowledge.auto.20068d3d65236e97"); },
+  get pie() { return kt("knowledge.auto.86f348d657451e11"); },
+  get donut() { return kt("knowledge.auto.7777709a84485768"); },
+};
 const presentationChartColors = ["#00856A", "#4E7FEC", "#F0A93B", "#D45C7D", "#7559C7", "#21A6A1"];
 
 function newID(prefix: string) {
@@ -67,7 +75,7 @@ async function blobDataURL(blob: Blob) {
   return await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || Error("媒体读取失败"));
+    reader.onerror = () => reject(reader.error || Error(kt("knowledge.auto.249712fb6b44bc47")));
     reader.readAsDataURL(blob);
   });
 }
@@ -86,9 +94,9 @@ function PresentationAssetView({ asset, readFile, thumbnail = false }: { asset: 
     }).catch(() => { if (active) setFailed(true); });
     return () => { active = false; if (objectURL) URL.revokeObjectURL(objectURL); };
   }, [asset.document_ref, readFile]);
-  if (failed) return <span className="presentation-media-state">媒体不可用</span>;
-  if (!url) return <span className="presentation-media-state">正在加载…</span>;
-  if (asset.mime_type.startsWith("video/")) return thumbnail ? <span className="presentation-video-thumbnail"><Video size={20} />视频</span> : <video src={url} controls />;
+  if (failed) return <span className="presentation-media-state">{kt("knowledge.auto.726a3a5882878961")}</span>;
+  if (!url) return <span className="presentation-media-state">{kt("knowledge.auto.21bd738e0d7191a7")}</span>;
+  if (asset.mime_type.startsWith("video/")) return thumbnail ? <span className="presentation-video-thumbnail"><Video size={20} />{kt("knowledge.auto.c20f7618d330a854")}</span> : <video src={url} controls />;
   return <img src={url} alt={asset.filename} draggable={false} />;
 }
 
@@ -139,7 +147,7 @@ function PresentationChartGraphic({ chart }: { chart: PresentationChart }) {
 }
 
 function presentationElementLabel(type: PresentationElement["type"]) {
-  return ({ text: "文本", shape: "形状", image: "图片", video: "视频", table: "表格", chart: "图表", formula: "公式", code: "代码" } as const)[type];
+  return ({ text: kt("knowledge.auto.dd81861811e57bf7"), shape: kt("knowledge.auto.c2f71c1b10ef9d80"), image: kt("knowledge.auto.d24c10d37db0feea"), video: kt("knowledge.auto.c20f7618d330a854"), table: kt("knowledge.auto.22d9e7c54b88cacd"), chart: kt("knowledge.auto.8cb443ab83797881"), formula: kt("knowledge.auto.f3fccedacbcebbfa"), code: kt("knowledge.auto.e6f04ffbaa424001") } as const)[type];
 }
 
 function PresentationElementView({ element, asset, readFile, thumbnail = false }: { element: PresentationElement; asset?: PresentationAsset; readFile?: (reference: string) => Promise<Blob>; thumbnail?: boolean }) {
@@ -157,7 +165,7 @@ function PresentationElementView({ element, asset, readFile, thumbnail = false }
   if (element.type === "chart" && element.chart) return <div className="presentation-chart-element"><PresentationChartGraphic chart={element.chart} /></div>;
   if (element.type === "formula") { const rendered = renderSafeLatex(element.formula || "", true); return <div className="presentation-formula-element" style={{ color: element.color, fontSize: `${(element.font_size || 40) / presentationCanvasWidth * 100}cqw` }}>{rendered.html ? <span dangerouslySetInnerHTML={{ __html: rendered.html }} /> : <code>{element.formula}</code>}</div>; }
   if (element.type === "code") return <pre className="presentation-code-element" style={{ color: element.color, background: element.fill_color, fontSize: `${(element.font_size || 24) / presentationCanvasWidth * 100}cqw` }}><small>{element.language}</small><code>{element.source}</code></pre>;
-  return asset ? <div className={`presentation-media-element is-${element.fit}`}><PresentationAssetView asset={asset} readFile={readFile} thumbnail={thumbnail} /></div> : <span className="presentation-media-state">媒体引用失效</span>;
+  return asset ? <div className={`presentation-media-element is-${element.fit}`}><PresentationAssetView asset={asset} readFile={readFile} thumbnail={thumbnail} /></div> : <span className="presentation-media-state">{kt("knowledge.auto.3883970214374f2b")}</span>;
 }
 
 function PresentationSlideView({ content, slide, selectedElementID = "", readOnly = true, thumbnail = false, readFile, onSelectElement, onElementPointerDown }: {
@@ -176,7 +184,7 @@ function PresentationSlideView({ content, slide, selectedElementID = "", readOnl
       const style = elementStyle(element);
       return readOnly || thumbnail
         ? <div className="presentation-element" key={element.id} style={style}>{child}</div>
-        : <button type="button" className={`presentation-element is-editable${selectedElementID === element.id ? " is-selected" : ""}`} aria-label={`选择${presentationElementLabel(element.type)}元素`} key={element.id} style={style} onClick={() => onSelectElement?.(element.id)} onPointerDown={event => onElementPointerDown?.(event, element)}>{child}</button>;
+        : <button type="button" className={`presentation-element is-editable${selectedElementID === element.id ? " is-selected" : ""}`} aria-label={ktf("knowledge.auto.cc31bdce7d6fa870", { value0: presentationElementLabel(element.type) })} key={element.id} style={style} onClick={() => onSelectElement?.(element.id)} onPointerDown={event => onElementPointerDown?.(event, element)}>{child}</button>;
     })}
     {(content.master.footer || content.master.show_slide_number) && <footer><span>{content.master.footer}</span>{content.master.show_slide_number && <b>{content.slides.findIndex(item => item.id === slide.id) + 1}</b>}</footer>}
   </div>;
@@ -231,7 +239,7 @@ async function renderSlideCanvas(content: PresentationContent, slide: Presentati
   canvas.width = presentationCanvasWidth;
   canvas.height = presentationCanvasHeight;
   const context = canvas.getContext("2d");
-  if (!context) throw Error("当前浏览器不支持幻灯片导出。");
+  if (!context) throw Error(kt("knowledge.auto.1463416239d49ea2"));
   context.fillStyle = slide.background_color || content.master.background_color;
   context.fillRect(0, 0, canvas.width, canvas.height);
   const drawText = (text: string, element: PresentationElement) => {
@@ -439,13 +447,13 @@ function PresentationSlideshow({ content, initial, readFile, onClose }: { conten
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
   }, [content.slides.length, onClose]);
-  return createPortal(<div className="presentation-slideshow" role="dialog" aria-modal="true" aria-label="幻灯片放映">
+  return createPortal(<div className="presentation-slideshow" role="dialog" aria-modal="true" aria-label={kt("knowledge.auto.1bc0e44d9e0e1acc")}>
     <div className="presentation-slideshow-slide"><PresentationSlideView content={content} slide={content.slides[index]} readFile={readFile} /></div>
     <div className="presentation-slideshow-controls">
-      <Button disabled={index === 0} onClick={() => setIndex(value => value - 1)}><ChevronUp size={16} />上一张</Button>
+      <Button disabled={index === 0} onClick={() => setIndex(value => value - 1)}><ChevronUp size={16} />{kt("knowledge.auto.bcf200709dbc7ff4")}</Button>
       <span>{index + 1} / {content.slides.length}</span>
-      <Button disabled={index === content.slides.length - 1} onClick={() => setIndex(value => value + 1)}>下一张<ChevronDown size={16} /></Button>
-      <Button title="退出放映" aria-label="退出放映" onClick={onClose}><X size={17} /></Button>
+      <Button disabled={index === content.slides.length - 1} onClick={() => setIndex(value => value + 1)}>{kt("knowledge.auto.dcd4eb0273699416")}<ChevronDown size={16} /></Button>
+      <Button title={kt("knowledge.auto.7b8c90c6914c5c0d")} aria-label={kt("knowledge.auto.7b8c90c6914c5c0d")} onClick={onClose}><X size={17} /></Button>
     </div>
   </div>, document.body);
 }
@@ -453,35 +461,35 @@ function PresentationSlideshow({ content, initial, readFile, onClose }: { conten
 function MasterInspector({ master, onChange }: { master: PresentationMaster; onChange(value: PresentationMaster): void }) {
   const color = (key: keyof Pick<PresentationMaster, "background_color" | "text_color" | "accent_color" | "muted_color">, label: string) => <label><span>{label}</span><input type="color" value={master[key]} onChange={event => onChange({ ...master, [key]: event.target.value.toUpperCase() })} /></label>;
   return <div className="presentation-master-inspector">
-    <h4>母版</h4>
-    <p>统一控制整份演示的字体、色彩、页脚和页码。</p>
-    {color("background_color", "背景")}{color("text_color", "正文")}{color("accent_color", "强调")}{color("muted_color", "辅助")}
-    <label className="is-wide"><span>字体</span><Select value={master.font_family} onChange={event => onChange({ ...master, font_family: event.target.value })}><option>Arial</option><option>Aptos</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option></Select></label>
-    <label className="is-wide"><span>页脚</span><input maxLength={512} value={master.footer} onChange={event => onChange({ ...master, footer: event.target.value })} /></label>
-    <label className="is-check"><input type="checkbox" checked={master.show_slide_number} onChange={event => onChange({ ...master, show_slide_number: event.target.checked })} /><span>显示页码</span></label>
+    <h4>{kt("knowledge.auto.3d1e4467afcece19")}</h4>
+    <p>{kt("knowledge.auto.bcea48901a4853c7")}</p>
+    {color("background_color", kt("knowledge.auto.f4b669c55756180e"))}{color("text_color", kt("knowledge.auto.d661c3d96d53ebc0"))}{color("accent_color", kt("knowledge.auto.d5ae79edec852f2d"))}{color("muted_color", kt("knowledge.auto.40d33aa115c4504d"))}
+    <label className="is-wide"><span>{kt("knowledge.auto.078838da4218490b")}</span><Select value={master.font_family} onChange={event => onChange({ ...master, font_family: event.target.value })}><option>Arial</option><option>Aptos</option><option>Helvetica</option><option>Georgia</option><option>Times New Roman</option></Select></label>
+    <label className="is-wide"><span>{kt("knowledge.auto.db7eeb8de478f255")}</span><input maxLength={512} value={master.footer} onChange={event => onChange({ ...master, footer: event.target.value })} /></label>
+    <label className="is-check"><input type="checkbox" checked={master.show_slide_number} onChange={event => onChange({ ...master, show_slide_number: event.target.checked })} /><span>{kt("knowledge.auto.239369850b80b20c")}</span></label>
   </div>;
 }
 
 function ElementInspector({ element, onChange, onDelete }: { element: PresentationElement; onChange(value: PresentationElement): void; onDelete(): void }) {
   const number = (key: "x" | "y" | "width" | "height" | "rotation", label: string, min: number, max: number) => <label><span>{label}</span><input type="number" min={min} max={max} value={element[key]} onChange={event => onChange({ ...element, [key]: Math.max(min, Math.min(max, Number(event.target.value) || 0)) })} /></label>;
   return <div className="presentation-element-inspector">
-    <header><div><h4>元素</h4><small>{presentationElementLabel(element.type)}</small></div><button type="button" title="删除元素" onClick={onDelete}><Trash2 size={15} /></button></header>
-    <div className="presentation-inspector-grid">{number("x", "X", 0, presentationCanvasWidth)}{number("y", "Y", 0, presentationCanvasHeight)}{number("width", "宽", 1, presentationCanvasWidth)}{number("height", "高", 1, presentationCanvasHeight)}{number("rotation", "旋转", -360, 360)}</div>
+    <header><div><h4>{kt("knowledge.auto.a1c1675f5df836a8")}</h4><small>{presentationElementLabel(element.type)}</small></div><button type="button" title={kt("knowledge.auto.2c98462c114e82b8")} onClick={onDelete}><Trash2 size={15} /></button></header>
+    <div className="presentation-inspector-grid">{number("x", "X", 0, presentationCanvasWidth)}{number("y", "Y", 0, presentationCanvasHeight)}{number("width", kt("knowledge.auto.8dd966ad496e83c7"), 1, presentationCanvasWidth)}{number("height", kt("knowledge.auto.b1c27820fec23edb"), 1, presentationCanvasHeight)}{number("rotation", kt("knowledge.auto.68eb90fa809e72cc"), -360, 360)}</div>
     {(element.type === "text" || element.type === "shape") && <>
-      <label className="is-wide"><span>内容</span><textarea value={element.text || ""} onChange={event => onChange({ ...element, text: event.target.value })} /></label>
-      <div className="presentation-inspector-grid"><label><span>字号</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>字重</span><Select value={element.font_weight} onChange={event => onChange({ ...element, font_weight: event.target.value as "normal" | "bold" })}><option value="normal">常规</option><option value="bold">加粗</option></Select></label><label><span>文字色</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div>
-      <div className="presentation-align-control" role="group" aria-label="文本对齐"><button type="button" aria-pressed={element.align === "left"} onClick={() => onChange({ ...element, align: "left" })}><AlignLeft size={15} /></button><button type="button" aria-pressed={element.align === "center"} onClick={() => onChange({ ...element, align: "center" })}><AlignCenter size={15} /></button><button type="button" aria-pressed={element.align === "right"} onClick={() => onChange({ ...element, align: "right" })}><AlignRight size={15} /></button></div>
+      <label className="is-wide"><span>{kt("knowledge.auto.7a688306423bec17")}</span><textarea value={element.text || ""} onChange={event => onChange({ ...element, text: event.target.value })} /></label>
+      <div className="presentation-inspector-grid"><label><span>{kt("knowledge.auto.f71561b5af0abced")}</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>{kt("knowledge.auto.c69ead895a515fc9")}</span><Select value={element.font_weight} onChange={event => onChange({ ...element, font_weight: event.target.value as "normal" | "bold" })}><option value="normal">{kt("knowledge.auto.40fae00b7c6d8ac0")}</option><option value="bold">{kt("knowledge.auto.5ceac65ed8ee2ca6")}</option></Select></label><label><span>{kt("knowledge.auto.a12ecd7f96912af0")}</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div>
+      <div className="presentation-align-control" role="group" aria-label={kt("knowledge.auto.2527727872202c15")}><button type="button" aria-pressed={element.align === "left"} onClick={() => onChange({ ...element, align: "left" })}><AlignLeft size={15} /></button><button type="button" aria-pressed={element.align === "center"} onClick={() => onChange({ ...element, align: "center" })}><AlignCenter size={15} /></button><button type="button" aria-pressed={element.align === "right"} onClick={() => onChange({ ...element, align: "right" })}><AlignRight size={15} /></button></div>
     </>}
-    {element.type === "shape" && <div className="presentation-inspector-grid"><label><span>形状</span><Select value={element.shape} onChange={event => onChange({ ...element, shape: event.target.value as PresentationShapeType })}>{presentationShapeTypes.map(shape => <option key={shape} value={shape}>{presentationShapeLabels[shape]}</option>)}</Select></label><label><span>填充</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label><label><span>边框</span><input type="color" value={element.stroke_color} onChange={event => onChange({ ...element, stroke_color: event.target.value.toUpperCase() })} /></label></div>}
-    {(element.type === "image" || element.type === "video") && <label className="is-wide"><span>适应方式</span><Select value={element.fit} onChange={event => onChange({ ...element, fit: event.target.value as "contain" | "cover" })}><option value="contain">完整显示</option><option value="cover">铺满裁剪</option></Select></label>}
-    {element.type === "table" && element.table && <><label className="is-check"><input type="checkbox" checked={element.table.header} onChange={event => onChange({ ...element, table: { ...element.table!, header: event.target.checked } })} /><span>首行为表头</span></label><label className="is-wide"><span>表格内容（Tab 分列、换行分行）</span><textarea rows={10} value={element.table.rows.map(row => row.join("\t")).join("\n")} onChange={event => { const rows = event.target.value.split("\n").slice(0, 50).map(row => row.split("\t").slice(0, 20)), width = Math.max(1, ...rows.map(row => row.length)); onChange({ ...element, table: { ...element.table!, rows: rows.map(row => [...row, ...Array(Math.max(0, width - row.length)).fill("")]) } }); }} /></label></>}
-    {element.type === "chart" && element.chart && <><label className="is-wide"><span>图表类型</span><Select value={element.chart.type} onChange={event => onChange({ ...element, chart: { ...element.chart!, type: event.target.value as PresentationChartType } })}>{presentationChartTypes.map(type => <option key={type} value={type}>{presentationChartLabels[type]}</option>)}</Select></label><label className="is-wide"><span>分类（逗号分隔）</span><input value={element.chart.categories.join(",")} onChange={event => { const categories = event.target.value.split(",").map(value => value.trim()).filter(Boolean).slice(0, 50); onChange({ ...element, chart: { ...element.chart!, categories, series: element.chart!.series.map(series => ({ ...series, values: categories.map((_, index) => series.values[index] || 0) })) } }); }} /></label><label className="is-wide"><span>数据系列（每行“名称:1,2,3”）</span><textarea rows={8} value={element.chart.series.map(series => `${series.name}:${series.values.join(",")}`).join("\n")} onChange={event => { const series = event.target.value.split("\n").slice(0, 12).map((row, index) => { const separator = row.indexOf(":"); const name = (separator >= 0 ? row.slice(0, separator) : `系列 ${index + 1}`).trim() || `系列 ${index + 1}`, raw = separator >= 0 ? row.slice(separator + 1) : row; return { name, values: element.chart!.categories.map((_, valueIndex) => { const value = Number(raw.split(",")[valueIndex]?.trim() || 0); return Number.isFinite(value) ? value : 0; }) }; }).filter(item => item.name); onChange({ ...element, chart: { ...element.chart!, series: series.length ? series : [{ name: "系列 1", values: element.chart!.categories.map(() => 0) }] } }); }} /></label></>}
-    {element.type === "formula" && <><label className="is-wide"><span>LaTeX 公式</span><textarea rows={6} value={element.formula || ""} onChange={event => onChange({ ...element, formula: event.target.value })} /></label><div className="presentation-inspector-grid"><label><span>字号</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>颜色</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div></>}
-    {element.type === "code" && <><div className="presentation-inspector-grid"><label><span>语言</span><Select value={element.language} onChange={event => onChange({ ...element, language: event.target.value })}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="go">Go</option><option value="java">Java</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="json">JSON</option></Select></label><label><span>字号</span><input type="number" min={8} max={120} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>背景</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label></div><label className="is-wide"><span>代码</span><textarea rows={12} value={element.source || ""} onChange={event => onChange({ ...element, source: event.target.value })} /></label></>}
+    {element.type === "shape" && <div className="presentation-inspector-grid"><label><span>{kt("knowledge.auto.c2f71c1b10ef9d80")}</span><Select value={element.shape} onChange={event => onChange({ ...element, shape: event.target.value as PresentationShapeType })}>{presentationShapeTypes.map(shape => <option key={shape} value={shape}>{presentationShapeLabels[shape]}</option>)}</Select></label><label><span>{kt("knowledge.auto.05fb7cba476bd2e9")}</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label><label><span>{kt("knowledge.auto.0053783298298e9d")}</span><input type="color" value={element.stroke_color} onChange={event => onChange({ ...element, stroke_color: event.target.value.toUpperCase() })} /></label></div>}
+    {(element.type === "image" || element.type === "video") && <label className="is-wide"><span>{kt("knowledge.auto.7905e49e2e8b65a5")}</span><Select value={element.fit} onChange={event => onChange({ ...element, fit: event.target.value as "contain" | "cover" })}><option value="contain">{kt("knowledge.auto.530aa02103692b72")}</option><option value="cover">{kt("knowledge.auto.60d08aa3cb50cb8a")}</option></Select></label>}
+    {element.type === "table" && element.table && <><label className="is-check"><input type="checkbox" checked={element.table.header} onChange={event => onChange({ ...element, table: { ...element.table!, header: event.target.checked } })} /><span>{kt("knowledge.auto.cd1e78750ab5a443")}</span></label><label className="is-wide"><span>{kt("knowledge.auto.062d5a6d84726d8b")}</span><textarea rows={10} value={element.table.rows.map(row => row.join("\t")).join("\n")} onChange={event => { const rows = event.target.value.split("\n").slice(0, 50).map(row => row.split("\t").slice(0, 20)), width = Math.max(1, ...rows.map(row => row.length)); onChange({ ...element, table: { ...element.table!, rows: rows.map(row => [...row, ...Array(Math.max(0, width - row.length)).fill("")]) } }); }} /></label></>}
+    {element.type === "chart" && element.chart && <><label className="is-wide"><span>{kt("knowledge.auto.52fe98551232b10f")}</span><Select value={element.chart.type} onChange={event => onChange({ ...element, chart: { ...element.chart!, type: event.target.value as PresentationChartType } })}>{presentationChartTypes.map(type => <option key={type} value={type}>{presentationChartLabels[type]}</option>)}</Select></label><label className="is-wide"><span>{kt("knowledge.auto.cbfa8a7b7cee0c9c")}</span><input value={element.chart.categories.join(",")} onChange={event => { const categories = event.target.value.split(",").map(value => value.trim()).filter(Boolean).slice(0, 50); onChange({ ...element, chart: { ...element.chart!, categories, series: element.chart!.series.map(series => ({ ...series, values: categories.map((_, index) => series.values[index] || 0) })) } }); }} /></label><label className="is-wide"><span>{kt("knowledge.auto.94e051b68419f74e")}</span><textarea rows={8} value={element.chart.series.map(series => `${series.name}:${series.values.join(",")}`).join("\n")} onChange={event => { const series = event.target.value.split("\n").slice(0, 12).map((row, index) => { const separator = row.indexOf(":"); const name = (separator >= 0 ? row.slice(0, separator) : ktf("knowledge.auto.8fac7b189e32a496", { value0: index + 1 })).trim() || ktf("knowledge.auto.8fac7b189e32a496", { value0: index + 1 }), raw = separator >= 0 ? row.slice(separator + 1) : row; return { name, values: element.chart!.categories.map((_, valueIndex) => { const value = Number(raw.split(",")[valueIndex]?.trim() || 0); return Number.isFinite(value) ? value : 0; }) }; }).filter(item => item.name); onChange({ ...element, chart: { ...element.chart!, series: series.length ? series : [{ name: kt("knowledge.auto.34b3cfaa3c77e987"), values: element.chart!.categories.map(() => 0) }] } }); }} /></label></>}
+    {element.type === "formula" && <><label className="is-wide"><span>{kt("knowledge.auto.7e202a3add63fbb1")}</span><textarea rows={6} value={element.formula || ""} onChange={event => onChange({ ...element, formula: event.target.value })} /></label><div className="presentation-inspector-grid"><label><span>{kt("knowledge.auto.f71561b5af0abced")}</span><input type="number" min={8} max={240} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>{kt("knowledge.auto.070a8016fcc3dffb")}</span><input type="color" value={element.color} onChange={event => onChange({ ...element, color: event.target.value.toUpperCase() })} /></label></div></>}
+    {element.type === "code" && <><div className="presentation-inspector-grid"><label><span>{kt("knowledge.auto.9f6fee1aba17a565")}</span><Select value={element.language} onChange={event => onChange({ ...element, language: event.target.value })}><option value="javascript">JavaScript</option><option value="typescript">TypeScript</option><option value="python">Python</option><option value="go">Go</option><option value="java">Java</option><option value="sql">SQL</option><option value="shell">Shell</option><option value="json">JSON</option></Select></label><label><span>{kt("knowledge.auto.f71561b5af0abced")}</span><input type="number" min={8} max={120} value={element.font_size} onChange={event => onChange({ ...element, font_size: Number(event.target.value) || 8 })} /></label><label><span>{kt("knowledge.auto.f4b669c55756180e")}</span><input type="color" value={element.fill_color} onChange={event => onChange({ ...element, fill_color: event.target.value.toUpperCase() })} /></label></div><label className="is-wide"><span>{kt("knowledge.auto.e6f04ffbaa424001")}</span><textarea rows={12} value={element.source || ""} onChange={event => onChange({ ...element, source: event.target.value })} /></label></>}
   </div>;
 }
 
-export function PresentationEditor({ body, readOnly = false, documentTitle = "未命名幻灯片", initialBlockID, uploadFile, fileUploadsEnabled, readFile, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+export function PresentationEditor({ body, readOnly = false, documentTitle = kt("knowledge.auto.dc0e764313122d2d"), initialBlockID, uploadFile, fileUploadsEnabled, readFile, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
   const parsed = useMemo(() => parsePresentationContent(body), [body]);
   const [content, setContent] = useState(parsed);
   const contentRef = useRef(content);
@@ -544,7 +552,7 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
   const duplicateSlide = () => {
     const id = newID("slide"), assetIDs = new Map<string, string>();
     const files = Object.fromEntries(Object.values(selectedSlide.files).map(asset => { const nextID = newID("asset"); assetIDs.set(asset.id, nextID); return [nextID, { ...asset, id: nextID }]; }));
-    const clone: PresentationSlide = { ...selectedSlide, id, title: `${selectedSlide.title} 副本`, files, elements: selectedSlide.elements.map(item => ({ ...item, id: newID("element"), asset_id: item.asset_id ? assetIDs.get(item.asset_id) : undefined })) };
+    const clone: PresentationSlide = { ...selectedSlide, id, title: ktf("knowledge.auto.6a5e2aa1a875c415", { value0: selectedSlide.title }), files, elements: selectedSlide.elements.map(item => ({ ...item, id: newID("element"), asset_id: item.asset_id ? assetIDs.get(item.asset_id) : undefined })) };
     const slides = [...content.slides]; slides.splice(selectedIndex + 1, 0, clone); setSelectedSlideID(id); setSelectedElementID(""); apply({ ...content, slides });
   };
   const removeSlide = () => {
@@ -558,11 +566,11 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
     const slides = [...content.slides], [slide] = slides.splice(selectedIndex, 1); slides.splice(nextIndex, 0, slide); apply({ ...content, slides });
   };
   const setLayout = (layout: PresentationLayout) => {
-    if (selectedSlide.elements.length && !window.confirm("切换版式会重置当前页元素，继续吗？")) return;
+    if (selectedSlide.elements.length && !window.confirm(kt("knowledge.auto.4764a7a7713b4879"))) return;
     setSelectedElementID(""); updateSlide({ ...selectedSlide, layout, files: {}, elements: presentationLayoutElements(selectedSlide.id, layout, content.master) });
   };
   const addText = () => {
-    const item: PresentationElement = { id: newID("text"), type: "text", x: 220, y: 270, width: 1160, height: 180, rotation: 0, text: "输入文本", font_size: 42, font_weight: "normal", color: content.master.text_color, align: "left" };
+    const item: PresentationElement = { id: newID("text"), type: "text", x: 220, y: 270, width: 1160, height: 180, rotation: 0, text: kt("knowledge.auto.22d0f8c8ee913aa7"), font_size: 42, font_weight: "normal", color: content.master.text_color, align: "left" };
     setSelectedElementID(item.id); updateSlide({ ...selectedSlide, elements: [...selectedSlide.elements, item] });
   };
   const addShape = (shape: PresentationShapeType) => {
@@ -572,11 +580,11 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
     setSelectedElementID(item.id); updateSlide({ ...selectedSlide, elements: [...selectedSlide.elements, item] });
   };
   const addTable = () => {
-    const item: PresentationElement = { id: newID("table"), type: "table", x: 260, y: 230, width: 1080, height: 430, rotation: 0, table: { header: true, rows: [["项目", "负责人", "状态"], ["方案设计", "Alice", "进行中"], ["开发验收", "Bob", "待开始"]] } };
+    const item: PresentationElement = { id: newID("table"), type: "table", x: 260, y: 230, width: 1080, height: 430, rotation: 0, table: { header: true, rows: [[kt("knowledge.auto.79f326be4409d51f"), kt("knowledge.auto.a525346277ed54bd"), kt("knowledge.auto.6320b4a8722a851f")], [kt("knowledge.auto.a3952e8c36ca4cef"), "Alice", kt("knowledge.auto.dc9591e56d502b43")], [kt("knowledge.auto.b28b284d5bf8053c"), "Bob", kt("knowledge.auto.5b715411b1f99742")]] } };
     setSelectedElementID(item.id); updateSlide({ ...selectedSlide, elements: [...selectedSlide.elements, item] });
   };
   const addChart = () => {
-    const item: PresentationElement = { id: newID("chart"), type: "chart", x: 260, y: 210, width: 1080, height: 500, rotation: 0, chart: { type: "column", categories: ["第一季度", "第二季度", "第三季度", "第四季度"], series: [{ name: "目标", values: [42, 58, 66, 82] }, { name: "实际", values: [38, 61, 72, 88] }] } };
+    const item: PresentationElement = { id: newID("chart"), type: "chart", x: 260, y: 210, width: 1080, height: 500, rotation: 0, chart: { type: "column", categories: [kt("knowledge.auto.5fbab6f796a2917a"), kt("knowledge.auto.0a64cbfe42ef0598"), kt("knowledge.auto.d13a5e854192559f"), kt("knowledge.auto.687468619f6ba3ac")], series: [{ name: kt("knowledge.auto.57060c88a36bf3d0"), values: [42, 58, 66, 82] }, { name: kt("knowledge.auto.e0ae9a3c77ae781d"), values: [38, 61, 72, 88] }] } };
     setSelectedElementID(item.id); updateSlide({ ...selectedSlide, elements: [...selectedSlide.elements, item] });
   };
   const addFormula = () => {
@@ -588,18 +596,18 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
     setSelectedElementID(item.id); updateSlide({ ...selectedSlide, elements: [...selectedSlide.elements, item] });
   };
   const addMedia = async (file: File) => {
-    if (!uploadFile || !fileUploadsEnabled) { onActionFeedback?.("当前知识库未配置受权文件存储，不能插入媒体。"); return; }
+    if (!uploadFile || !fileUploadsEnabled) { onActionFeedback?.(kt("knowledge.auto.afcc18d93c9ee1d0")); return; }
     const image = file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/webp" || file.type === "image/gif";
     const video = file.type === "video/mp4" || file.type === "video/webm";
-    if (!image && !video) { onActionFeedback?.("仅支持 PNG、JPEG、WebP、GIF、MP4 或 WebM。"); return; }
+    if (!image && !video) { onActionFeedback?.(kt("knowledge.auto.a6962e9cf730492d")); return; }
     try {
       const reference = uploadedDocumentReference(await uploadFile(file));
-      if (!reference) throw Error("媒体上传没有返回受权文档引用。");
+      if (!reference) throw Error(kt("knowledge.auto.8572e3553882d66f"));
       const assetID = newID("asset"), elementID = newID(image ? "image" : "video");
       const asset: PresentationAsset = { id: assetID, mime_type: file.type as PresentationAsset["mime_type"], document_ref: reference, filename: file.name };
       const item: PresentationElement = { id: elementID, type: image ? "image" : "video", x: 240, y: 210, width: 1120, height: 560, rotation: 0, asset_id: assetID, fit: "contain" };
       setSelectedElementID(elementID); updateSlide({ ...selectedSlide, files: { ...selectedSlide.files, [assetID]: asset }, elements: [...selectedSlide.elements, item] });
-    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "媒体上传失败"); }
+    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.511c04e3a3a785fb")); }
   };
   const removeElement = () => {
     if (!selectedElement) return;
@@ -611,12 +619,12 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
   const exportFile = async (kind: "pdf" | "pptx") => {
     setExporting(kind);
     try {
-      if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+      if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165"));
       await authorizeContentAction(kind === "pdf" ? "print" : "export");
       if (kind === "pdf") await exportPresentationPDF(contentRef.current, documentTitle, readFile);
       else await exportPresentationPPTX(contentRef.current, documentTitle, readFile);
-      onActionFeedback?.(`已导出 ${kind.toUpperCase()}。`);
-    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "幻灯片导出失败"); }
+      onActionFeedback?.(ktf("knowledge.auto.5f6eb852de0a1889", { value0: kind.toUpperCase() }));
+    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.fa82812de07b5215")); }
     finally { setExporting(""); }
   };
   const handleElementPointerDown = (event: React.PointerEvent, element: PresentationElement) => {
@@ -645,39 +653,39 @@ export function PresentationEditor({ body, readOnly = false, documentTitle = "�
 
   return <div className="knowledge-open-editor knowledge-presentation-editor">
     {authorizeContentAction && <PageActionPortal host={pageActionHost}>
-      <Button title="导出 PDF" disabled={Boolean(exporting)} onClick={() => void exportFile("pdf")}><FileDown size={15} />PDF</Button>
-      <Button title="导出 PPTX" disabled={Boolean(exporting)} onClick={() => void exportFile("pptx")}><Maximize2 size={15} />PPTX</Button>
+      <Button title={kt("knowledge.auto.e42c8735ec9f56e3")} disabled={Boolean(exporting)} onClick={() => void exportFile("pdf")}><FileDown size={15} />PDF</Button>
+      <Button title={kt("knowledge.auto.ed957a48cd8bee1b")} disabled={Boolean(exporting)} onClick={() => void exportFile("pptx")}><Maximize2 size={15} />PPTX</Button>
     </PageActionPortal>}
-    <div className="presentation-toolbar" aria-label="幻灯片工具栏">
+    <div className="presentation-toolbar" aria-label={kt("knowledge.auto.b33080b4902a6b47")}>
       {!readOnly && <>
-        <label><span>主题</span><Select value={content.theme} onChange={event => apply(applyPresentationTheme(content, event.target.value as PresentationThemeID))}>{Object.entries(presentationThemes).map(([id, theme]) => <option key={id} value={id}>{theme.label}</option>)}</Select></label>
-        <label><span>版式</span><Select value={selectedSlide.layout} onChange={event => setLayout(event.target.value as PresentationLayout)}>{presentationLayouts.map(layout => <option key={layout.id} value={layout.id}>{layout.label}</option>)}</Select></label>
+        <label><span>{kt("knowledge.auto.788db1cfec2a3db5")}</span><Select value={content.theme} onChange={event => apply(applyPresentationTheme(content, event.target.value as PresentationThemeID))}>{Object.entries(presentationThemes).map(([id, theme]) => <option key={id} value={id}>{theme.label}</option>)}</Select></label>
+        <label><span>{kt("knowledge.auto.d9c446642799abb0")}</span><Select value={selectedSlide.layout} onChange={event => setLayout(event.target.value as PresentationLayout)}>{presentationLayouts.map(layout => <option key={layout.id} value={layout.id}>{layout.label}</option>)}</Select></label>
         <span className="presentation-toolbar-divider" />
-        <Button title="插入文本" onClick={addText}><Type size={15} />文本</Button>
+        <Button title={kt("knowledge.auto.44f709e7d4df39ec")} onClick={addText}><Type size={15} />{kt("knowledge.auto.dd81861811e57bf7")}</Button>
         <div className="presentation-shape-picker" ref={shapePickerRef}>
-          <Button title="插入形状" aria-expanded={shapeMenuOpen} aria-haspopup="menu" onClick={() => setShapeMenuOpen(value => !value)}><RectangleHorizontal size={15} />形状<ChevronDown size={13} /></Button>
-          {shapeMenuOpen && <div className="presentation-shape-menu" role="menu" aria-label="选择形状">
-            {presentationShapeTypes.map(shape => <button type="button" role="menuitem" title={`插入${presentationShapeLabels[shape]}`} key={shape} onClick={() => addShape(shape)}><span><PresentationShapeGraphic shape={shape} fill="var(--knowledge-surface-tint)" stroke="currentColor" strokeWidth={2} /></span><b>{presentationShapeLabels[shape]}</b></button>)}
+          <Button title={kt("knowledge.auto.972334a1bbb66c44")} aria-expanded={shapeMenuOpen} aria-haspopup="menu" onClick={() => setShapeMenuOpen(value => !value)}><RectangleHorizontal size={15} />{kt("knowledge.auto.c2f71c1b10ef9d80")}<ChevronDown size={13} /></Button>
+          {shapeMenuOpen && <div className="presentation-shape-menu" role="menu" aria-label={kt("knowledge.auto.9372c61e98b06a84")}>
+            {presentationShapeTypes.map(shape => <button type="button" role="menuitem" title={ktf("knowledge.auto.b4740513958cc42d", { value0: presentationShapeLabels[shape] })} key={shape} onClick={() => addShape(shape)}><span><PresentationShapeGraphic shape={shape} fill="var(--knowledge-surface-tint)" stroke="currentColor" strokeWidth={2} /></span><b>{presentationShapeLabels[shape]}</b></button>)}
           </div>}
         </div>
-        <Button title="插入表格" onClick={addTable}><Table2 size={15} />表格</Button>
-        <Button title="插入图表" onClick={addChart}><BarChart3 size={15} />图表</Button>
-        <Button title="插入公式" onClick={addFormula}><Sigma size={15} />公式</Button>
-        <Button title="插入代码" onClick={addCode}><Braces size={15} />代码</Button>
-        <label className="knowledge-button presentation-upload"><ImagePlus size={15} />媒体<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void addMedia(file); }} /></label>
+        <Button title={kt("knowledge.auto.43f006bd439207c4")} onClick={addTable}><Table2 size={15} />{kt("knowledge.auto.22d9e7c54b88cacd")}</Button>
+        <Button title={kt("knowledge.auto.8c2492d08f1a6bcb")} onClick={addChart}><BarChart3 size={15} />{kt("knowledge.auto.8cb443ab83797881")}</Button>
+        <Button title={kt("knowledge.auto.85fbe03102bdb89f")} onClick={addFormula}><Sigma size={15} />{kt("knowledge.auto.f3fccedacbcebbfa")}</Button>
+        <Button title={kt("knowledge.auto.ebd11b2cabe9972c")} onClick={addCode}><Braces size={15} />{kt("knowledge.auto.e6f04ffbaa424001")}</Button>
+        <label className="knowledge-button presentation-upload"><ImagePlus size={15} />{kt("knowledge.auto.fa33e10009759859")}<input type="file" accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm" onChange={event => { const file = event.target.files?.[0]; event.currentTarget.value = ""; if (file) void addMedia(file); }} /></label>
       </>}
       <span className="presentation-toolbar-spacer" />
-      <Button title="放映" onClick={() => setSlideshow(true)}><MonitorPlay size={15} />放映</Button>
+      <Button title={kt("knowledge.auto.d4cfe0d759e70a47")} onClick={() => setSlideshow(true)}><MonitorPlay size={15} />{kt("knowledge.auto.d4cfe0d759e70a47")}</Button>
     </div>
     <div className={`presentation-workspace${readOnly ? " is-readonly" : ""}`}>
-      <aside className="presentation-slide-list" aria-label="幻灯片列表">
+      <aside className="presentation-slide-list" aria-label={kt("knowledge.auto.5d32c633a3d8db80")}>
         {content.slides.map((slide, index) => <button type="button" aria-current={slide.id === selectedSlide.id ? "true" : undefined} key={slide.id} onClick={() => { setSelectedSlideID(slide.id); setSelectedElementID(""); }}><span>{index + 1}</span><div><PresentationSlideView content={content} slide={slide} readFile={readFile} thumbnail /><strong>{slide.title}</strong></div></button>)}
-        {!readOnly && <Button className="presentation-add-slide" onClick={addSlide}><Plus size={15} />新建幻灯片</Button>}
+        {!readOnly && <Button className="presentation-add-slide" onClick={addSlide}><Plus size={15} />{kt("knowledge.auto.1f20b204fc730c48")}</Button>}
       </aside>
       <main className="presentation-stage-column">
-        {!readOnly && <div className="presentation-slide-meta"><input aria-label="幻灯片标题" maxLength={512} value={selectedSlide.title} onChange={event => updateSlide({ ...selectedSlide, title: event.target.value || "未命名幻灯片" })} /><div><button type="button" title="上移幻灯片" disabled={selectedIndex === 0} onClick={() => moveSlide(-1)}><ChevronUp size={15} /></button><button type="button" title="下移幻灯片" disabled={selectedIndex === content.slides.length - 1} onClick={() => moveSlide(1)}><ChevronDown size={15} /></button><button type="button" title="复制幻灯片" onClick={duplicateSlide}><Copy size={15} /></button><button type="button" title="删除幻灯片" disabled={content.slides.length === 1} onClick={removeSlide}><Trash2 size={15} /></button></div></div>}
+        {!readOnly && <div className="presentation-slide-meta"><input aria-label={kt("knowledge.auto.0061a4445f629e6a")} maxLength={512} value={selectedSlide.title} onChange={event => updateSlide({ ...selectedSlide, title: event.target.value || kt("knowledge.auto.dc0e764313122d2d") })} /><div><button type="button" title={kt("knowledge.auto.31c0ffad904b4d78")} disabled={selectedIndex === 0} onClick={() => moveSlide(-1)}><ChevronUp size={15} /></button><button type="button" title={kt("knowledge.auto.9751d0cd0e5275c4")} disabled={selectedIndex === content.slides.length - 1} onClick={() => moveSlide(1)}><ChevronDown size={15} /></button><button type="button" title={kt("knowledge.auto.7ff515869fd0fe78")} onClick={duplicateSlide}><Copy size={15} /></button><button type="button" title={kt("knowledge.auto.0f2b14d9932a519c")} disabled={content.slides.length === 1} onClick={removeSlide}><Trash2 size={15} /></button></div></div>}
         <div className="presentation-stage" onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerCancel={handlePointerUp}><PresentationSlideView content={content} slide={selectedSlide} selectedElementID={selectedElementID} readOnly={readOnly} readFile={readFile} onSelectElement={setSelectedElementID} onElementPointerDown={handleElementPointerDown} /></div>
-        {!readOnly && <label className="presentation-speaker-notes"><span>演讲者备注</span><textarea placeholder="仅演讲者可见的提示、引用和讲述节奏…" value={selectedSlide.notes} onChange={event => updateSlide({ ...selectedSlide, notes: event.target.value })} /></label>}
+        {!readOnly && <label className="presentation-speaker-notes"><span>{kt("knowledge.auto.2b02cdb32d5f6500")}</span><textarea placeholder={kt("knowledge.auto.b45200c0e6f7f0c0")} value={selectedSlide.notes} onChange={event => updateSlide({ ...selectedSlide, notes: event.target.value })} /></label>}
       </main>
       {!readOnly && <aside className="presentation-inspector">{selectedElement ? <ElementInspector element={selectedElement} onChange={updateElement} onDelete={removeElement} /> : <MasterInspector master={content.master} onChange={master => apply({ ...content, master })} />}</aside>}
     </div>

@@ -2,23 +2,38 @@
 
 ## Identity
 
-Domainry Knowledge is a calm editorial operations workspace: dense enough for long-running knowledge maintenance, but visually quiet enough that the document remains the primary object.
+Domainry Knowledge is a calm editorial operations workspace: dense enough for long-running knowledge maintenance, but visually quiet enough that the document remains the primary object. The package is product-neutral: an embedding product supplies semantic colors, while standalone mode uses Domainry defaults.
 
-Evidence: the existing green product accent, the current knowledge/library workflows, the page tree, permissions and publishing states, and the requirement for multi-user editing visibility.
+Evidence: the current knowledge/library workflows, the page tree, permissions and publishing states, multi-user editing visibility, the existing `KnowledgeWorkspace` package boundary, and Verdent Deck's light/dark semantic token system. Verdent is a host, not a color dependency of this package.
 
 Attributes: precise, editorial, trustworthy, collaborative, restrained. Non-goals: consumer-style oversized cards, decorative gradients, pill-shaped controls everywhere, hiding operational state behind color alone, and nested bordered cards that repeat the same grouping.
 
 ## Color roles
 
-- Canvas `#f3f5f2`: application background only.
-- Surface `#ffffff`: document canvas, navigation and overlays.
-- Subtle surface `#f7f9f6`: navigation selections, toolbars and secondary regions.
-- Ink `#17221c`, secondary `#526158`, faint `#7d8982`: primary, supporting and metadata text.
-- Border `#d9e0da`, strong border `#bcc9bf`: grouping and interactive boundaries.
-- Brand/action `#176b52`, hover `#115840`: primary actions, focus and active navigation.
-- Success `#16734f`, warning `#a76516`, danger `#b23a3a`, information `#315f9d`: status roles only.
-- Selection `#e6f1eb` and focus ring `rgba(23,107,82,.20)`: selection and keyboard focus.
-- Collaborator colors use the fixed accessible sequence `#176b52`, `#315f9d`, `#9a5a17`, `#7a4b9d`, `#a13f5b`; they identify people, never state.
+Components may consume only the following `--knowledge-*` roles; literal product colors belong in the light/dark default token declarations or in user-authored content palettes.
+
+- Backgrounds: `canvas`, `surface`, `surface-elevated`, `surface-subtle`, `surface-tint`, `surface-hover`, `surface-active`, `input`, `overlay`.
+- Text: `text`, `muted`, `faint`, `on-accent`, `link`, `code-text`.
+- Boundaries: `border`, `border-strong`, `focus`, `selection`, `shadow-sm`, `shadow-md`, `shadow-lg`.
+- Actions: `primary`, `primary-hover`, `primary-active`, `primary-soft`.
+- Status: `success`, `info`, `warning`, `danger` plus matching `*-soft` and `*-border` roles. Status is never communicated by color alone.
+- Authored content: presentation themes, whiteboard strokes, mind-map themes, charts and collaborator identity palettes remain explicit data colors; they do not style application chrome.
+
+Standalone defaults provide complete light and dark values. The root uses `data-knowledge-theme="light|dark"` and `color-scheme` follows that resolved value. Host products override semantic variables at the root; no Domainry component imports a host token package.
+
+### Verdent host mapping contract
+
+| Domainry role | Verdent Deck semantic owner |
+| --- | --- |
+| `canvas` | `background.deck-background` |
+| `surface` / `surface-elevated` / `input` | `background.deck-module-background` / `background.deck-overlay-modal` / `background.chat-background` |
+| `surface-subtle` / `surface-hover` / `surface-active` | clear black/white layers for the resolved theme |
+| `text` / `muted` / `faint` | `black.clear.100-85` / `65` / `45` |
+| `border` / `border-strong` | `border.clear-10-6` / `border.clear-15-10` |
+| `primary` / hover / active | `button.solid.brand` / `brand-hover` / `brand-active` |
+| success / info / warning / danger | matching `status.*` tokens |
+
+The mapping is implemented by the Verdent product shell, not copied into this package. Runtime host preference changes update the root attributes and variables without remounting the editor.
 
 ## Typography
 

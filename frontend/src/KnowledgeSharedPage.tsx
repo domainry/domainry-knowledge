@@ -1,3 +1,4 @@
+import { formatKnowledgeDate, kt } from "./i18n/runtime.ts";
 import { useEffect, useRef, useState } from "react";
 import { Clock3, KeyRound, Link2, ShieldCheck } from "lucide-react";
 import { Button } from "./components.tsx";
@@ -17,18 +18,18 @@ export function KnowledgeSharedPage({ client, shareID, pageID, formatError }: { 
   const printAuthorizationRef = useRef(0);
 
   async function authorizeContentAction(operation: "copy" | "print" | "export") {
-    if (!client.authorizePageShareContentOperation) throw Error("当前前端未启用受控分享内容保护。");
+    if (!client.authorizePageShareContentOperation) throw Error(kt("knowledge.auto.6f2abf542cfc601f"));
     await client.authorizePageShareContentOperation(shareID, pageID, operation, AbortSignal.timeout(30_000));
   }
 
   async function read(signal: AbortSignal) {
-    if (!client.readPageShare) throw Error("当前前端未启用受控分享读取能力。");
+    if (!client.readPageShare) throw Error(kt("knowledge.auto.a8495929a809553d"));
     const value = await client.readPageShare(shareID, pageID, signal);
     setView(value); setPasswordRequired(false); setError("");
   }
 
   async function redeem(secret: string, signal: AbortSignal) {
-    if (!client.redeemPageShare) throw Error("当前前端未启用受控分享兑换能力。");
+    if (!client.redeemPageShare) throw Error(kt("knowledge.auto.a0c92f72cd2a04ec"));
     await client.redeemPageShare(shareID, secret, signal);
     await read(signal);
   }
@@ -52,12 +53,14 @@ export function KnowledgeSharedPage({ client, shareID, pageID, formatError }: { 
   useEffect(() => {
     const beforePrint = () => {
       if (Date.now() <= printAuthorizationRef.current) return;
+      document.body.dataset.knowledgePrintBlockedMessage = kt("knowledge.auto.a7952c4e3f72cf58");
       document.body.classList.add("knowledge-print-blocked");
-      setError("请使用 Ctrl/⌘ + P，由服务端重新校验分享与打印策略后再打印。");
+      setError(kt("knowledge.auto.a7952c4e3f72cf58"));
     };
     const afterPrint = () => {
       printAuthorizationRef.current = 0;
       document.body.classList.remove("knowledge-print-blocked");
+      delete document.body.dataset.knowledgePrintBlockedMessage;
     };
     const keydown = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== "p" || !view) return;
@@ -75,6 +78,7 @@ export function KnowledgeSharedPage({ client, shareID, pageID, formatError }: { 
       window.removeEventListener("afterprint", afterPrint);
       window.removeEventListener("keydown", keydown, true);
       document.body.classList.remove("knowledge-print-blocked");
+      delete document.body.dataset.knowledgePrintBlockedMessage;
     };
   }, [client, formatError, pageID, shareID, view]);
 
@@ -96,15 +100,15 @@ export function KnowledgeSharedPage({ client, shareID, pageID, formatError }: { 
     finally { setBusy(false); }
   }
 
-  if (busy && !view) return <main className="knowledge-shared-state" role="status"><Link2 size={28} /><h1>正在核对分享权限…</h1><p>服务端正在确认登录身份、分享状态和有效期。</p></main>;
-  if (passwordRequired && !view) return <main className="knowledge-shared-state"><KeyRound size={28} /><h1>此分享需要访问密码</h1><p>密码只用于本次登录账号的服务端兑换，不会写入分享链接。</p><label>访问密码<input autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void submit(); }} /></label>{error && <p className="knowledge-error" role="alert">{error}</p>}<Button className="primary" disabled={busy || password.length < 8} onClick={() => void submit()}>{busy ? "正在验证…" : "验证并打开"}</Button></main>;
-  if (!view?.view.published) return <main className="knowledge-shared-state"><ShieldCheck size={28} /><h1>分享当前不可访问</h1><p>{error || "分享已撤销、已过期、账号不在允许范围，或页面不再发布。"}</p></main>;
+  if (busy && !view) return <main className="knowledge-shared-state" role="status"><Link2 size={28} /><h1>{kt("knowledge.auto.76a7b3acb578d6e1")}</h1><p>{kt("knowledge.auto.ecdebe9106969c5e")}</p></main>;
+  if (passwordRequired && !view) return <main className="knowledge-shared-state"><KeyRound size={28} /><h1>{kt("knowledge.auto.56d17bed8bde8ac3")}</h1><p>{kt("knowledge.auto.667440f80ed41ff7")}</p><label>{kt("knowledge.auto.f4f712d5be91721a")}<input autoFocus type="password" minLength={8} maxLength={72} value={password} onChange={event => setPassword(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void submit(); }} /></label>{error && <p className="knowledge-error" role="alert">{error}</p>}<Button className="primary" disabled={busy || password.length < 8} onClick={() => void submit()}>{busy ? kt("knowledge.auto.c725500abce15983") : kt("knowledge.auto.2187c463f1cdf72d")}</Button></main>;
+  if (!view?.view.published) return <main className="knowledge-shared-state"><ShieldCheck size={28} /><h1>{kt("knowledge.auto.b0af320a2a41ff38")}</h1><p>{error || kt("knowledge.auto.4140376178e8dc19")}</p></main>;
 
   const published = view.view.published;
   return <main className="knowledge-shared-page">
     <KnowledgeDynamicWatermark governance={view.view.governance} />
-    <header><span className="knowledge-shared-page-icon"><PageTypeIcon type={published.content_type} size={20} /></span><div><small>受控分享 · {pageTypeMeta[published.content_type].label}</small><h1>{published.title}</h1><KnowledgeClassificationBadge governance={view.view.governance} /><p><Clock3 size={13} />版本 {published.version} · 发布于 {new Date(published.published_at).toLocaleString()} · 分享有效至 {new Date(view.share.expires_at).toLocaleString()}</p></div></header>
-    <div className="knowledge-shared-security"><ShieldCheck size={15} /><span>只读的已发布版本；每次打开都会重新核对账号、分享范围、有效期与撤销状态。</span></div>
+    <header><span className="knowledge-shared-page-icon"><PageTypeIcon type={published.content_type} size={20} /></span><div><small>{kt("knowledge.auto.43ed5efc46d882fb")}{pageTypeMeta[published.content_type].label}</small><h1>{published.title}</h1><KnowledgeClassificationBadge governance={view.view.governance} /><p><Clock3 size={13} />{kt("knowledge.auto.5f76b2bf82dd2c5d")}{published.version} {kt("knowledge.auto.9c8b1bf537df251b")}{formatKnowledgeDate(published.published_at)} {kt("knowledge.auto.2fbfff136c75eced")}{formatKnowledgeDate(view.share.expires_at)}</p></div></header>
+    <div className="knowledge-shared-security"><ShieldCheck size={15} /><span>{kt("knowledge.auto.1f7edfed01333c4f")}</span></div>
     <article className="knowledge-page-readable typed-readable" onCopyCapture={event => void controlledCopy(event)}><KnowledgeEditor type={published.content_type} body={published.body.content} documentTitle={published.title} readOnly authorizeContentAction={authorizeContentAction} onActionFeedback={setError} onChange={() => undefined} /></article>
   </main>;
 }

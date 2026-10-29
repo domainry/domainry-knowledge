@@ -1,3 +1,4 @@
+import { formatKnowledgeNumber, kt } from "./i18n/runtime.ts";
 import type { KnowledgeGridAutomationExecute, KnowledgePageNativeOperation } from "./types.ts";
 
 export const gridFieldTypes = [
@@ -68,33 +69,33 @@ const objects = (value: unknown) => Array.isArray(value) ? value.filter((item): 
 
 export function parseGridContent(body: string): GridContent {
   const value = JSON.parse(body) as Partial<GridContent>;
-  if (!value || !Array.isArray(value.fields) || !Array.isArray(value.records) || !Array.isArray(value.views)) throw Error("多维表格内容结构无效。");
+  if (!value || !Array.isArray(value.fields) || !Array.isArray(value.records) || !Array.isArray(value.views)) throw Error(kt("knowledge.auto.1fc0543c52cd5db7"));
   const fields = objects(value.fields).map(item => ({ ...item, id: String(item.id || ""), name: String(item.name || ""), type: String(item.type || "") })) as GridField[];
   const records = objects(value.records).map(item => ({ ...item, id: String(item.id || ""), values: item.values && typeof item.values === "object" && !Array.isArray(item.values) ? item.values : {} })) as GridRecord[];
   const views = objects(value.views).map(item => ({ ...item, id: String(item.id || ""), name: String(item.name || ""), type: String(item.type || "") })) as GridView[];
-  if (fields.some(field => !field.id || !field.name || !gridFieldTypes.includes(field.type)) || records.some(record => !record.id) || views.some(view => !view.id || !view.name || !gridViewTypes.includes(view.type))) throw Error("多维表格字段、记录或视图缺少稳定标识。");
+  if (fields.some(field => !field.id || !field.name || !gridFieldTypes.includes(field.type)) || records.some(record => !record.id) || views.some(view => !view.id || !view.name || !gridViewTypes.includes(view.type))) throw Error(kt("knowledge.auto.4a9624b2f578934a"));
   return { schema_version: 1, fields, records, views, permissions: value.permissions, automations: value.automations };
 }
 
 export function emptyGridContent(): GridContent {
   return {
     schema_version: 1,
-    fields: [{ id: "title", name: "标题", type: "text", required: true }],
+    fields: [{ id: "title", name: kt("knowledge.auto.c3405f8c7d9d392a"), type: "text", required: true }],
     records: [],
-    views: [{ id: "view-grid", name: "表格", type: "grid", row_height: "normal" }],
+    views: [{ id: "view-grid", name: kt("knowledge.auto.22d9e7c54b88cacd"), type: "grid", row_height: "normal" }],
   };
 }
 
 export function gridFieldLabel(type: GridFieldType) {
   return ({
-    text: "单行文本", long_text: "多行文本", number: "数字", currency: "金额", single_select: "单选", multi_select: "多选", person: "人员", date: "日期", attachment: "附件",
-    checkbox: "复选框", progress: "进度", rating: "评分", email: "邮箱", phone: "电话", url: "网址", barcode: "条码",
-    formula: "公式", relation: "关联", lookup: "查找引用", created_time: "创建时间", updated_time: "更新时间", auto_number: "自动编号",
+    text: kt("knowledge.auto.0f59b2657fbbf761"), long_text: kt("knowledge.auto.85948100fe2c5393"), number: kt("knowledge.auto.c16ec9274e9d13d1"), currency: kt("knowledge.auto.ffc624300de8f2e1"), single_select: kt("knowledge.auto.4214b9af7ae0cdcc"), multi_select: kt("knowledge.auto.461e085d5ca266fb"), person: kt("knowledge.auto.06fea8eab68db0ad"), date: kt("knowledge.auto.70d0c1b33626ba4b"), attachment: kt("knowledge.auto.c7225dbf105eeed5"),
+    checkbox: kt("knowledge.auto.48b5075906c15c77"), progress: kt("knowledge.auto.f81ff55de14e3f45"), rating: kt("knowledge.auto.96fff2e26c8d1027"), email: kt("knowledge.auto.73075237fd0f05f0"), phone: kt("knowledge.auto.bf8b5d378f010ece"), url: kt("knowledge.auto.a8ecb4b6dabebc09"), barcode: kt("knowledge.auto.8043812671e8edf0"),
+    formula: kt("knowledge.auto.f3fccedacbcebbfa"), relation: kt("knowledge.auto.748cd875b23a81d6"), lookup: kt("knowledge.auto.70074641f1484706"), created_time: kt("knowledge.auto.07ec86e0f1d44f91"), updated_time: kt("knowledge.auto.0a5f9a892960a00a"), auto_number: kt("knowledge.auto.264bbc847882f93d"),
   } as Record<GridFieldType, string>)[type];
 }
 
 export function gridViewLabel(type: GridViewType) {
-  return ({ grid: "表格", kanban: "看板", gantt: "甘特", calendar: "日历", gallery: "画册", form: "表单" } as Record<GridViewType, string>)[type];
+  return ({ grid: kt("knowledge.auto.22d9e7c54b88cacd"), kanban: kt("knowledge.auto.0072da457a093523"), gantt: kt("knowledge.auto.db7049fd009850d0"), calendar: kt("knowledge.auto.a00f295cfbb0b1b3"), gallery: kt("knowledge.auto.dc7f21e137cc28b1"), form: kt("knowledge.auto.62abf78cc507b4fd") } as Record<GridViewType, string>)[type];
 }
 
 function comparable(value: unknown) {
@@ -178,13 +179,13 @@ export function gridRecordsForView(content: GridContent, view: GridView) {
 
 export function gridCellDisplay(content: GridContent, record: GridRecord, field: GridField) {
   const value = gridCellValue(content, record, field);
-  if (field.type === "checkbox") return value ? "是" : "否";
+  if (field.type === "checkbox") return value ? kt("knowledge.auto.b5141d3d19e9a048") : kt("knowledge.auto.0c70665b6eb65f1a");
   if (field.type === "progress") return `${Number(value || 0)}%`;
   if (field.type === "rating") return "★".repeat(Math.max(0, Math.min(5, Number(value || 0))));
-  if (field.type === "currency") return new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY" }).format(Number(value || 0));
+  if (field.type === "currency") return formatKnowledgeNumber(Number(value || 0), { style: "currency", currency: "CNY" });
   if (field.type === "single_select") return field.options?.find(option => option.id === value)?.label || String(value ?? "");
   if (field.type === "multi_select") return ids(value).map(id => field.options?.find(option => option.id === id)?.label || id).join("、");
-  if (field.type === "attachment") return objects(value).map(item => String(item.title || item.name || "附件")).join("、");
+  if (field.type === "attachment") return objects(value).map(item => String(item.title || item.name || kt("knowledge.auto.c7225dbf105eeed5"))).join("、");
   if (field.type === "relation") return ids(value).map(id => content.records.find(item => item.id === id)?.values.title || id).join("、");
   if (Array.isArray(value)) return value.join("、");
   return String(value ?? "");

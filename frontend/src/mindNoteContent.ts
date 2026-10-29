@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { documentBlockCommentQuote } from "./documentContent.ts";
 
 export type MindNoteNode = {
@@ -80,7 +81,7 @@ function validateNode(value: unknown, depth: number, ids: Set<string>, counter: 
 
 export const emptyMindNoteContent: MindNoteContent = {
   schema_version: 1,
-  nodes: [{ id: "note-1", text: "未命名主题", completed: false, collapsed: false, children: [] }],
+  nodes: [{ id: "note-1", get text() { return kt("knowledge.auto.bdbce97482269b4c"); }, completed: false, collapsed: false, children: [] }],
 };
 
 export function isMindNoteContent(value: unknown): value is MindNoteContent {
@@ -109,7 +110,7 @@ export function mindNotePlainText(value: MindNoteContent) {
     lines.push(`${"  ".repeat(Math.max(0, depth - 1))}${node.completed ? "[x]" : "[ ]"} ${node.text}`.trimEnd());
     if (node.note) lines.push(`${"  ".repeat(depth)}${node.note}`);
     if (node.tags?.length) lines.push(`${"  ".repeat(depth)}${node.tags.map(tag => `#${tag}`).join(" ")}`);
-    if (node.due_date) lines.push(`${"  ".repeat(depth)}截止 ${node.due_date}`);
+    if (node.due_date) lines.push(ktf("knowledge.auto.1a44d52d6b3772cc", { value0: "  ".repeat(depth), value1: node.due_date }));
     visit(node.children, depth + 1);
   });
   visit(value.nodes, 1);
@@ -120,7 +121,7 @@ function generatedID() {
   return `note-${crypto.randomUUID()}`;
 }
 
-export function createMindNoteNode(text = "新条目"): MindNoteNode {
+export function createMindNoteNode(text = kt("knowledge.auto.050718c5e8783d31")): MindNoteNode {
   return { id: generatedID(), text, completed: false, collapsed: false, children: [] };
 }
 
@@ -151,6 +152,6 @@ export function documentBlocksToMindNote(blocks: readonly MindNoteDocumentBlock[
     };
   };
   const nodes = blocks.map(convert);
-  return { schema_version: 1, nodes: nodes.length ? nodes : [createMindNoteNode("未命名主题")] };
+  return { schema_version: 1, nodes: nodes.length ? nodes : [createMindNoteNode(kt("knowledge.auto.bdbce97482269b4c"))] };
 }
 

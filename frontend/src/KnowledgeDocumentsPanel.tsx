@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Eye, FileText, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { Button, defaultErrorMessage } from "./components.tsx";
@@ -26,7 +27,7 @@ function formatBytes(value: number) {
 function DocumentPipeline({ document }: { document: KnowledgeDocument }) {
   const position = documentPipelinePosition(document);
   const failed = document.processing_stage === "failed";
-  return <ol className="knowledge-pipeline" aria-label="文档处理进度">
+  return <ol className="knowledge-pipeline" aria-label={kt("knowledge.auto.f9c2b0e71d3fe7ff")}>
     {documentPipelineStages.map((stage, index) => <li key={stage.key} data-state={index < position ? "done" : index === position ? failed ? "failed" : "active" : "pending"}><span>{index < position ? "✓" : index + 1}</span><small>{stage.label}</small></li>)}
   </ol>;
 }
@@ -84,19 +85,19 @@ export function KnowledgeDocumentsPanel({ client, initialLibrary, formatError = 
 
   async function upload(signal: AbortSignal) {
     if (!file || !uploadEnabled) return;
-    if (!file.size || file.size > maxUploadBytes) throw Error(`单文件不能超过 ${formatBytes(maxUploadBytes)}。`);
-    if (!knowledgeDocumentSupports(library, file.name)) throw Error("当前文件格式不支持入库。");
+    if (!file.size || file.size > maxUploadBytes) throw Error(ktf("knowledge.auto.7f91cb5ff9df464b", { value0: formatBytes(maxUploadBytes) }));
+    if (!knowledgeDocumentSupports(library, file.name)) throw Error(kt("knowledge.auto.4701a51f2d507975"));
     setHashProgress(0);
     const digest = await sha256(file, signal, setHashProgress);
     signal.throwIfAborted();
-    if (pending && (pending.filename !== file.name || pending.bytes !== file.size || pending.sha256 !== digest)) throw Error(`请重新选择上次的“${pending.filename}”继续上传，或先结束上次重试。`);
+    if (pending && (pending.filename !== file.name || pending.bytes !== file.size || pending.sha256 !== digest)) throw Error(ktf("knowledge.auto.aba9d8dd746c55eb", { value0: pending.filename }));
     const operation = pending || { clientID: crypto.randomUUID(), filename: file.name, bytes: file.size, sha256: digest };
     localStorage.setItem(storageKey, JSON.stringify(operation));
     setPending(operation);
     setUploadProgress(0);
     const created = await client.uploadDocument({ libraryID, file, clientID: operation.clientID, sha256: digest, signal, onProgress: (uploaded, total) => setUploadProgress(Math.min(1, uploaded / total)) });
     localStorage.removeItem(storageKey); setPending(null); setFile(null); if (input.current) input.current.value = "";
-    setSelected(created); onSelectedDocumentChange?.(created.id); setCursors([""]); setNotice(created.state === "ready" ? "文件已入库，可以检索。" : "原文件已保存，后台正在处理。可以关闭页面后再回来查看。 ");
+    setSelected(created); onSelectedDocumentChange?.(created.id); setCursors([""]); setNotice(created.state === "ready" ? kt("knowledge.auto.57c9b74f1b18f658") : kt("knowledge.auto.eaeb3977e0aa2ef1"));
   }
 
   async function remove(signal: AbortSignal) {
@@ -104,31 +105,31 @@ export function KnowledgeDocumentsPanel({ client, initialLibrary, formatError = 
     const result = await client.deleteDocument(libraryID, selected.id, selected.revision, signal);
     setConfirmDelete(false); setPreview(false);
     if (result.state === "deleted") { setSelected(null); onSelectedDocumentChange?.(""); } else setSelected(result);
-    setNotice(result.state === "deleted" ? "文档已删除。" : "文档已停止访问，后台正在清理原文件与索引。 ");
+    setNotice(result.state === "deleted" ? kt("knowledge.auto.114fcc128626193f") : kt("knowledge.auto.fffb153d67c5c0cb"));
   }
 
   async function retry(signal: AbortSignal) {
     if (!selected || !writable || !documentCanRetry(selected)) return;
     const result = await client.retryDocument(libraryID, selected.id, selected.revision, signal);
     setSelected(result);
-    setNotice("已立即重新调度当前处理阶段；不会重复提交状态不确定的远端写入。");
+    setNotice(kt("knowledge.auto.5d01fb27f237efb2"));
   }
 
   async function reindex(signal: AbortSignal) {
     if (!selected || !writable || !documentCanReindex(selected)) return;
     const result = await client.reindexDocument(libraryID, selected.id, selected.revision, signal);
     setSelected(result);
-    setNotice("新一代索引已开始建立；当前索引在切换成功前仍可检索。");
+    setNotice(kt("knowledge.auto.550dc8b9fc7c86b5"));
   }
 
-  return <section className={`knowledge-documents${embedded ? " is-embedded" : ""}`} aria-label="资料文件">
-    {!embedded && <div className="knowledge-section-heading"><h3>资料文件</h3><Button disabled={loading || busy} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} />刷新</Button></div>}
-    {showUploader && uploadEnabled && <div className="knowledge-upload"><label className="knowledge-file-picker"><Upload size={18} /><span>{file ? file.name : "选择本地文件"}</span><small>{file ? formatBytes(file.size) : "支持安全扫描后的文档、图片与音视频"}</small><input ref={input} type="file" accept={acceptedExtensions} disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setError(""); }} /></label><p>单个文件最大 {formatBytes(maxUploadBytes)}{maxIndexBytes < maxUploadBytes ? `；超过 ${formatBytes(maxIndexBytes)} 时仍可保存和预览，但暂不参与全文检索。` : "。"}</p>{file && file.size > selectedIndexMaxBytes && <p className="knowledge-notice">此文件可以保存、预览和下载，但超过当前可检索处理上限，暂时不会进入全文检索。</p>}{hashProgress !== null && <p role="status">正在分段校验文件：{Math.round(hashProgress * 100)}%</p>}{uploadProgress !== null && <p role="status">正在分片上传：{Math.round(uploadProgress * 100)}% · 每片最多 8 MiB，刷新后重新选择同一文件可继续。</p>}<Button className="primary" disabled={busy || !file} onClick={() => void perform(upload)}><Upload size={15} />{hashProgress !== null ? "正在校验…" : uploadProgress !== null ? "正在上传…" : pending ? "继续上次上传" : "上传文件"}</Button></div>}
-    {pending && <div className="knowledge-confirm"><p>上次上传待确认：{pending.filename}</p><Button disabled={busy} onClick={() => { localStorage.removeItem(storageKey); setPending(null); }}>结束这次重试</Button></div>}
+  return <section className={`knowledge-documents${embedded ? " is-embedded" : ""}`} aria-label={kt("knowledge.auto.2b932e19b158faaf")}>
+    {!embedded && <div className="knowledge-section-heading"><h3>{kt("knowledge.auto.2b932e19b158faaf")}</h3><Button disabled={loading || busy} onClick={() => setRefresh(value => value + 1)}><RefreshCw size={14} />{kt("knowledge.auto.aee88743413144a2")}</Button></div>}
+    {showUploader && uploadEnabled && <div className="knowledge-upload"><label className="knowledge-file-picker"><Upload size={18} /><span>{file ? file.name : kt("knowledge.auto.33e69e113e978c4e")}</span><small>{file ? formatBytes(file.size) : kt("knowledge.auto.e2c30d7af2ba6874")}</small><input ref={input} type="file" accept={acceptedExtensions} disabled={busy} onChange={event => { setFile(event.target.files?.[0] || null); setError(""); }} /></label><p>{kt("knowledge.auto.03ab68254c5e2542")}{formatBytes(maxUploadBytes)}{maxIndexBytes < maxUploadBytes ? ktf("knowledge.auto.66daa1c2944e2706", { value0: formatBytes(maxIndexBytes) }) : "。"}</p>{file && file.size > selectedIndexMaxBytes && <p className="knowledge-notice">{kt("knowledge.auto.00d20bd1b0ef2f18")}</p>}{hashProgress !== null && <p role="status">{kt("knowledge.auto.56f8b97e8ca27056")}{Math.round(hashProgress * 100)}%</p>}{uploadProgress !== null && <p role="status">{kt("knowledge.auto.4631bd1452e706bc")}{Math.round(uploadProgress * 100)}{kt("knowledge.auto.f460278822a02d3d")}</p>}<Button className="primary" disabled={busy || !file} onClick={() => void perform(upload)}><Upload size={15} />{hashProgress !== null ? kt("knowledge.auto.84717e2cadd0c96c") : uploadProgress !== null ? kt("knowledge.auto.6148b38691e3018e") : pending ? kt("knowledge.auto.373681808bc7185e") : kt("knowledge.auto.bb5caa9c59767eb8")}</Button></div>}
+    {pending && <div className="knowledge-confirm"><p>{kt("knowledge.auto.e0d11c8bbdda3595")}{pending.filename}</p><Button disabled={busy} onClick={() => { localStorage.removeItem(storageKey); setPending(null); }}>{kt("knowledge.auto.943fa0cbcb5fc08a")}</Button></div>}
     {error && <p role="alert" className="knowledge-error">{error}</p>}{notice && <p role="status" className="knowledge-notice">{notice}</p>}
-    {!hideList && (loading ? <p className="knowledge-subtle">正在读取资料文件…</p> : page.items.length === 0 ? <p className="knowledge-subtle">还没有资料文件。</p> : <div className="knowledge-document-list">{page.items.map(item => <button key={item.id} aria-current={selected?.id === item.id ? "true" : undefined} disabled={busy} onClick={() => { setSelected(item); onSelectedDocumentChange?.(item.id); setConfirmDelete(false); setError(""); }}><FileText size={18} /><span><strong>{item.filename}</strong><small>{documentLabel(item)} · {formatBytes(item.bytes)}</small></span></button>)}</div>)}
-    {!hideList && (cursors.length > 1 || !page.complete) && <nav className="knowledge-pagination"><Button disabled={busy || loading || cursors.length === 1} onClick={() => setCursors(value => value.slice(0, -1))}>上一页</Button><Button disabled={busy || loading || !page.next_after} onClick={() => setCursors(value => [...value, page.next_after!])}>下一页</Button></nav>}
-    {selected && <section className="knowledge-document-detail"><h3>{selected.filename}</h3><p>{documentLabel(selected)} · 内容版本 v{selected.content_version} · 索引代次 g{selected.index_generation} · {library.kind === "shared" ? "继承资料库成员权限" : "仅自己可见"}</p><DocumentPipeline document={selected} /><p>{documentStatusDetail(selected)}</p>{selected.security_scanner && <p>安全策略：{selected.security_scanner} · 报告 {selected.security_report_sha256?.slice(0, 12)}</p>}{selected.error_code && <p className="knowledge-error">错误代码：{selected.error_code}</p>}<div className="knowledge-actions">{canPreviewFilename(selected.filename) && <Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => setPreview(true)}><Eye size={15} />在线预览</Button>}<Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => void perform(signal => downloadDocument(client, selected, signal))}><Download size={15} />下载原文件</Button><Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => { if (loadPendingTransfer(client)) setNotice("检测到上次待确认的复制或移动，将继续核对原操作。"); setTransfer({ source: selected, canMove: writable }); }}>复制／移动</Button>{writable && documentCanRetry(selected) && <Button disabled={busy || library.archived} onClick={() => void perform(retry)}><RotateCcw size={15} />立即重试</Button>}{writable && documentCanReindex(selected) && <Button disabled={busy || library.archived} onClick={() => void perform(reindex)}><RefreshCw size={15} />重新索引</Button>}{writable && <Button className="danger" disabled={busy || selected.reindexing || selected.state === "deleting" || selected.state === "deleted"} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />删除</Button>}</div>{confirmDelete && <div className="knowledge-confirm"><p>确认删除“{selected.filename}”？它会立即停止检索和下载，随后清理原文件和索引。</p><div className="knowledge-actions"><Button className="danger" disabled={busy} onClick={() => void perform(remove)}>确认删除</Button><Button disabled={busy} onClick={() => setConfirmDelete(false)}>保留文档</Button></div></div>}</section>}
+    {!hideList && (loading ? <p className="knowledge-subtle">{kt("knowledge.auto.9ac6f8c5c49c9b26")}</p> : page.items.length === 0 ? <p className="knowledge-subtle">{kt("knowledge.auto.72e141ca0442ebc9")}</p> : <div className="knowledge-document-list">{page.items.map(item => <button key={item.id} aria-current={selected?.id === item.id ? "true" : undefined} disabled={busy} onClick={() => { setSelected(item); onSelectedDocumentChange?.(item.id); setConfirmDelete(false); setError(""); }}><FileText size={18} /><span><strong>{item.filename}</strong><small>{documentLabel(item)} · {formatBytes(item.bytes)}</small></span></button>)}</div>)}
+    {!hideList && (cursors.length > 1 || !page.complete) && <nav className="knowledge-pagination"><Button disabled={busy || loading || cursors.length === 1} onClick={() => setCursors(value => value.slice(0, -1))}>{kt("knowledge.auto.c9b9ae7a61444ab7")}</Button><Button disabled={busy || loading || !page.next_after} onClick={() => setCursors(value => [...value, page.next_after!])}>{kt("knowledge.auto.8a8542f6964852dc")}</Button></nav>}
+    {selected && <section className="knowledge-document-detail"><h3>{selected.filename}</h3><p>{documentLabel(selected)} {kt("knowledge.auto.1e94fe9671cecc7c")}{selected.content_version} {kt("knowledge.auto.e41883e531d40e47")}{selected.index_generation} · {library.kind === "shared" ? kt("knowledge.auto.c69ffb738fece3b8") : kt("knowledge.auto.33c7823a56bde000")}</p><DocumentPipeline document={selected} /><p>{documentStatusDetail(selected)}</p>{selected.security_scanner && <p>{kt("knowledge.auto.6686336334940c84")}{selected.security_scanner} {kt("knowledge.auto.d4a1e5a3458121ed")}{selected.security_report_sha256?.slice(0, 12)}</p>}{selected.error_code && <p className="knowledge-error">{kt("knowledge.auto.620311e1dffdd09b")}{selected.error_code}</p>}<div className="knowledge-actions">{canPreviewFilename(selected.filename) && <Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => setPreview(true)}><Eye size={15} />{kt("knowledge.auto.2fd122f806b88695")}</Button>}<Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => void perform(signal => downloadDocument(client, selected, signal))}><Download size={15} />{kt("knowledge.auto.aa1d4263667a8086")}</Button><Button disabled={busy || library.archived || !documentCanDownload(selected)} onClick={() => { if (loadPendingTransfer(client)) setNotice(kt("knowledge.auto.ddb03f06b8315623")); setTransfer({ source: selected, canMove: writable }); }}>{kt("knowledge.auto.0864d6103c14dfee")}</Button>{writable && documentCanRetry(selected) && <Button disabled={busy || library.archived} onClick={() => void perform(retry)}><RotateCcw size={15} />{kt("knowledge.auto.77c30e62fbac3631")}</Button>}{writable && documentCanReindex(selected) && <Button disabled={busy || library.archived} onClick={() => void perform(reindex)}><RefreshCw size={15} />{kt("knowledge.auto.364459a1896f41c0")}</Button>}{writable && <Button className="danger" disabled={busy || selected.reindexing || selected.state === "deleting" || selected.state === "deleted"} onClick={() => setConfirmDelete(true)}><Trash2 size={15} />{kt("knowledge.auto.2f9daa828907b93f")}</Button>}</div>{confirmDelete && <div className="knowledge-confirm"><p>{kt("knowledge.auto.18c982ddaf01d113")}{selected.filename}{kt("knowledge.auto.e16a0f14cfcd498c")}</p><div className="knowledge-actions"><Button className="danger" disabled={busy} onClick={() => void perform(remove)}>{kt("knowledge.auto.a3ea3c17b401bd2f")}</Button><Button disabled={busy} onClick={() => setConfirmDelete(false)}>{kt("knowledge.auto.18b15a4bb0ef13fd")}</Button></div></div>}</section>}
     {preview && selected && <FilePreviewDialog source={knowledgeDocumentPreviewSource(client, selected)} formatError={formatError} onClose={() => setPreview(false)} />}
     {transfer && <KnowledgeDocumentTransferDialog client={client} source={transfer.source} canMove={transfer.canMove} formatError={formatError} onClose={() => { setTransfer(null); setRefresh(value => value + 1); }} onOpenTarget={libraryID => { setTransfer(null); onOpenLibrary?.(libraryID); setRefresh(value => value + 1); }} />}
   </section>;

@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { Select as AriakitSelect, SelectItem as AriakitSelectItem, SelectItemCheck as AriakitSelectItemCheck, SelectPopover as AriakitSelectPopover, SelectProvider as AriakitSelectProvider } from "@ariakit/react";
 import { Check, ChevronDown } from "lucide-react";
 import { Children, isValidElement, useMemo, useRef, useState } from "react";
@@ -71,8 +72,8 @@ export function Select({
   const selectedSet = new Set(Array.isArray(selectedValue) ? selectedValue : [selectedValue]);
   const selectedOptions = options.filter(option => selectedSet.has(option.value));
   const displayValue = multiple
-    ? selectedOptions.length === 0 ? "请选择" : selectedOptions.length <= 2 ? selectedOptions.map(option => option.label).join("、") : `已选择 ${selectedOptions.length} 项`
-    : selectedOptions[0]?.label || "请选择";
+    ? selectedOptions.length === 0 ? kt("knowledge.auto.da590a8fe3ce4de0") : selectedOptions.length <= 2 ? selectedOptions.map(option => option.label).join("、") : ktf("knowledge.auto.3a4f3348f0cd60b1", { value0: selectedOptions.length })
+    : selectedOptions[0]?.label || kt("knowledge.auto.da590a8fe3ce4de0");
 
   function readNativeValue(element: HTMLSelectElement): string | string[] {
     return multiple ? Array.from(element.selectedOptions, option => option.value) : element.value;
@@ -137,6 +138,6 @@ export function EmptyState({ children }: PropsWithChildren) {
 }
 
 export function defaultErrorMessage(error: unknown) {
-  if (error instanceof DOMException && error.name === "AbortError") return "操作已取消。";
-  return error instanceof Error && error.message ? error.message : "知识库暂时不可用，请稍后重试。";
+  if (error instanceof DOMException && error.name === "AbortError") return kt("knowledge.auto.83f4727f2b4672a6");
+  return error instanceof Error && error.message ? error.message : kt("knowledge.auto.36a92b00137791e8");
 }

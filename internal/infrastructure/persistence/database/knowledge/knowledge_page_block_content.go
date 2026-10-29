@@ -321,6 +321,22 @@ func applyKnowledgeDocumentSuggestion(content string, suggestion knowledgesdk.Kn
 					})
 					changed = true
 					continue
+				case knowledgesdk.KnowledgeSuggestionReplace:
+					switch block.Content.(type) {
+					case []any:
+						block.Content = []any{map[string]any{"type": "text", "text": suggestion.ProposedText, "styles": map[string]any{}}}
+					case string:
+						definition, replaceable := knowledgeBlockRegistry[block.Type]
+						if !replaceable || !definition.ExtractContentText {
+							return items
+						}
+						block.Content = suggestion.ProposedText
+					default:
+						return items
+					}
+					result = append(result, block)
+					changed = true
+					continue
 				}
 			}
 			block.Children = mutate(block.Children)
@@ -330,6 +346,9 @@ func applyKnowledgeDocumentSuggestion(content string, suggestion knowledgesdk.Kn
 	}
 	blocks = mutate(blocks)
 	if !changed {
+		if suggestion.Kind == knowledgesdk.KnowledgeSuggestionReplace {
+			return "", conversationError("conflict", "page_suggestion_replace_unsupported")
+		}
 		return "", conversationError("conflict", "page_suggestion_anchor_changed")
 	}
 	raw, err := json.Marshal(struct {

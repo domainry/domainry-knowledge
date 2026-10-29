@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { evaluateGridFormula, gridAutomationExecutions, gridCellDisplay, gridRecordsForView, parseGridContent, type GridContent } from "../src/gridContent.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 const content: GridContent = {
   schema_version: 1,

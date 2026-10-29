@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
 import { readPresentation } from "../src/viewers/presentation.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 function buffer(value: Uint8Array) {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;

@@ -1,3 +1,4 @@
+import { kt } from "../i18n/runtime.ts";
 type UnknownObject = Record<string, unknown>;
 
 export type KnowledgeWhiteboardBinding = {
@@ -282,6 +283,6 @@ export function parseWhiteboardContent(body: string): KnowledgeWhiteboardContent
 export function whiteboardElementQuote(element: KnowledgeWhiteboardElement) {
   const explicit = element.text?.trim() || element.name?.trim();
   if (explicit) return explicit.slice(0, 1024);
-  if (element.custom_kind === "sticky_note") return "便签";
-  return ({ rectangle: "矩形", diamond: "菱形", ellipse: "椭圆", line: "线条", arrow: "连接线", freedraw: "自由绘制", image: "图片", frame: "画板区域", text: "文本" } as const)[element.type];
+  if (element.custom_kind === "sticky_note") return kt("knowledge.auto.e3c5f4c93febd398");
+  return ({ rectangle: kt("knowledge.auto.88b75a101595a23a"), diamond: kt("knowledge.auto.960748c01415d344"), ellipse: kt("knowledge.auto.7cd7a8146fca51e0"), line: kt("knowledge.auto.e94cd3cf61e93a38"), arrow: kt("knowledge.auto.89e919f2dd04faea"), freedraw: kt("knowledge.auto.a5478650ad39560e"), image: kt("knowledge.auto.d24c10d37db0feea"), frame: kt("knowledge.auto.510100f6f4c4fc4f"), text: kt("knowledge.auto.dd81861811e57bf7") } as const)[element.type];
 }

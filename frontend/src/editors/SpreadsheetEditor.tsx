@@ -1,12 +1,43 @@
+import { kt, ktf } from "../i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, Download, LockKeyhole, Plus, TableProperties, Trash2, Upload } from "lucide-react";
 import { createUniver, ICommandService, LocaleType, mergeLocales, type IWorkbookData } from "@univerjs/presets";
 import { UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
+import coreArSA from "@univerjs/preset-sheets-core/locales/ar-SA";
+import coreDeDE from "@univerjs/preset-sheets-core/locales/de-DE";
+import coreEnUS from "@univerjs/preset-sheets-core/locales/en-US";
+import coreEsES from "@univerjs/preset-sheets-core/locales/es-ES";
+import coreFrFR from "@univerjs/preset-sheets-core/locales/fr-FR";
+import coreItIT from "@univerjs/preset-sheets-core/locales/it-IT";
+import coreJaJP from "@univerjs/preset-sheets-core/locales/ja-JP";
+import coreKoKR from "@univerjs/preset-sheets-core/locales/ko-KR";
+import corePtBR from "@univerjs/preset-sheets-core/locales/pt-BR";
 import coreZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
+import coreZhTW from "@univerjs/preset-sheets-core/locales/zh-TW";
 import { UniverSheetsConditionalFormattingPreset } from "@univerjs/preset-sheets-conditional-formatting";
+import conditionalFormattingArSA from "@univerjs/preset-sheets-conditional-formatting/locales/ar-SA";
+import conditionalFormattingDeDE from "@univerjs/preset-sheets-conditional-formatting/locales/de-DE";
+import conditionalFormattingEnUS from "@univerjs/preset-sheets-conditional-formatting/locales/en-US";
+import conditionalFormattingEsES from "@univerjs/preset-sheets-conditional-formatting/locales/es-ES";
+import conditionalFormattingFrFR from "@univerjs/preset-sheets-conditional-formatting/locales/fr-FR";
+import conditionalFormattingItIT from "@univerjs/preset-sheets-conditional-formatting/locales/it-IT";
+import conditionalFormattingJaJP from "@univerjs/preset-sheets-conditional-formatting/locales/ja-JP";
+import conditionalFormattingKoKR from "@univerjs/preset-sheets-conditional-formatting/locales/ko-KR";
+import conditionalFormattingPtBR from "@univerjs/preset-sheets-conditional-formatting/locales/pt-BR";
 import conditionalFormattingZhCN from "@univerjs/preset-sheets-conditional-formatting/locales/zh-CN";
+import conditionalFormattingZhTW from "@univerjs/preset-sheets-conditional-formatting/locales/zh-TW";
 import { UniverSheetsDataValidationPreset } from "@univerjs/preset-sheets-data-validation";
+import dataValidationArSA from "@univerjs/preset-sheets-data-validation/locales/ar-SA";
+import dataValidationDeDE from "@univerjs/preset-sheets-data-validation/locales/de-DE";
+import dataValidationEnUS from "@univerjs/preset-sheets-data-validation/locales/en-US";
+import dataValidationEsES from "@univerjs/preset-sheets-data-validation/locales/es-ES";
+import dataValidationFrFR from "@univerjs/preset-sheets-data-validation/locales/fr-FR";
+import dataValidationItIT from "@univerjs/preset-sheets-data-validation/locales/it-IT";
+import dataValidationJaJP from "@univerjs/preset-sheets-data-validation/locales/ja-JP";
+import dataValidationKoKR from "@univerjs/preset-sheets-data-validation/locales/ko-KR";
+import dataValidationPtBR from "@univerjs/preset-sheets-data-validation/locales/pt-BR";
 import dataValidationZhCN from "@univerjs/preset-sheets-data-validation/locales/zh-CN";
+import dataValidationZhTW from "@univerjs/preset-sheets-data-validation/locales/zh-TW";
 import "@univerjs/preset-sheets-core/lib/index.css";
 import "@univerjs/preset-sheets-conditional-formatting/lib/index.css";
 import "@univerjs/preset-sheets-data-validation/lib/index.css";
@@ -29,6 +60,30 @@ import {
   type SpreadsheetPivot,
 } from "../spreadsheetContent.ts";
 import type { KnowledgeEditorProps } from "./types.ts";
+import { useKnowledgeTheme } from "../theme.tsx";
+import { useKnowledgeLocale } from "../i18n/runtime.ts";
+import { univerLocaleKey } from "../i18n/thirdParty.ts";
+
+const univerLocaleTypes = {
+  "en-US": LocaleType.EN_US, "zh-CN": LocaleType.ZH_CN, "zh-TW": LocaleType.ZH_TW,
+  "ja-JP": LocaleType.JA_JP, "ko-KR": LocaleType.KO_KR, "es-ES": LocaleType.ES_ES,
+  "pt-BR": LocaleType.PT_BR, "fr-FR": LocaleType.FR_FR, "de-DE": LocaleType.DE_DE,
+  "it-IT": LocaleType.IT_IT, "ar-SA": LocaleType.AR_SA,
+} as const;
+
+const univerLocales = {
+  [LocaleType.EN_US]: mergeLocales(coreEnUS, conditionalFormattingEnUS, dataValidationEnUS),
+  [LocaleType.ZH_CN]: mergeLocales(coreZhCN, conditionalFormattingZhCN, dataValidationZhCN),
+  [LocaleType.ZH_TW]: mergeLocales(coreZhTW, conditionalFormattingZhTW, dataValidationZhTW),
+  [LocaleType.JA_JP]: mergeLocales(coreJaJP, conditionalFormattingJaJP, dataValidationJaJP),
+  [LocaleType.KO_KR]: mergeLocales(coreKoKR, conditionalFormattingKoKR, dataValidationKoKR),
+  [LocaleType.ES_ES]: mergeLocales(coreEsES, conditionalFormattingEsES, dataValidationEsES),
+  [LocaleType.PT_BR]: mergeLocales(corePtBR, conditionalFormattingPtBR, dataValidationPtBR),
+  [LocaleType.FR_FR]: mergeLocales(coreFrFR, conditionalFormattingFrFR, dataValidationFrFR),
+  [LocaleType.DE_DE]: mergeLocales(coreDeDE, conditionalFormattingDeDE, dataValidationDeDE),
+  [LocaleType.IT_IT]: mergeLocales(coreItIT, conditionalFormattingItIT, dataValidationItIT),
+  [LocaleType.AR_SA]: mergeLocales(coreArSA, conditionalFormattingArSA, dataValidationArSA),
+};
 
 type AnalysisPanel = "charts" | "pivots" | "protection" | null;
 
@@ -51,7 +106,7 @@ function downloadBlob(blob: Blob, filename: string) {
 function ChartPreview({ content, chart }: { content: KnowledgeSpreadsheetContent; chart: SpreadsheetChart }) {
   const data = spreadsheetChartData(content, chart).slice(0, 24);
   const maximum = Math.max(1, ...data.map(item => Math.abs(item.value)));
-  if (data.length === 0) return <p className="knowledge-subtle">该区域没有可绘制的数值。</p>;
+  if (data.length === 0) return <p className="knowledge-subtle">{kt("knowledge.auto.9c6d0cd26b8b01a7")}</p>;
   if (chart.type === "pie" || chart.type === "donut") {
     const total = data.reduce((sum, item) => sum + Math.max(0, item.value), 0) || 1;
     let angle = 0;
@@ -96,11 +151,14 @@ function ChartPreview({ content, chart }: { content: KnowledgeSpreadsheetContent
 
 function PivotPreview({ content, pivot }: { content: KnowledgeSpreadsheetContent; pivot: SpreadsheetPivot }) {
   const rows = spreadsheetPivotData(content, pivot);
-  const aggregateLabel = { sum: "合计", count: "计数", average: "平均值", min: "最小值", max: "最大值" }[pivot.aggregate];
-  return rows.length === 0 ? <p className="knowledge-subtle">该区域没有可汇总的数据。</p> : <table className="native-sheet-pivot"><thead><tr><th>分组</th><th>{aggregateLabel}</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><td>{row.label}</td><td>{Number(row.value.toFixed(4))}</td></tr>)}</tbody></table>;
+  const aggregateLabel = { sum: kt("knowledge.auto.e009c148d1890dac"), count: kt("knowledge.auto.21179deb9a747f5f"), average: kt("knowledge.auto.db7538b96322d441"), min: kt("knowledge.auto.b2dcdcfabb6af2a8"), max: kt("knowledge.auto.1e7a2282076889b8") }[pivot.aggregate];
+  return rows.length === 0 ? <p className="knowledge-subtle">{kt("knowledge.auto.eb0fcedb9063f2fd")}</p> : <table className="native-sheet-pivot"><thead><tr><th>{kt("knowledge.auto.399ee69347726cee")}</th><th>{aggregateLabel}</th></tr></thead><tbody>{rows.map(row => <tr key={row.label}><td>{row.label}</td><td>{Number(row.value.toFixed(4))}</td></tr>)}</tbody></table>;
 }
 
-export function SpreadsheetEditor({ body, readOnly = false, canManage = false, documentTitle = "电子表格", initialSearchLocation, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+export function SpreadsheetEditor({ body, readOnly = false, canManage = false, documentTitle = kt("knowledge.auto.4ec5b26015f27485"), initialSearchLocation, pageActionHost, authorizeContentAction, onActionFeedback, onChange }: KnowledgeEditorProps) {
+  const knowledgeTheme = useKnowledgeTheme();
+  const knowledgeLocale = useKnowledgeLocale();
+  const univerLocale = univerLocaleTypes[univerLocaleKey[knowledgeLocale]];
   const host = useRef<HTMLDivElement>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
@@ -108,6 +166,11 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
   const contentRef = useRef(content);
   const bodyRef = useRef(body);
   const workbookRef = useRef<{ save(): IWorkbookData } | null>(null);
+  const univerThemeRef = useRef<{
+    toggleDarkMode(value: boolean): void;
+    setLocale(locale: string): void;
+    setDirection(direction: "ltr" | "rtl"): void;
+  } | null>(null);
   const [instanceRevision, setInstanceRevision] = useState(0);
   const [panel, setPanel] = useState<AnalysisPanel>(null);
   const [name, setName] = useState("");
@@ -141,17 +204,20 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
     container.className = "native-spreadsheet-instance";
     hostElement.replaceChildren(container);
     const { univer, univerAPI } = createUniver({
-      locale: LocaleType.ZH_CN,
-      locales: { [LocaleType.ZH_CN]: mergeLocales(coreZhCN, conditionalFormattingZhCN, dataValidationZhCN) },
+      darkMode: knowledgeTheme === "dark",
+      locale: univerLocale,
+      locales: univerLocales,
+      direction: knowledgeLocale === "ar" ? "rtl" : "ltr",
       presets: [
         UniverSheetsCorePreset({ container, toolbar: !readOnly, formulaBar: true, footer: readOnly ? false : {} }),
         UniverSheetsDataValidationPreset(),
         UniverSheetsConditionalFormattingPreset(),
       ],
     });
+    univerThemeRef.current = univerAPI;
     const workbook = univerAPI.createWorkbook(structuredClone(contentRef.current.workbook));
     workbookRef.current = workbook;
-    if (workbook.getSheets().length === 0) workbook.insertSheet("工作表 1");
+    if (workbook.getSheets().length === 0) workbook.insertSheet(kt("knowledge.auto.345cc0e777c05058"));
     workbook.setEditable(!readOnly);
     let ready = false;
     let commitTimer: number | undefined;
@@ -197,10 +263,16 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
       for (const eventName of ["input", "change", "keyup", "paste", "cut", "pointerup"] as const) {
         eventTarget.removeEventListener(eventName, scheduleCommitFromUI, true);
       }
-      mutationListener.dispose(); workbookRef.current = null; container.remove();
+      mutationListener.dispose(); workbookRef.current = null; univerThemeRef.current = null; container.remove();
       window.setTimeout(() => univer.dispose(), 0);
     };
   }, [canManage, initialSearchLocation, instanceRevision, readOnly]);
+
+  useEffect(() => { univerThemeRef.current?.toggleDarkMode(knowledgeTheme === "dark"); }, [knowledgeTheme]);
+  useEffect(() => {
+    univerThemeRef.current?.setLocale(univerLocale);
+    univerThemeRef.current?.setDirection(knowledgeLocale === "ar" ? "rtl" : "ltr");
+  }, [knowledgeLocale, univerLocale]);
 
   const selectedSheetExists = content.workbook.sheetOrder.includes(sheetID);
   useEffect(() => { if (!selectedSheetExists) setSheetID(content.workbook.sheetOrder[0] || ""); }, [content.workbook.sheetOrder, selectedSheetExists]);
@@ -208,24 +280,24 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
 
   const parsedRange = () => {
     const value = parseSpreadsheetRange(rangeText);
-    if (!value) throw Error("请输入类似 A1:B10 的有效区域。");
+    if (!value) throw Error(kt("knowledge.auto.a06c644626da429e"));
     const sheet = contentRef.current.workbook.sheets[sheetID] as { rowCount?: number; columnCount?: number } | undefined;
-    if (!sheet || value.end_row >= Number(sheet.rowCount || 0) || value.end_column >= Number(sheet.columnCount || 0)) throw Error("所选区域超出工作表范围。");
+    if (!sheet || value.end_row >= Number(sheet.rowCount || 0) || value.end_column >= Number(sheet.columnCount || 0)) throw Error(kt("knowledge.auto.0b0ab232fd67ea04"));
     return value;
   };
 
   const addChart = () => {
-    try { commit({ ...contentRef.current, charts: [...contentRef.current.charts, { id: spreadsheetID("chart"), name: name.trim() || "新图表", sheet_id: sheetID, type: chartType, range: parsedRange() }] }); setName(""); }
-    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "图表创建失败。"); }
+    try { commit({ ...contentRef.current, charts: [...contentRef.current.charts, { id: spreadsheetID("chart"), name: name.trim() || kt("knowledge.auto.21c2e2d524f3bd00"), sheet_id: sheetID, type: chartType, range: parsedRange() }] }); setName(""); }
+    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.1a4f9c02d357a0b2")); }
   };
   const addPivot = () => {
-    try { commit({ ...contentRef.current, pivots: [...contentRef.current.pivots, { id: spreadsheetID("pivot"), name: name.trim() || "新透视表", sheet_id: sheetID, aggregate, source_range: parsedRange() }] }); setName(""); }
-    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "透视表创建失败。"); }
+    try { commit({ ...contentRef.current, pivots: [...contentRef.current.pivots, { id: spreadsheetID("pivot"), name: name.trim() || kt("knowledge.auto.1b9da3d38228c745"), sheet_id: sheetID, aggregate, source_range: parsedRange() }] }); setName(""); }
+    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.253a7fdf15052a86")); }
   };
   const addProtection = () => {
     if (!canManage) return;
-    try { commit({ ...contentRef.current, protected_ranges: [...contentRef.current.protected_ranges, { id: spreadsheetID("protection"), name: name.trim() || "受保护区域", sheet_id: sheetID, range: parsedRange(), minimum_role: "manager" }] }); setName(""); setInstanceRevision(value => value + 1); }
-    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "保护范围创建失败。"); }
+    try { commit({ ...contentRef.current, protected_ranges: [...contentRef.current.protected_ranges, { id: spreadsheetID("protection"), name: name.trim() || kt("knowledge.auto.ecc5009acbc9bff0"), sheet_id: sheetID, range: parsedRange(), minimum_role: "manager" }] }); setName(""); setInstanceRevision(value => value + 1); }
+    catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.645eb5b9053aacae")); }
   };
   const removeFeature = (kind: "charts" | "pivots" | "protected_ranges", id: string) => {
     if (kind === "protected_ranges" && !canManage) return;
@@ -233,31 +305,31 @@ export function SpreadsheetEditor({ body, readOnly = false, canManage = false, d
     if (kind === "protected_ranges") setInstanceRevision(value => value + 1);
   };
   const exportXLSX = async () => {
-    if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+    if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165"));
     await authorizeContentAction("export");
     const value = { ...contentRef.current, workbook: sanitizeSpreadsheetWorkbook(workbookRef.current?.save() || contentRef.current.workbook) };
     const buffer = await exportKnowledgeSpreadsheetXLSX(value);
-    downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${documentTitle || "电子表格"}.xlsx`);
-    onActionFeedback?.("电子表格已导出为 XLSX。");
+    downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${documentTitle || kt("knowledge.auto.4ec5b26015f27485")}.xlsx`);
+    onActionFeedback?.(kt("knowledge.auto.951630ead9a30342"));
   };
   const importXLSX = async (file: File) => {
     const value = await importKnowledgeSpreadsheetXLSX(await file.arrayBuffer());
     const serialized = JSON.stringify(value);
     bodyRef.current = serialized; contentRef.current = value; setContent(value); setSheetID(value.workbook.sheetOrder[0] || ""); onChangeRef.current(serialized); setInstanceRevision(current => current + 1);
-    onActionFeedback?.(`已从“${file.name}”导入 ${value.workbook.sheetOrder.length} 个工作表。`);
+    onActionFeedback?.(ktf("knowledge.auto.92eca7aebb70b6fc", { value0: file.name, value1: value.workbook.sheetOrder.length }));
   };
 
   return <div className="knowledge-open-editor is-univer native-spreadsheet-product">
-    {authorizeContentAction && <PageActionPortal host={pageActionHost}><Button onClick={() => void exportXLSX().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导出失败。"))}><Download size={15} />XLSX</Button></PageActionPortal>}
+    {authorizeContentAction && <PageActionPortal host={pageActionHost}><Button onClick={() => void exportXLSX().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.f7862b83251f2349")))}><Download size={15} />XLSX</Button></PageActionPortal>}
     <div className="native-sheet-toolbar">
-      <div><Button aria-pressed={panel === "charts"} onClick={() => setPanel(value => value === "charts" ? null : "charts")}><BarChart3 size={15} />图表</Button><Button aria-pressed={panel === "pivots"} onClick={() => setPanel(value => value === "pivots" ? null : "pivots")}><TableProperties size={15} />透视表</Button>{canManage && !readOnly && <Button aria-pressed={panel === "protection"} onClick={() => setPanel(value => value === "protection" ? null : "protection")}><LockKeyhole size={15} />保护范围</Button>}</div>
-      <span>数据验证与条件格式位于表格工具栏</span>
-      <div>{!readOnly && <><Button onClick={() => importRef.current?.click()}><Upload size={15} />导入</Button><input ref={importRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={event => { const file = event.target.files?.[0]; if (file) void importXLSX(file).catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : "导入失败。")); event.currentTarget.value = ""; }} /></>}</div>
+      <div><Button aria-pressed={panel === "charts"} onClick={() => setPanel(value => value === "charts" ? null : "charts")}><BarChart3 size={15} />{kt("knowledge.auto.8cb443ab83797881")}</Button><Button aria-pressed={panel === "pivots"} onClick={() => setPanel(value => value === "pivots" ? null : "pivots")}><TableProperties size={15} />{kt("knowledge.auto.b2c47bafe303b596")}</Button>{canManage && !readOnly && <Button aria-pressed={panel === "protection"} onClick={() => setPanel(value => value === "protection" ? null : "protection")}><LockKeyhole size={15} />{kt("knowledge.auto.92e5720b9aa5a9ef")}</Button>}</div>
+      <span>{kt("knowledge.auto.1a837c925e222cd4")}</span>
+      <div>{!readOnly && <><Button onClick={() => importRef.current?.click()}><Upload size={15} />{kt("knowledge.auto.576d81bb0631b165")}</Button><input ref={importRef} hidden type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={event => { const file = event.target.files?.[0]; if (file) void importXLSX(file).catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.d5d4ca58693603db"))); event.currentTarget.value = ""; }} /></>}</div>
     </div>
-    {panel && <aside className="native-sheet-analysis" aria-label={panel === "charts" ? "图表" : panel === "pivots" ? "透视表" : "保护范围"}>
-      <header><div><strong>{panel === "charts" ? "图表" : panel === "pivots" ? "透视表" : "保护范围"}</strong><p>{panel === "charts" ? "首列作为分类、第二列作为数值。" : panel === "pivots" ? "首列分组、第二列汇总。" : "保护范围仅知识库管理员可以修改。"}</p></div></header>
-      {!readOnly && (panel !== "protection" || canManage) && <div className="native-sheet-feature-form"><input aria-label="名称" value={name} onChange={event => setName(event.target.value)} placeholder="名称" maxLength={128} /><Select aria-label="工作表" value={sheetID} onChange={event => setSheetID(event.target.value)}>{sheetOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select><input aria-label="区域" value={rangeText} onChange={event => setRangeText(event.target.value)} placeholder="A1:B10" />{panel === "charts" && <Select aria-label="图表类型" value={chartType} onChange={event => setChartType(event.target.value as SpreadsheetChart["type"])}><option value="column">柱状图</option><option value="bar">条形图</option><option value="line">折线图</option><option value="area">面积图</option><option value="pie">饼图</option><option value="donut">环形图</option><option value="scatter">散点图</option><option value="radar">雷达图</option><option value="funnel">漏斗图</option><option value="waterfall">瀑布图</option></Select>}{panel === "pivots" && <Select aria-label="汇总方式" value={aggregate} onChange={event => setAggregate(event.target.value as SpreadsheetPivot["aggregate"])}><option value="sum">合计</option><option value="count">计数</option><option value="average">平均值</option><option value="min">最小值</option><option value="max">最大值</option></Select>}<Button className="primary" onClick={panel === "charts" ? addChart : panel === "pivots" ? addPivot : addProtection}><Plus size={15} />创建</Button></div>}
-      <div className="native-sheet-feature-list">{panel === "charts" ? content.charts.map(chart => <article key={chart.id}><header><div><strong>{chart.name}</strong><span>{sheetOptions.find(item => item.id === chart.sheet_id)?.name || chart.sheet_id} · {formatSpreadsheetRange(chart.range)}</span></div>{!readOnly && <Button title="删除图表" onClick={() => removeFeature("charts", chart.id)}><Trash2 size={14} /></Button>}</header><ChartPreview content={content} chart={chart} /></article>) : panel === "pivots" ? content.pivots.map(pivot => <article key={pivot.id}><header><div><strong>{pivot.name}</strong><span>{sheetOptions.find(item => item.id === pivot.sheet_id)?.name || pivot.sheet_id} · {formatSpreadsheetRange(pivot.source_range)}</span></div>{!readOnly && <Button title="删除透视表" onClick={() => removeFeature("pivots", pivot.id)}><Trash2 size={14} /></Button>}</header><PivotPreview content={content} pivot={pivot} /></article>) : content.protected_ranges.map(item => <article key={item.id}><header><div><strong>{item.name}</strong><span>{sheetOptions.find(option => option.id === item.sheet_id)?.name || item.sheet_id} · {formatSpreadsheetRange(item.range)} · 仅管理员可编辑</span></div>{canManage && !readOnly && <Button title="删除保护范围" onClick={() => removeFeature("protected_ranges", item.id)}><Trash2 size={14} /></Button>}</header></article>)}</div>
+    {panel && <aside className="native-sheet-analysis" aria-label={panel === "charts" ? kt("knowledge.auto.8cb443ab83797881") : panel === "pivots" ? kt("knowledge.auto.b2c47bafe303b596") : kt("knowledge.auto.92e5720b9aa5a9ef")}>
+      <header><div><strong>{panel === "charts" ? kt("knowledge.auto.8cb443ab83797881") : panel === "pivots" ? kt("knowledge.auto.b2c47bafe303b596") : kt("knowledge.auto.92e5720b9aa5a9ef")}</strong><p>{panel === "charts" ? kt("knowledge.auto.8c4bfddf6e7be247") : panel === "pivots" ? kt("knowledge.auto.6fb641f2da1e8f8a") : kt("knowledge.auto.ae87ceeb79853ef8")}</p></div></header>
+      {!readOnly && (panel !== "protection" || canManage) && <div className="native-sheet-feature-form"><input aria-label={kt("knowledge.auto.d44e9b3d3b31d37b")} value={name} onChange={event => setName(event.target.value)} placeholder={kt("knowledge.auto.d44e9b3d3b31d37b")} maxLength={128} /><Select aria-label={kt("knowledge.auto.b02781ee06c6587e")} value={sheetID} onChange={event => setSheetID(event.target.value)}>{sheetOptions.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</Select><input aria-label={kt("knowledge.auto.3382870bc4ada94e")} value={rangeText} onChange={event => setRangeText(event.target.value)} placeholder="A1:B10" />{panel === "charts" && <Select aria-label={kt("knowledge.auto.52fe98551232b10f")} value={chartType} onChange={event => setChartType(event.target.value as SpreadsheetChart["type"])}><option value="column">{kt("knowledge.auto.8aece403ca0b24e6")}</option><option value="bar">{kt("knowledge.auto.a7cdeaf06b1273ad")}</option><option value="line">{kt("knowledge.auto.c24656699bd0194b")}</option><option value="area">{kt("knowledge.auto.20068d3d65236e97")}</option><option value="pie">{kt("knowledge.auto.86f348d657451e11")}</option><option value="donut">{kt("knowledge.auto.7777709a84485768")}</option><option value="scatter">{kt("knowledge.auto.c062f5c0bb71d902")}</option><option value="radar">{kt("knowledge.auto.1107fe308f214801")}</option><option value="funnel">{kt("knowledge.auto.715aae7a0b8f4194")}</option><option value="waterfall">{kt("knowledge.auto.c4a5d4f05b97ac71")}</option></Select>}{panel === "pivots" && <Select aria-label={kt("knowledge.auto.d64dc053a5773bad")} value={aggregate} onChange={event => setAggregate(event.target.value as SpreadsheetPivot["aggregate"])}><option value="sum">{kt("knowledge.auto.e009c148d1890dac")}</option><option value="count">{kt("knowledge.auto.21179deb9a747f5f")}</option><option value="average">{kt("knowledge.auto.db7538b96322d441")}</option><option value="min">{kt("knowledge.auto.b2dcdcfabb6af2a8")}</option><option value="max">{kt("knowledge.auto.1e7a2282076889b8")}</option></Select>}<Button className="primary" onClick={panel === "charts" ? addChart : panel === "pivots" ? addPivot : addProtection}><Plus size={15} />{kt("knowledge.auto.cde2cd071d25bbab")}</Button></div>}
+      <div className="native-sheet-feature-list">{panel === "charts" ? content.charts.map(chart => <article key={chart.id}><header><div><strong>{chart.name}</strong><span>{sheetOptions.find(item => item.id === chart.sheet_id)?.name || chart.sheet_id} · {formatSpreadsheetRange(chart.range)}</span></div>{!readOnly && <Button title={kt("knowledge.auto.60d6145c0a1da027")} onClick={() => removeFeature("charts", chart.id)}><Trash2 size={14} /></Button>}</header><ChartPreview content={content} chart={chart} /></article>) : panel === "pivots" ? content.pivots.map(pivot => <article key={pivot.id}><header><div><strong>{pivot.name}</strong><span>{sheetOptions.find(item => item.id === pivot.sheet_id)?.name || pivot.sheet_id} · {formatSpreadsheetRange(pivot.source_range)}</span></div>{!readOnly && <Button title={kt("knowledge.auto.4ff18336585a3066")} onClick={() => removeFeature("pivots", pivot.id)}><Trash2 size={14} /></Button>}</header><PivotPreview content={content} pivot={pivot} /></article>) : content.protected_ranges.map(item => <article key={item.id}><header><div><strong>{item.name}</strong><span>{sheetOptions.find(option => option.id === item.sheet_id)?.name || item.sheet_id} · {formatSpreadsheetRange(item.range)} {kt("knowledge.auto.6cedc49dd5acfb7a")}</span></div>{canManage && !readOnly && <Button title={kt("knowledge.auto.ed3184ab190e9ac9")} onClick={() => removeFeature("protected_ranges", item.id)}><Trash2 size={14} /></Button>}</header></article>)}</div>
     </aside>}
     <div ref={host} className="native-spreadsheet-host" />
   </div>;

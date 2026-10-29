@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { knowledgeDocumentHits, knowledgeSearchStatus } from "../src/search-results.ts";
 import type { KnowledgeResult } from "../src/types.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("search results keep the best passage and deduplicate only within one library", () => {
   const result: KnowledgeResult = { provider: "fixture", kb_id: "kb", operation: "search", data: {}, citations: [

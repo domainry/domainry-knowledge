@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { documentCanReindex, documentErrorDetail, documentStatusDetail } from "../src/document.ts";
 import type { KnowledgeDocument } from "../src/types.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("document failures distinguish unsafe files from retryable infrastructure failures", () => {
   assert.match(documentErrorDetail("document_malware_detected"), /恶意内容/);

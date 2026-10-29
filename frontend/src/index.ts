@@ -12,10 +12,43 @@ export type { MentionComposerProps } from "./page-workspace/MentionComposer.tsx"
 export { KnowledgeSharedPage } from "./KnowledgeSharedPage.tsx";
 export { createKnowledgePageShareLink, parseKnowledgePageShareLocation } from "./knowledge-share-links.ts";
 export type { KnowledgeWorkspaceProps } from "./KnowledgeWorkspace.tsx";
+export { KnowledgeThemeProvider, useKnowledgeTheme, useResolvedKnowledgeTheme } from "./theme.tsx";
+export type { KnowledgeTheme, ResolvedKnowledgeTheme } from "./theme.tsx";
+export { KNOWLEDGE_LOCALES, KnowledgeI18nProvider, activateKnowledgeLocale, browserKnowledgeLocale, formatKnowledgeDate, formatKnowledgeNumber, knowledgeDirection, normalizeKnowledgeLocale, useKnowledgeLocale } from "./i18n/runtime.ts";
 export { FilePreviewDialog } from "./FilePreviewDialog.tsx";
 export { canPreviewFilename, downloadFile, downloadFilename, fileSHA256Header, knowledgeDocumentPreviewSource } from "./file-preview.ts";
 export { parseHTTPErrorResponse } from "./http-error.ts";
 export type { HTTPErrorResponse } from "./http-error.ts";
+export {
+  KNOWLEDGE_HOST_LOCALES,
+  KNOWLEDGE_GUEST_TO_HOST_CHANNEL,
+  KNOWLEDGE_HOST_MESSAGE_MAX_LENGTH,
+  KNOWLEDGE_HOST_PROTOCOL_VERSION,
+  KNOWLEDGE_HOST_TO_GUEST_CHANNEL,
+  KNOWLEDGE_SELECTION_MAX_BLOCKS,
+  KNOWLEDGE_SELECTION_MAX_QUOTE_LENGTH,
+  boundKnowledgeDocumentSelection,
+  createKnowledgeSelectionReference,
+  parseKnowledgeAddSelectionRequest,
+  parseKnowledgeAddSelectionResult,
+  parseKnowledgeGuestToHostMessage,
+  parseKnowledgeHostPreferences,
+  parseKnowledgeHostToGuestMessage,
+  parseKnowledgeSelectionReference,
+} from "./hostIntegration.ts";
+export type {
+  KnowledgeAddSelectionRequest,
+  KnowledgeAddSelectionResult,
+  KnowledgeDocumentSelectionAnchor,
+  KnowledgeDocumentSelectionSnapshot,
+  KnowledgeGuestToHostMessage,
+  KnowledgeHostIntegration,
+  KnowledgeHostLocale,
+  KnowledgeHostPreferences,
+  KnowledgeHostToGuestMessage,
+  KnowledgeSelectionReference,
+  KnowledgeSelectionReferenceInput,
+} from "./hostIntegration.ts";
 export type {
   FilePreviewDescriptor,
   FilePreviewLocation,

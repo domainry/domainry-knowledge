@@ -22,6 +22,8 @@
     "check": "tsc --noEmit",
     "check:app": "tsc -p tsconfig.app.json --noEmit",
     "test": "npm run check && node --experimental-strip-types --test test/*.test.mjs test/*.test.ts",
+    "i18n:extract": "node scripts/extract-knowledge-messages.mjs",
+    "i18n:compile": "lingui compile --typescript",
     "prepack": "npm run build"
   },
   "peerDependencies": {
@@ -30,6 +32,7 @@
     "react-dom": ">=19.0.0"
   },
   "dependencies": {
+    "@ag-grid-community/locale": "36.2.0",
     "@ariakit/react": "0.4.42",
     "@blocknote/ariakit": "0.56.0",
     "@blocknote/core": "0.56.0",
@@ -37,6 +40,8 @@
     "@blocknote/xl-multi-column": "0.56.0",
     "@excalidraw/excalidraw": "0.18.1",
     "@formio/js": "5.7.0",
+    "@lingui/core": "^5.6.1",
+    "@lingui/react": "^5.6.1",
     "@logicflow/core": "2.2.5",
     "@logicflow/extension": "2.3.1",
     "@shikijs/langs": "4.5.0",
@@ -66,6 +71,8 @@
     "yjs": "13.6.33"
   },
   "devDependencies": {
+    "@lingui/cli": "^5.6.1",
+    "@lingui/format-json": "^5.6.1",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "lucide-react": "^0.577.0",

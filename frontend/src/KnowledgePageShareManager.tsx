@@ -1,3 +1,4 @@
+import { formatKnowledgeDate, kt, ktf } from "./i18n/runtime.ts";
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Link2, Plus, RefreshCw, Share2, ShieldCheck, X } from "lucide-react";
 import { Button, Select } from "./components.tsx";
@@ -68,16 +69,16 @@ export function KnowledgePageShareManager({ client, libraryID, pageID, published
       if (kind === "organization") {
         const organizationID = targetQuery.trim();
         const [principal] = await client.resolveOrganizationPrincipals([organizationID], AbortSignal.timeout(30_000));
-        if (!principal || principal.organization_id !== organizationID || principal.status !== "active") throw Error("组织不存在或已停用。请输入 Identity 中的有效组织 ID。");
+        if (!principal || principal.organization_id !== organizationID || principal.status !== "active") throw Error(kt("knowledge.auto.2cfc9e53262dc568"));
         setOrganizationProfiles(current => ({ ...current, [organizationID]: principal }));
         target = { type: "organization" as const, id: organizationID };
       }
       const expiry = new Date(expiresAt);
-      if (!Number.isFinite(expiry.getTime()) || expiry <= new Date()) throw Error("分享有效期必须晚于当前时间。");
+      if (!Number.isFinite(expiry.getTime()) || expiry <= new Date()) throw Error(kt("knowledge.auto.bf658e549bdf646a"));
       const share = await client.createPageShare(libraryID, pageID, { client_id: crypto.randomUUID(), kind, target, scope, expires_at: expiry.toISOString(), password: password || undefined }, AbortSignal.timeout(30_000));
       setShares(current => [share, ...current.filter(item => item.id !== share.id)]);
       setPassword(""); setTargetID(""); setTargetQuery(""); setPrincipals([]);
-      onNotice("受控分享已创建。访问者仍需登录，服务端会在每次阅读时重新核对身份、有效期与撤销状态。");
+      onNotice(kt("knowledge.auto.4ee877508709bcec"));
     } catch (failure) { setError(formatError(failure)); }
     finally { setBusy(""); }
   }
@@ -88,7 +89,7 @@ export function KnowledgePageShareManager({ client, libraryID, pageID, published
     try {
       const updated = await client.revokePageShare(libraryID, pageID, share.id, share.revision, AbortSignal.timeout(30_000));
       setShares(current => current.map(item => item.id === updated.id ? updated : item));
-      onNotice("分享已撤销，已有兑换记录也已立即失效。");
+      onNotice(kt("knowledge.auto.f377a88d800148b7"));
     } catch (failure) { setError(formatError(failure)); }
     finally { setBusy(""); }
   }
@@ -96,31 +97,31 @@ export function KnowledgePageShareManager({ client, libraryID, pageID, published
   async function copyLink(share: KnowledgePageShare) {
     try {
       await navigator.clipboard.writeText(createKnowledgePageShareLink(window.location.href, share.id, share.page_id));
-      onNotice("分享链接已复制。链接只含非密钥定位符，不能绕过登录和服务端权限校验。");
-    } catch { setError("浏览器未允许复制，请在地址栏手动复制分享链接。"); }
+      onNotice(kt("knowledge.auto.dcbd94301d2b4c5d"));
+    } catch { setError(kt("knowledge.auto.884ad77986e29f9f")); }
   }
 
   function targetLabel(share: KnowledgePageShare) {
-    if (share.kind === "external") return "工作区外部用户";
+    if (share.kind === "external") return kt("knowledge.auto.a1383ff0a278bced");
     if (share.target?.type === "organization") return organizationProfiles[share.target.id]?.display_name || share.target.id;
-    return share.target ? userProfiles[share.target.id]?.display_name || share.target.id : "未知主体";
+    return share.target ? userProfiles[share.target.id]?.display_name || share.target.id : kt("knowledge.auto.a034b3ab77ba7d9b");
   }
 
   if (!available) return null;
   return <section className="knowledge-share-manager">
-    <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><Share2 size={17} /></span><div><h3>受控分享</h3><p>创建限定对象、范围和有效期的只读入口；分享链接本身不是登录凭证。</p></div><Button aria-label="刷新分享" title="刷新分享" disabled={!!busy} onClick={() => void load()}><RefreshCw size={14} /></Button></header>
-    {!published && <p className="knowledge-access-preview">当前页面尚未发布，不能创建分享。发布后只读分享不会暴露草稿。</p>}
+    <header className="knowledge-management-panel-header"><span className="knowledge-management-panel-icon"><Share2 size={17} /></span><div><h3>{kt("knowledge.auto.348c903d1b5d1b9c")}</h3><p>{kt("knowledge.auto.28d45d2fae47d9ee")}</p></div><Button aria-label={kt("knowledge.auto.c42cd14d6a672035")} title={kt("knowledge.auto.c42cd14d6a672035")} disabled={!!busy} onClick={() => void load()}><RefreshCw size={14} /></Button></header>
+    {!published && <p className="knowledge-access-preview">{kt("knowledge.auto.90c95ed80c99e70c")}</p>}
     <div className="knowledge-share-create">
-      <label>分享对象<Select value={kind} disabled={!!busy || !published} onChange={event => setKind(event.target.value as KnowledgePageShareKind)}><option value="user">指定用户</option><option value="organization">指定组织</option><option value="external">外部用户</option></Select></label>
-      {kind === "user" && <div className="knowledge-principal-picker"><label>查找工作区用户<input value={targetQuery} disabled={!!busy || !published} onChange={event => { setTargetQuery(event.target.value); setTargetID(""); }} placeholder="输入姓名或邮箱" /></label>{principals.length > 0 && <div className="knowledge-principal-results" role="listbox">{principals.map(principal => <button key={principal.user_id} type="button" role="option" aria-selected={targetID === principal.user_id} onClick={() => { setTargetID(principal.user_id); setTargetQuery(principal.display_name || principal.email || principal.user_id); setPrincipals([]); }}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}</div>}
-      {kind === "organization" && <label>Identity 组织 ID<input value={targetQuery} disabled={!!busy || !published} onChange={event => setTargetQuery(event.target.value)} placeholder="输入准确的组织 ID" /></label>}
-      <div className="knowledge-share-options"><label>范围<Select value={scope} disabled={!!busy || !published} onChange={event => setScope(event.target.value as KnowledgePageShareScope)}><option value="page">仅此页面</option><option value="subtree">页面与已发布子树</option></Select></label><label>有效期<input type="datetime-local" value={expiresAt} disabled={!!busy || !published} onChange={event => setExpiresAt(event.target.value)} /></label></div>
-      <label>访问密码{kind === "external" ? "（必填，至少 8 位）" : "（可选，至少 8 位）"}<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={password} disabled={!!busy || !published} onChange={event => setPassword(event.target.value)} placeholder={kind === "external" ? "外部分享必须设置密码" : "需要二次验证时设置"} /></label>
-      <Button className="primary" disabled={!canCreate} onClick={() => void create()}><Plus size={14} />{busy === "create" ? "正在创建…" : "创建分享"}</Button>
+      <label>{kt("knowledge.auto.49155cd6d0ddcdcf")}<Select value={kind} disabled={!!busy || !published} onChange={event => setKind(event.target.value as KnowledgePageShareKind)}><option value="user">{kt("knowledge.auto.7c1bb92bf6f1ac27")}</option><option value="organization">{kt("knowledge.auto.279fe628f9178480")}</option><option value="external">{kt("knowledge.auto.17aa3d920939f691")}</option></Select></label>
+      {kind === "user" && <div className="knowledge-principal-picker"><label>{kt("knowledge.auto.0ebfa23b0d118d7b")}<input value={targetQuery} disabled={!!busy || !published} onChange={event => { setTargetQuery(event.target.value); setTargetID(""); }} placeholder={kt("knowledge.auto.85333d57ff441b5b")} /></label>{principals.length > 0 && <div className="knowledge-principal-results" role="listbox">{principals.map(principal => <button key={principal.user_id} type="button" role="option" aria-selected={targetID === principal.user_id} onClick={() => { setTargetID(principal.user_id); setTargetQuery(principal.display_name || principal.email || principal.user_id); setPrincipals([]); }}><span aria-hidden="true">{(principal.display_name || "?").slice(0, 1)}</span><strong>{principal.display_name || principal.user_id}</strong><small>{principal.email}</small></button>)}</div>}</div>}
+      {kind === "organization" && <label>{kt("knowledge.auto.ff76126c1b1ae3b3")}<input value={targetQuery} disabled={!!busy || !published} onChange={event => setTargetQuery(event.target.value)} placeholder={kt("knowledge.auto.7f35c9d5cbc9246a")} /></label>}
+      <div className="knowledge-share-options"><label>{kt("knowledge.auto.ae72b532f4b8f09e")}<Select value={scope} disabled={!!busy || !published} onChange={event => setScope(event.target.value as KnowledgePageShareScope)}><option value="page">{kt("knowledge.auto.3427f69175c5c4ab")}</option><option value="subtree">{kt("knowledge.auto.12e1350a507e7acd")}</option></Select></label><label>{kt("knowledge.auto.9c2a28e8f98fb5df")}<input type="datetime-local" value={expiresAt} disabled={!!busy || !published} onChange={event => setExpiresAt(event.target.value)} /></label></div>
+      <label>{kt("knowledge.auto.f4f712d5be91721a")}{kind === "external" ? kt("knowledge.auto.a786b68e383dec83") : kt("knowledge.auto.65a53dde23bf7775")}<input type="password" minLength={8} maxLength={72} autoComplete="new-password" value={password} disabled={!!busy || !published} onChange={event => setPassword(event.target.value)} placeholder={kind === "external" ? kt("knowledge.auto.130c9dcadd682b6f") : kt("knowledge.auto.17bf5d4ecb7241fa")} /></label>
+      <Button className="primary" disabled={!canCreate} onClick={() => void create()}><Plus size={14} />{busy === "create" ? kt("knowledge.auto.7c0305bc0ce607b2") : kt("knowledge.auto.7f86da84215141c2")}</Button>
     </div>
     {error && <p className="knowledge-error" role="alert">{error}</p>}
-    <div className="knowledge-share-list">{shares.map(share => <article key={share.id} className={share.state === "revoked" || new Date(share.expires_at) <= new Date() ? "is-inactive" : undefined}><span className="knowledge-share-icon"><Link2 size={15} /></span><span><strong>{targetLabel(share)}</strong><small>{share.kind === "organization" ? "组织" : share.kind === "user" ? "指定用户" : "受控外部访问"} · {share.scope === "subtree" ? "页面与子树" : "仅此页面"} · {share.password_protected ? "有密码" : "无密码"}</small><small>{share.state === "revoked" ? "已撤销" : new Date(share.expires_at) <= new Date() ? "已过期" : `有效至 ${new Date(share.expires_at).toLocaleString()}`}</small></span><div><Button aria-label="复制分享链接" title="复制分享链接" disabled={share.state !== "active"} onClick={() => void copyLink(share)}><Copy size={14} /></Button>{share.state === "active" && <Button className="danger" aria-label="撤销分享" title="撤销分享" disabled={!!busy} onClick={() => void revoke(share)}><X size={14} /></Button>}</div></article>)}{!busy && shares.length === 0 && <p className="knowledge-subtle">尚未创建受控分享。</p>}</div>
-    {!complete && nextAfter && <Button disabled={!!busy} onClick={() => void load(nextAfter, true)}>加载更多分享</Button>}
-    <footer><ShieldCheck size={14} /><span>组织归属、用户状态、撤销状态和有效期均在每次阅读时重新核对。</span></footer>
+    <div className="knowledge-share-list">{shares.map(share => <article key={share.id} className={share.state === "revoked" || new Date(share.expires_at) <= new Date() ? "is-inactive" : undefined}><span className="knowledge-share-icon"><Link2 size={15} /></span><span><strong>{targetLabel(share)}</strong><small>{share.kind === "organization" ? kt("knowledge.auto.b4d203dea5b9121c") : share.kind === "user" ? kt("knowledge.auto.7c1bb92bf6f1ac27") : kt("knowledge.auto.9b453e14eaf707f0")} · {share.scope === "subtree" ? kt("knowledge.auto.384018e4d41d658e") : kt("knowledge.auto.3427f69175c5c4ab")} · {share.password_protected ? kt("knowledge.auto.70285c7765774eed") : kt("knowledge.auto.4a2954e04625da32")}</small><small>{share.state === "revoked" ? kt("knowledge.auto.fef96e34f77b742b") : new Date(share.expires_at) <= new Date() ? kt("knowledge.auto.2fe0e3339ac4d1bb") : ktf("knowledge.auto.10efb3dd6ceed2d2", { value0: formatKnowledgeDate(share.expires_at) })}</small></span><div><Button aria-label={kt("knowledge.auto.5466b8035adc6512")} title={kt("knowledge.auto.5466b8035adc6512")} disabled={share.state !== "active"} onClick={() => void copyLink(share)}><Copy size={14} /></Button>{share.state === "active" && <Button className="danger" aria-label={kt("knowledge.auto.b52e35824750f54a")} title={kt("knowledge.auto.b52e35824750f54a")} disabled={!!busy} onClick={() => void revoke(share)}><X size={14} /></Button>}</div></article>)}{!busy && shares.length === 0 && <p className="knowledge-subtle">{kt("knowledge.auto.20dcaa4827e769b1")}</p>}</div>
+    {!complete && nextAfter && <Button disabled={!!busy} onClick={() => void load(nextAfter, true)}>{kt("knowledge.auto.d0c7a5f5b13d6069")}</Button>}
+    <footer><ShieldCheck size={14} /><span>{kt("knowledge.auto.83643a5c25e10e7c")}</span></footer>
   </section>;
 }

@@ -1,3 +1,4 @@
+import { kt } from "../i18n/runtime.ts";
 import { filterSuggestionItems } from "@blocknote/core";
 import type { DefaultReactSuggestionItem } from "@blocknote/react";
 
@@ -58,7 +59,7 @@ export function groupKnowledgeSlashMenuItems(items: readonly KnowledgeSlashMenuI
   };
 
   items.forEach((item, index) => {
-    const groupLabel = item.group || "其他";
+    const groupLabel = item.group || kt("knowledge.auto.d2909f1647e7c891");
     if (!item.submenu) {
       groupFor(groupLabel).entries.push({ kind: "item", item, index });
       return;
@@ -80,13 +81,13 @@ export function arrangeKnowledgeSlashMenuItems(items: readonly KnowledgeSlashMen
   const unique = [...new Map(items.map(item => [item.id, item])).values()];
   const normalizedQuery = query.trim();
   if (normalizedQuery) {
-    return filterSuggestionItems(unique, normalizedQuery).map(item => ({ ...item, group: "搜索结果", submenu: undefined, recent: false }));
+    return filterSuggestionItems(unique, normalizedQuery).map(item => ({ ...item, group: kt("knowledge.auto.88d72ece7cf76737"), submenu: undefined, recent: false }));
   }
   const byID = new Map(unique.map(item => [item.id, item]));
   const presentRecentIDs = normalizeKnowledgeSlashRecentIDs(recentIDs).filter(id => byID.has(id));
   const recent = presentRecentIDs.flatMap(id => {
     const item = byID.get(id);
-    return item ? [{ ...item, group: "最近使用", submenu: undefined, recent: true }] : [];
+    return item ? [{ ...item, group: kt("knowledge.auto.39a9046f9c8c993d"), submenu: undefined, recent: true }] : [];
   });
   const recentIDSet = new Set(presentRecentIDs);
   return [...recent, ...unique.filter(item => !recentIDSet.has(item.id))];

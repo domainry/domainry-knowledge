@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalMindNoteContent, documentBlocksToMindNote, emptyMindNoteContent, isMindNoteContent, mindNotePlainText, mindNoteToDocumentContent, parseMindNoteContent } from "../src/mindNoteContent.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("mind note canonical content owns hierarchy, completion, and collapse state", () => {
   const content = {

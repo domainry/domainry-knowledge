@@ -99,7 +99,15 @@ func (s *Service) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, 
 		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsCreate, a)
 	}
 	if err == nil {
-		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsCreate, "knowledge.page_suggestion.created", libraryID, pageID, result.ID, input.ClientID, result.Revision, nil, map[string]string{"kind": result.Kind, "base_draft_revision": strconv.FormatInt(result.BaseDraftRevision, 10)}, a)
+		after := map[string]string{
+			"kind":                result.Kind,
+			"base_draft_revision": strconv.FormatInt(result.BaseDraftRevision, 10),
+			"source":              result.Source,
+		}
+		if result.ToolCallID != "" {
+			after["tool_call_id"] = result.ToolCallID
+		}
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsCreate, "knowledge.page_suggestion.created", libraryID, pageID, result.ID, input.ClientID, result.Revision, nil, after, a)
 		s.publishKnowledgeSuggestion(ctx, result, a)
 	}
 	return result, err
@@ -118,7 +126,16 @@ func (s *Service) DecideKnowledgePageSuggestion(ctx context.Context, libraryID, 
 		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageSuggestionsDecide, a)
 	}
 	if err == nil {
-		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsDecide, "knowledge.page_suggestion.decided", libraryID, pageID, result.ID, input.ClientID, result.Revision, map[string]string{"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10)}, map[string]string{"decision": input.Decision, "status": result.Status}, a)
+		after := map[string]string{
+			"decision":          input.Decision,
+			"status":            result.Status,
+			"source":            input.Source,
+			"suggestion_source": result.Source,
+		}
+		if input.ToolCallID != "" {
+			after["tool_call_id"] = input.ToolCallID
+		}
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageSuggestionsDecide, "knowledge.page_suggestion.decided", libraryID, pageID, result.ID, input.ClientID, result.Revision, map[string]string{"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10)}, after, a)
 	}
 	return result, err
 }

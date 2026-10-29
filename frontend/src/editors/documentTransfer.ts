@@ -1,3 +1,4 @@
+import { kt } from "../i18n/runtime.ts";
 import DOMPurify from "dompurify";
 import type { BlockNoteEditor } from "@blocknote/core";
 
@@ -83,7 +84,7 @@ export function handleKnowledgeDocumentPaste({ event, editor, defaultPasteHandle
     const cleaned = sanitizeKnowledgePastedHTML(html);
     if (cleaned) editor.pasteHTML(cleaned);
     else if (plain) editor.pasteText(plain);
-    if (office) onFeedback?.("已清理 Office 冗余样式和不可执行内容后粘贴。");
+    if (office) onFeedback?.(kt("knowledge.auto.8f7887296165bff9"));
     return true;
   }
   if (plain) {
@@ -94,7 +95,7 @@ export function handleKnowledgeDocumentPaste({ event, editor, defaultPasteHandle
 }
 
 export function safeDocumentFilename(title: string, extension: string) {
-  const base = title.trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\s+/g, " ").replace(/[. ]+$/g, "").slice(0, 120) || "知识页面";
+  const base = title.trim().replace(/[\\/:*?"<>|\u0000-\u001f]/g, "-").replace(/\s+/g, " ").replace(/[. ]+$/g, "").slice(0, 120) || kt("knowledge.auto.fba1208c267ba57c");
   return `${base}.${extension}`;
 }
 
@@ -105,7 +106,7 @@ function escapeHTML(value: string) {
 export function buildKnowledgePrintDocument(title: string, content: string) {
   return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${escapeHTML(title)}</title><style>
 @page{size:A4;margin:16mm 15mm}*{box-sizing:border-box}body{margin:0;color:#17231f;font:14px/1.7 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif}article{max-width:178mm;margin:0 auto}h1.document-title{font-size:28px;line-height:1.25;margin:0 0 24px;padding-bottom:14px;border-bottom:1px solid #dce7e2}h1,h2,h3,h4,h5,h6{break-after:avoid;color:#10211b}p,blockquote,pre,table,figure{break-inside:avoid}blockquote{margin:12px 0;padding:4px 14px;border-left:3px solid #0c8a68;color:#455b53}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f3f6f5;border:1px solid #dce7e2;border-radius:6px;padding:12px}code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}table{width:100%;border-collapse:collapse}th,td{border:1px solid #cfdcd6;padding:6px 8px;vertical-align:top}img,video{max-width:100%;height:auto}a{color:#087d61;text-decoration:none}hr{border:0;border-top:1px solid #dce7e2;margin:20px 0}@media print{a{color:inherit}.no-print{display:none!important}}
-</style></head><body><article><h1 class="document-title">${escapeHTML(title || "知识页面")}</h1>${content}</article></body></html>`;
+</style></head><body><article><h1 class="document-title">${escapeHTML(title || kt("knowledge.auto.fba1208c267ba57c"))}</h1>${content}</article></body></html>`;
 }
 
 function downloadBlob(filename: string, blob: Blob) {
@@ -122,15 +123,15 @@ function downloadBlob(filename: string, blob: Blob) {
 export function exportKnowledgeDocument(editor: BlockNoteEditor<any, any, any>, title: string, format: KnowledgeDocumentExportFormat) {
   if (format === "json") {
     downloadBlob(safeDocumentFilename(title, "blocks.json"), new Blob([JSON.stringify({ blocks: editor.document }, null, 2)], { type: "application/json;charset=utf-8" }));
-    return "Block JSON 已导出。";
+    return kt("knowledge.auto.7751a700cb5cff82");
   }
   if (format === "markdown") {
     const markdown = editor.blocksToMarkdownLossy(editor.document);
     downloadBlob(safeDocumentFilename(title, "md"), new Blob([markdown], { type: "text/markdown;charset=utf-8" }));
-    return "Markdown 已导出；不支持的富文档块已按可读文本降级。";
+    return kt("knowledge.auto.371b5fb1658df16b");
   }
   const popup = window.open("", "_blank", "popup,width=980,height=760");
-  if (!popup) throw new Error("浏览器拦截了 PDF 导出窗口，请允许本站打开弹窗。");
+  if (!popup) throw new Error(kt("knowledge.auto.926b1eed10a4d5f1"));
   popup.opener = null;
   const html = sanitizeKnowledgePastedHTML(editor.blocksToHTMLLossy(editor.document));
   popup.document.open();
@@ -145,5 +146,5 @@ export function exportKnowledgeDocument(editor: BlockNoteEditor<any, any, any>, 
   };
   popup.addEventListener("load", print, { once: true });
   window.setTimeout(print, 300);
-  return "已打开系统打印窗口，请选择“保存为 PDF”。";
+  return kt("knowledge.auto.08236dde0788f059");
 }

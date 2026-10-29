@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { arrangeKnowledgeSlashMenuItems, groupKnowledgeSlashMenuItems, normalizeKnowledgeSlashRecentIDs } from "../src/editors/slashMenu.ts";
 import type { KnowledgeSlashMenuItem } from "../src/editors/slashMenu.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 function item(id: string, title: string, group: string, submenu?: string, disabledReason?: string): KnowledgeSlashMenuItem {
   return { id, title, group, submenu, disabledReason, aliases: [title.toLowerCase()], onItemClick() {} };

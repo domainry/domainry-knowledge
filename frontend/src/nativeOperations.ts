@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import type { KnowledgePageContentType, KnowledgePageNativeOperation } from "./types.ts";
 
 type GridEntity = { id: string; [key: string]: unknown };
@@ -26,16 +27,16 @@ export async function nativeValueSHA256(value: unknown) {
 
 function parseGridContent(body: string): GridContent {
   const value = JSON.parse(body) as Partial<GridContent>;
-  if (!value || !Array.isArray(value.fields) || !Array.isArray(value.records)) throw Error("多维表格内容结构无效。");
+  if (!value || !Array.isArray(value.fields) || !Array.isArray(value.records)) throw Error(kt("knowledge.auto.1fc0543c52cd5db7"));
   const entities = (items: unknown[], label: string) => items.map(item => {
-    if (!item || typeof item !== "object" || typeof (item as GridEntity).id !== "string" || !(item as GridEntity).id.trim()) throw Error(`${label}缺少稳定 ID。`);
+    if (!item || typeof item !== "object" || typeof (item as GridEntity).id !== "string" || !(item as GridEntity).id.trim()) throw Error(ktf("knowledge.auto.a90f21eac8628f11", { value0: label }));
     return item as GridEntity;
   });
   return {
     schema_version: value.schema_version,
-    fields: entities(value.fields, "字段"),
-    records: entities(value.records, "记录") as GridRecord[],
-    views: entities(Array.isArray(value.views) ? value.views : [], "视图"),
+    fields: entities(value.fields, kt("knowledge.auto.49ecd0e342d6d23b")),
+    records: entities(value.records, kt("knowledge.auto.9fad24e2c377ee89")) as GridRecord[],
+    views: entities(Array.isArray(value.views) ? value.views : [], kt("knowledge.auto.1c5c067138704dda")),
     permissions: value.permissions,
     automations: value.automations,
   };
@@ -128,9 +129,9 @@ export async function multidimensionalTableOperations(beforeBody: string, afterB
 function parseSpreadsheetContent(body: string): SpreadsheetContent {
   const value = JSON.parse(body) as Partial<SpreadsheetContent>;
   const workbook = value.workbook;
-  if (!value || value.schema_version !== 1 || !workbook || typeof workbook.id !== "string" || !workbook.id.trim() || !Array.isArray(workbook.sheetOrder) || !workbook.sheets || typeof workbook.sheets !== "object" || Array.isArray(workbook.sheets) || !Array.isArray(value.charts) || !Array.isArray(value.pivots) || !Array.isArray(value.protected_ranges)) throw Error("电子表格内容结构无效。");
+  if (!value || value.schema_version !== 1 || !workbook || typeof workbook.id !== "string" || !workbook.id.trim() || !Array.isArray(workbook.sheetOrder) || !workbook.sheets || typeof workbook.sheets !== "object" || Array.isArray(workbook.sheets) || !Array.isArray(value.charts) || !Array.isArray(value.pivots) || !Array.isArray(value.protected_ranges)) throw Error(kt("knowledge.auto.b58fd7af409eeebe"));
   for (const [sheetID, rawSheet] of Object.entries(workbook.sheets)) {
-    if (!rawSheet || typeof rawSheet !== "object" || Array.isArray(rawSheet) || (rawSheet as NativeObject).id !== sheetID) throw Error("工作表缺少稳定 ID。");
+    if (!rawSheet || typeof rawSheet !== "object" || Array.isArray(rawSheet) || (rawSheet as NativeObject).id !== sheetID) throw Error(kt("knowledge.auto.7b50689211af462d"));
   }
   return value as SpreadsheetContent;
 }
@@ -178,7 +179,7 @@ async function spreadsheetMapOperations(target: "style" | "merge" | "asset", bef
 export async function spreadsheetOperations(beforeBody: string, afterBody: string): Promise<KnowledgePageNativeOperation[]> {
   const before = parseSpreadsheetContent(beforeBody), after = parseSpreadsheetContent(afterBody);
   const beforeWorkbook = before.workbook, afterWorkbook = after.workbook;
-  if (beforeWorkbook.id !== afterWorkbook.id || before.schema_version !== after.schema_version) throw Error("电子表格稳定 ID 和协议版本不允许修改。");
+  if (beforeWorkbook.id !== afterWorkbook.id || before.schema_version !== after.schema_version) throw Error(kt("knowledge.auto.a30801eed757a248"));
   const operations: KnowledgePageNativeOperation[] = [];
   for (const [sheetID, sheet] of Object.entries(beforeWorkbook.sheets)) {
     if (!(sheetID in afterWorkbook.sheets)) operations.push({ id: operationID(), target: "sheet", target_id: sheetID, action: "delete", expected_hash: await nativeValueSHA256(sheet) });
@@ -220,14 +221,14 @@ export async function spreadsheetOperations(beforeBody: string, afterBody: strin
 
 function parseGraphContent(body: string) {
   const value = JSON.parse(body) as NativeObject;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw Error("图形内容结构无效。");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw Error(kt("knowledge.auto.5098693a4e7eb247"));
   return value;
 }
 
 function graphEntities(value: unknown, label: string) {
-  if (!Array.isArray(value)) throw Error(`${label}内容结构无效。`);
+  if (!Array.isArray(value)) throw Error(ktf("knowledge.auto.75575979923acfa0", { value0: label }));
   return value.map(item => {
-    if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as GridEntity).id !== "string" || !(item as GridEntity).id.trim()) throw Error(`${label}缺少稳定 ID。`);
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as GridEntity).id !== "string" || !(item as GridEntity).id.trim()) throw Error(ktf("knowledge.auto.a90f21eac8628f11", { value0: label }));
     return item as GridEntity;
   });
 }
@@ -239,7 +240,7 @@ async function graphStructureOperation(before: NativeObject, after: NativeObject
 
 export async function whiteboardOperations(beforeBody: string, afterBody: string) {
   const before = parseGraphContent(beforeBody), after = parseGraphContent(afterBody);
-  const beforeElements = graphEntities(before.elements, "画板元素"), afterElements = graphEntities(after.elements, "画板元素");
+  const beforeElements = graphEntities(before.elements, kt("knowledge.auto.eafe43d688a730d6")), afterElements = graphEntities(after.elements, kt("knowledge.auto.eafe43d688a730d6"));
   const isEdge = (item: GridEntity) => item.type === "arrow" || item.type === "line";
   const operations = [
     ...await entityOperations("node", beforeElements.filter(item => !isEdge(item)), afterElements.filter(item => !isEdge(item))),
@@ -253,8 +254,8 @@ export async function whiteboardOperations(beforeBody: string, afterBody: string
 export async function flowchartOperations(beforeBody: string, afterBody: string) {
   const before = parseGraphContent(beforeBody), after = parseGraphContent(afterBody);
   const operations = [
-    ...await entityOperations("node", graphEntities(before.nodes, "流程节点"), graphEntities(after.nodes, "流程节点")),
-    ...await entityOperations("edge", graphEntities(before.edges, "流程连线"), graphEntities(after.edges, "流程连线")),
+    ...await entityOperations("node", graphEntities(before.nodes, kt("knowledge.auto.3b48ee9d9e952403")), graphEntities(after.nodes, kt("knowledge.auto.3b48ee9d9e952403"))),
+    ...await entityOperations("edge", graphEntities(before.edges, kt("knowledge.auto.39f3b6080baa03b2")), graphEntities(after.edges, kt("knowledge.auto.39f3b6080baa03b2"))),
   ];
   const structure = await graphStructureOperation(before, after, ["nodes", "edges"]);
   if (structure) operations.push(structure);
@@ -266,11 +267,11 @@ type MindMapNodeState = { node: GridEntity; parent_id: string; index: number };
 function mindMapNodes(root: NativeObject) {
   const result: MindMapNodeState[] = [];
   const visit = (raw: unknown, parentID: string, index: number) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error("思维导图节点结构无效。");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error(kt("knowledge.auto.e149d6350231122b"));
     const value = raw as GridEntity & { children?: unknown[] };
-    if (typeof value.id !== "string" || !value.id.trim()) throw Error("思维导图节点缺少稳定 ID。");
+    if (typeof value.id !== "string" || !value.id.trim()) throw Error(kt("knowledge.auto.132d11377fd5d921"));
     const { children = [], ...node } = value;
-    if (!Array.isArray(children)) throw Error("思维导图子节点结构无效。");
+    if (!Array.isArray(children)) throw Error(kt("knowledge.auto.2e926890dbba7ef5"));
     result.push({ node, parent_id: parentID, index });
     children.forEach((child, childIndex) => visit(child, value.id, childIndex));
   };
@@ -294,7 +295,7 @@ export async function mindMapOperations(beforeBody: string, afterBody: string) {
     if (state.parent_id && !afterMap.has(state.parent_id)) continue;
     operations.push({ id: operationID(), target: "node", target_id: state.node.id, action: "delete", expected_hash: await nativeValueSHA256(state) });
   }
-  operations.push(...await entityOperations("edge", graphEntities(beforeEnvelope.relations, "思维导图连线"), graphEntities(afterEnvelope.relations, "思维导图连线")));
+  operations.push(...await entityOperations("edge", graphEntities(beforeEnvelope.relations, kt("knowledge.auto.a0162de5a91358d2")), graphEntities(afterEnvelope.relations, kt("knowledge.auto.a0162de5a91358d2"))));
   const previousStructure = objectWithout(beforeEnvelope, ["root", "relations"]), nextStructure = objectWithout(afterEnvelope, ["root", "relations"]);
   const structure = await changedValueOperation("graph_structure", "graph", previousStructure, true, nextStructure, true);
   if (structure) operations.push(structure);
@@ -304,7 +305,7 @@ export async function mindMapOperations(beforeBody: string, afterBody: string) {
 type PresentationSlide = GridEntity & { elements?: GridEntity[]; files?: Record<string, unknown> };
 
 function presentationSlides(root: NativeObject) {
-  return graphEntities(root.slides, "幻灯片") as PresentationSlide[];
+  return graphEntities(root.slides, kt("knowledge.auto.81574e23e48aec6b")) as PresentationSlide[];
 }
 
 function presentationStructure(root: NativeObject, slides: PresentationSlide[]) {
@@ -328,7 +329,7 @@ export async function presentationOperations(beforeBody: string, afterBody: stri
     const previousMeta = objectWithout(previous, ["elements", "files"]), nextMeta = objectWithout(slide, ["elements", "files"]);
     const metadata = await changedValueOperation("slide", slide.id, previousMeta, true, nextMeta, true);
     if (metadata) operations.push(metadata);
-    const elementOps = await entityOperations("node", graphEntities(Array.isArray(previous.elements) ? previous.elements : [], "幻灯片元素"), graphEntities(Array.isArray(slide.elements) ? slide.elements : [], "幻灯片元素"));
+    const elementOps = await entityOperations("node", graphEntities(Array.isArray(previous.elements) ? previous.elements : [], kt("knowledge.auto.9907f68b8bba694d")), graphEntities(Array.isArray(slide.elements) ? slide.elements : [], kt("knowledge.auto.9907f68b8bba694d")));
     operations.push(...elementOps.map(operation => ({ ...operation, target: "element" as const, parent_id: slide.id })));
     operations.push(...await spreadsheetMapOperations("asset", new Map(Object.entries(valueMap(previous.files))), new Map(Object.entries(valueMap(slide.files))), slide.id));
   }
@@ -339,9 +340,9 @@ export async function presentationOperations(beforeBody: string, afterBody: stri
 }
 
 function formComponents(root: NativeObject) {
-  if (!Array.isArray(root.components)) throw Error("问卷组件结构无效。");
+  if (!Array.isArray(root.components)) throw Error(kt("knowledge.auto.c91dc6c1e7916956"));
   return root.components.map(item => {
-    if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as NativeObject).key !== "string" || !(item as NativeObject).key) throw Error("问卷组件缺少稳定 key。");
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof (item as NativeObject).key !== "string" || !(item as NativeObject).key) throw Error(kt("knowledge.auto.5ab1aa88248018de"));
     return item as NativeObject & { key: string };
   });
 }

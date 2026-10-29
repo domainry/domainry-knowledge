@@ -1,6 +1,7 @@
 import type { KnowledgeApplicationCard, KnowledgeApplicationCardResolve, KnowledgeFormAnalytics, KnowledgeFormExport, KnowledgeFormSubmission, KnowledgeFormSubmissionPage, KnowledgeGridAccess, KnowledgePageContentType, KnowledgePagePollView, KnowledgePagePollWrite, KnowledgePageSearchLocation, KnowledgePageTask, KnowledgePageTaskWrite, KnowledgePageVersion, KnowledgePrincipal } from "../types.ts";
 import type { ReactNode } from "react";
 import type * as Y from "yjs";
+import type { KnowledgeDocumentSelectionSnapshot } from "../hostIntegration.ts";
 export type KnowledgeEditorCollaboration = {
     document: Y.Doc;
     fragment: Y.XmlFragment;
@@ -148,6 +149,8 @@ export type KnowledgeEditorProps = {
     };
     readFile?(reference: string): Promise<Blob>;
     convertPage?(targetType: "document" | "mind_note", title: string, body: string): Promise<void>;
+    addDocumentSelection?(selection: KnowledgeDocumentSelectionSnapshot): Promise<void>;
+    addDocumentSelectionBusy?: boolean;
     onChange(body: string, collaboration?: KnowledgeEditorChange): void;
     onPresence?(cursorBlockID?: string, selectionBlockID?: string): void;
     onCommentAnchor?(anchor?: KnowledgeCommentAnchorSelection): void;

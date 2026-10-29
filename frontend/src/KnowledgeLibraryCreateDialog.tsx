@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { createPortal } from "react-dom";
 import { BookOpen, Building2, ChevronDown, ChevronRight, UserRound, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -124,7 +125,7 @@ export function KnowledgeLibraryCreateDialog({ client, busy, error, onClose, onC
       setDirectory(value);
       setExpandedOrganizations(new Set(value.organizations.filter(item => !item.parent_id).map(item => item.organization_id)));
     }).catch(failure => {
-      if (!abort.signal.aborted) setDirectoryError(failure instanceof Error ? failure.message : "组织成员目录加载失败。");
+      if (!abort.signal.aborted) setDirectoryError(failure instanceof Error ? failure.message : kt("knowledge.auto.9e70e9e5866eb5cb"));
     }).finally(() => { if (!abort.signal.aborted) setDirectoryLoading(false); });
     return () => abort.abort();
   }, [client]);
@@ -155,7 +156,7 @@ export function KnowledgeLibraryCreateDialog({ client, busy, error, onClose, onC
     return <label className={`knowledge-directory-member${isCreator ? " is-creator" : ""}`} style={{ "--knowledge-directory-depth": depth } as CSSProperties} key={member.user_id}>
       <input type="checkbox" checked={isCreator || selectedMembers.has(member.user_id)} disabled={busy || isCreator} onChange={event => toggleMember(member.user_id, event.currentTarget.checked)} />
       <span className="knowledge-member-avatar" aria-hidden="true">{(member.display_name || "?").slice(0, 1)}</span>
-      <span><strong>{member.display_name || member.user_id}{isCreator && <em>创建者</em>}</strong><small>{member.email || member.user_id}{isCreator && " · 管理员"}</small></span>
+      <span><strong>{member.display_name || member.user_id}{isCreator && <em>{kt("knowledge.auto.f46c86c0286a8fad")}</em>}</strong><small>{member.email || member.user_id}{isCreator && kt("knowledge.auto.73844537f6b7f89d")}</small></span>
     </label>;
   }
 
@@ -170,10 +171,10 @@ export function KnowledgeLibraryCreateDialog({ client, busy, error, onClose, onC
     const selectable = scope.memberIDs.length > 0;
     return <div className="knowledge-directory-branch" key={organization.organization_id}>
       <div className="knowledge-directory-organization" style={{ "--knowledge-directory-depth": depth } as CSSProperties}>
-        <button type="button" aria-label={`${expanded ? "收起" : "展开"}${organization.display_name}`} disabled={busy || children.length + members.length === 0} onClick={() => setExpandedOrganizations(current => { const next = new Set(current); next.has(organization.organization_id) ? next.delete(organization.organization_id) : next.add(organization.organization_id); return next; })}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
-        <input type="checkbox" aria-label={`选择组织 ${organization.display_name}`} aria-checked={partial ? "mixed" : checked} ref={element => { if (element) element.indeterminate = partial; }} checked={checked} disabled={busy || !selectable} onChange={event => toggleOrganization(organization.organization_id, event.currentTarget.checked)} />
+        <button type="button" aria-label={`${expanded ? kt("knowledge.auto.afd4b783536b8297") : kt("knowledge.auto.00bd3960fea8ea98")}${organization.display_name}`} disabled={busy || children.length + members.length === 0} onClick={() => setExpandedOrganizations(current => { const next = new Set(current); next.has(organization.organization_id) ? next.delete(organization.organization_id) : next.add(organization.organization_id); return next; })}>{expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}</button>
+        <input type="checkbox" aria-label={ktf("knowledge.auto.7c76ab309e7460f8", { value0: organization.display_name })} aria-checked={partial ? "mixed" : checked} ref={element => { if (element) element.indeterminate = partial; }} checked={checked} disabled={busy || !selectable} onChange={event => toggleOrganization(organization.organization_id, event.currentTarget.checked)} />
         <Building2 size={16} aria-hidden="true" />
-        <span><strong>{organization.display_name}</strong><small>{scope.memberIDs.length} 位成员 · {children.length} 个下级组织</small></span>
+        <span><strong>{organization.display_name}</strong><small>{scope.memberIDs.length} {kt("knowledge.auto.933b8a699d0e5604")}{children.length} {kt("knowledge.auto.970b74f5507bc8c8")}</small></span>
       </div>
       {expanded && <div>{children.map(child => renderOrganization(child, depth + 1))}{members.map(member => renderMember(member, depth + 1))}</div>}
     </div>;
@@ -186,8 +187,8 @@ export function KnowledgeLibraryCreateDialog({ client, busy, error, onClose, onC
   }} onKeyDown={event => {
     if (event.key === "Escape" && !busy) onClose();
   }}><section className="knowledge-transfer-dialog knowledge-library-create-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-library-create-title">
-    <header><div><h2 id="knowledge-library-create-title">新建团队知识库</h2><p>填写团队成员能够识别的名称和用途说明。</p></div><Button type="button" aria-label="关闭新建知识库" disabled={busy} onClick={onClose}><X size={17} /></Button></header>
-    <div className="knowledge-library-create-scope"><span aria-hidden="true"><Users size={18} /></span><div><strong>团队共享空间</strong><p>创建后你将成为管理者；组织授权会随企业成员归属实时生效。</p></div></div>
+    <header><div><h2 id="knowledge-library-create-title">{kt("knowledge.auto.205ce2c06399d019")}</h2><p>{kt("knowledge.auto.2380ac4c4ae0ee52")}</p></div><Button type="button" aria-label={kt("knowledge.auto.3aa89611cce01728")} disabled={busy} onClick={onClose}><X size={17} /></Button></header>
+    <div className="knowledge-library-create-scope"><span aria-hidden="true"><Users size={18} /></span><div><strong>{kt("knowledge.auto.31ed76fc17e70532")}</strong><p>{kt("knowledge.auto.170d70cc541db069")}</p></div></div>
     <form onSubmit={event => {
       event.preventDefault();
       if (!normalizedName || busy) return;
@@ -199,22 +200,22 @@ export function KnowledgeLibraryCreateDialog({ client, busy, error, onClose, onC
       });
     }}>
       <div className="knowledge-form-grid">
-        <label>知识库名称<input autoFocus required value={name} maxLength={128} disabled={busy} onChange={event => setName(event.target.value)} placeholder="例如：产品研发知识库" /></label>
-        <label><span className="knowledge-field-label">用途说明 <em>选填</em></span><textarea value={description} maxLength={1024} disabled={busy} onChange={event => setDescription(event.target.value)} placeholder="说明知识库收录的内容、适用团队或使用范围" /></label>
+        <label>{kt("knowledge.auto.83974e4c338de106")}<input autoFocus required value={name} maxLength={128} disabled={busy} onChange={event => setName(event.target.value)} placeholder={kt("knowledge.auto.f897e80b4fcc51e8")} /></label>
+        <label><span className="knowledge-field-label">{kt("knowledge.auto.0bef9631f8aa8710")}<em>{kt("knowledge.auto.ebdcbdcf9c998d72")}</em></span><textarea value={description} maxLength={1024} disabled={busy} onChange={event => setDescription(event.target.value)} placeholder={kt("knowledge.auto.69bb1f808842c73e")} /></label>
       </div>
       <section className="knowledge-library-create-members">
-        <header><div><strong>选择组织与成员 <em>选填</em></strong><p>勾选组织会自动勾选其下级组织和成员；新成员统一以编辑者加入。</p></div></header>
-        <div className="knowledge-directory-tree" role="tree" aria-label="企业组织与成员">
-          {directoryLoading ? <p className="knowledge-directory-state">正在读取企业组织机构…</p> : directoryError ? <p className="knowledge-error">{directoryError}</p> : <>
+        <header><div><strong>{kt("knowledge.auto.43065958d3e5ced6")}<em>{kt("knowledge.auto.ebdcbdcf9c998d72")}</em></strong><p>{kt("knowledge.auto.401f60b2272fa11e")}</p></div></header>
+        <div className="knowledge-directory-tree" role="tree" aria-label={kt("knowledge.auto.1d86d38b384d2051")}>
+          {directoryLoading ? <p className="knowledge-directory-state">{kt("knowledge.auto.38e112b5a2be3b56")}</p> : directoryError ? <p className="knowledge-error">{directoryError}</p> : <>
             {index.roots.map(root => renderOrganization(root, 0))}
-            {unassignedMembers.length > 0 && <div className="knowledge-directory-unassigned"><div><UserRound size={16} /><strong>未分配组织</strong></div>{unassignedMembers.map(member => renderMember(member, 1))}</div>}
-            {index.roots.length === 0 && unassignedMembers.length === 0 && <p className="knowledge-directory-state">当前没有其他可选择的企业成员。</p>}
+            {unassignedMembers.length > 0 && <div className="knowledge-directory-unassigned"><div><UserRound size={16} /><strong>{kt("knowledge.auto.8db3df9cb9b1b1ad")}</strong></div>{unassignedMembers.map(member => renderMember(member, 1))}</div>}
+            {index.roots.length === 0 && unassignedMembers.length === 0 && <p className="knowledge-directory-state">{kt("knowledge.auto.677552c09708c6e2")}</p>}
           </>}
         </div>
-        <p className="knowledge-library-create-members-empty">已勾选 {selectedCount} 位成员；提交时保存为 {compressed.organizations.length} 个组织授权和 {compressed.members.length} 个直接成员，避免重复授权。</p>
+        <p className="knowledge-library-create-members-empty">{kt("knowledge.auto.6f2971e96350b9be")}{selectedCount} {kt("knowledge.auto.55e2d81c4ca53e94")}{compressed.organizations.length} {kt("knowledge.auto.546897799bd4c119")}{compressed.members.length} {kt("knowledge.auto.4981830d16d03406")}</p>
       </section>
       {error && <p role="alert" className="knowledge-error">{error}</p>}
-      <div className="knowledge-actions"><Button type="button" disabled={busy} onClick={onClose}>取消</Button><Button type="submit" className="primary" disabled={busy || !normalizedName}><BookOpen size={15} />{busy ? "正在创建…" : selectedCount > 0 ? "创建并授权成员" : "创建团队知识库"}</Button></div>
+      <div className="knowledge-actions"><Button type="button" disabled={busy} onClick={onClose}>{kt("knowledge.auto.2cd0f3be8738a86c")}</Button><Button type="submit" className="primary" disabled={busy || !normalizedName}><BookOpen size={15} />{busy ? kt("knowledge.auto.7c0305bc0ce607b2") : selectedCount > 0 ? kt("knowledge.auto.6598efd992f18e0e") : kt("knowledge.auto.ca2db8ecf35f0c53")}</Button></div>
     </form>
   </section></div>, window.document.body);
 }

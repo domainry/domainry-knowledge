@@ -1,3 +1,4 @@
+import { kt } from "./i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, modifyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
@@ -518,7 +519,7 @@ export function useKnowledgeCollaboration(options: Options) {
     }
     await pumpRef.current();
     const session = sessionRef.current;
-    if (!session || pendingRef.current) throw new Error("协作更改尚未完成合并");
+    if (!session || pendingRef.current) throw new Error(kt("knowledge.auto.c87d7a834b819e42"));
     return transport!.publish({
       session_id: session.id,
       client_id: session.client_id,
@@ -533,7 +534,7 @@ export function useKnowledgeCollaboration(options: Options) {
     }
     await pumpRef.current();
     const confirmed = confirmedRef.current;
-    if (!confirmed || pendingRef.current) throw new Error("协作更改尚未完成合并");
+    if (!confirmed || pendingRef.current) throw new Error(kt("knowledge.auto.c87d7a834b819e42"));
     return { draftRevision: confirmed.draft_revision, title: confirmed.title, content: confirmed.content };
   }
 
@@ -541,7 +542,7 @@ export function useKnowledgeCollaboration(options: Options) {
     document,
     fragment,
     initializeFromBody,
-    user: { name: options.resolveUserName?.(userID) || userID || "当前用户", color: options.resolveUserColor?.(userID) || "#0b8f72" },
+    user: { name: options.resolveUserName?.(userID) || userID || kt("knowledge.auto.a569c636d974551c"), color: options.resolveUserColor?.(userID) || "#0b8f72" },
     provider: { awareness },
   }), [awareness, document, fragment, initializeFromBody, options.resolveUserColor, options.resolveUserName, userID]);
   const onlineUsers = useMemo(() => new Set(presence.map(item => item.user_id)).size, [presence]);

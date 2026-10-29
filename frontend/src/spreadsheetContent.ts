@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import { LocaleType, getSheetsEmptySnapshot, type IWorkbookData } from "@univerjs/presets";
 
 export type SpreadsheetRange = {
@@ -45,10 +46,10 @@ type SheetData = { id?: string; name?: string; rowCount?: number; columnCount?: 
 const allowedResourceNames = new Set(["SHEET_DATA_VALIDATION_PLUGIN", "SHEET_CONDITIONAL_FORMATTING_PLUGIN"]);
 
 export function emptyKnowledgeSpreadsheet(): KnowledgeSpreadsheetContent {
-  const workbook = getSheetsEmptySnapshot("workbook-1", LocaleType.ZH_CN, "工作表");
+  const workbook = getSheetsEmptySnapshot("workbook-1", LocaleType.ZH_CN, kt("knowledge.auto.b02781ee06c6587e"));
   workbook.sheetOrder = ["sheet-1"];
   workbook.sheets["sheet-1"] = {
-    id: "sheet-1", name: "工作表 1", tabColor: "", hidden: 0,
+    id: "sheet-1", name: kt("knowledge.auto.345cc0e777c05058"), tabColor: "", hidden: 0,
     rowCount: 1000, columnCount: 20, zoomRatio: 1,
     freeze: { xSplit: 0, ySplit: 0, startRow: -1, startColumn: -1 },
     scrollTop: 0, scrollLeft: 0, defaultColumnWidth: 88, defaultRowHeight: 24,
@@ -67,7 +68,7 @@ export function emptyKnowledgeSpreadsheet(): KnowledgeSpreadsheetContent {
 export function parseKnowledgeSpreadsheet(body: string): KnowledgeSpreadsheetContent {
   const value = JSON.parse(body) as Partial<KnowledgeSpreadsheetContent>;
   if (value.schema_version !== 1 || !value.workbook || typeof value.workbook !== "object" || !Array.isArray(value.workbook.sheetOrder) || !value.workbook.sheets || !Array.isArray(value.charts) || !Array.isArray(value.pivots) || !Array.isArray(value.protected_ranges)) {
-    throw Error("电子表格内容结构无效。");
+    throw Error(kt("knowledge.auto.b58fd7af409eeebe"));
   }
   return value as KnowledgeSpreadsheetContent;
 }
@@ -148,7 +149,7 @@ export function spreadsheetPivotData(content: KnowledgeSpreadsheetContent, pivot
   const matrix = spreadsheetRangeMatrix(content, pivot.sheet_id, pivot.source_range);
   const groups = new Map<string, { sum: number; count: number; min: number; max: number }>();
   for (const row of matrix.slice(matrix.length > 1 ? 1 : 0)) {
-    const label = String(row[0] ?? "空白");
+    const label = String(row[0] ?? kt("knowledge.auto.f0bf4574ce25c131"));
     const number = Number(row[1]);
     const current = groups.get(label) || { sum: 0, count: 0, min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY };
     current.count++;
@@ -172,7 +173,7 @@ export async function exportKnowledgeSpreadsheetXLSX(content: KnowledgeSpreadshe
   for (const sheetID of content.workbook.sheetOrder) {
     const source = sheet(content, sheetID);
     if (!source) continue;
-    const output = target.addWorksheet((source.name || "工作表").slice(0, 31));
+    const output = target.addWorksheet((source.name || kt("knowledge.auto.b02781ee06c6587e")).slice(0, 31));
     for (const [rowID, rawRow] of Object.entries(source.cellData || {})) {
       for (const [columnID, cell] of Object.entries(rawRow || {})) {
         const targetCell = output.getCell(Number(rowID) + 1, Number(columnID) + 1);
@@ -222,7 +223,7 @@ export async function importKnowledgeSpreadsheetXLSX(data: ArrayBuffer): Promise
     }).filter((value): value is Exclude<typeof value, null> => value !== null);
     content.workbook.sheetOrder.push(sheetID);
     content.workbook.sheets[sheetID] = {
-      id: sheetID, name: worksheet.name || `工作表 ${sheetIndex + 1}`, tabColor: "", hidden: 0,
+      id: sheetID, name: worksheet.name || ktf("knowledge.auto.4fb7347a63920b2f", { value0: sheetIndex + 1 }), tabColor: "", hidden: 0,
       rowCount: Math.max(1000, Math.min(10000, worksheet.rowCount + 100)), columnCount: Math.max(20, Math.min(1000, worksheet.columnCount + 10)), zoomRatio: 1,
       freeze: { xSplit: 0, ySplit: 0, startRow: -1, startColumn: -1 }, scrollTop: 0, scrollLeft: 0,
       defaultColumnWidth: 88, defaultRowHeight: 24, mergeData, cellData, rowData: {}, columnData: {}, showGridlines: 1,

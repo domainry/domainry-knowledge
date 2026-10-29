@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import type { KnowledgeFormComponent, KnowledgeFormComponentType, KnowledgeFormContent, KnowledgeFormSettings } from "./types.ts";
 
 export const defaultFormSettings: KnowledgeFormSettings = {
@@ -5,14 +6,14 @@ export const defaultFormSettings: KnowledgeFormSettings = {
   allow_multiple_submissions: false,
   opens_at: "",
   closes_at: "",
-  confirmation_message: "提交成功，感谢你的参与。",
+  get confirmation_message() { return kt("knowledge.auto.ee80c0c3949831d7"); },
 };
 
 export function emptyFormContent(): KnowledgeFormContent {
   return {
     schema_version: 1,
     display: "form",
-    components: [{ type: "textfield", key: "question1", label: "未命名问题", input: true, validate: { required: false } }],
+    components: [{ type: "textfield", key: "question1", label: kt("knowledge.auto.9c01614cb5d8b384"), input: true, validate: { required: false } }],
     settings: { ...defaultFormSettings },
   };
 }
@@ -27,25 +28,25 @@ function finiteNumber(value: unknown) {
 }
 
 function optionList(value: unknown) {
-  if (!Array.isArray(value) || value.length < 1 || value.length > 100) throw new Error("选项题至少需要一个有效选项。");
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) throw new Error(kt("knowledge.auto.4080685dadb30c95"));
   const seen = new Set<string>();
   return value.map(raw => {
     const option = raw as Record<string, unknown>;
     const label = typeof option.label === "string" ? option.label.trim() : "";
     const stored = typeof option.value === "string" ? option.value.trim() : "";
-    if (!label || !keyPattern.test(stored) || seen.has(stored)) throw new Error("选项名称或选项值无效、重复。");
+    if (!label || !keyPattern.test(stored) || seen.has(stored)) throw new Error(kt("knowledge.auto.4b1f33fe41182806"));
     seen.add(stored);
     return { label, value: stored };
   });
 }
 
 function canonicalComponent(value: unknown): KnowledgeFormComponent {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("问卷问题结构无效。");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(kt("knowledge.auto.98dd62149e8172f1"));
   const source = value as Record<string, unknown>;
   const type = source.type as KnowledgeFormComponentType;
   const key = typeof source.key === "string" ? source.key.trim() : "";
   const label = typeof source.label === "string" ? source.label.trim() : "";
-  if (!componentTypes.has(type) || !keyPattern.test(key) || !label) throw new Error("问题类型不受支持，或问题名称、标识无效。");
+  if (!componentTypes.has(type) || !keyPattern.test(key) || !label) throw new Error(kt("knowledge.auto.67fda5119fd7067f"));
   const rawValidation = source.validate && typeof source.validate === "object" && !Array.isArray(source.validate) ? source.validate as Record<string, unknown> : {};
   const validate: KnowledgeFormComponent["validate"] = { required: rawValidation.required === true };
   if (["textfield", "textarea", "email", "url", "phoneNumber"].includes(type)) {
@@ -60,7 +61,7 @@ function canonicalComponent(value: unknown): KnowledgeFormComponent {
     if (type === "rating" || type === "scale") {
       const minimum = validate.min ?? (type === "rating" ? 1 : 0);
       const maximum = validate.max ?? (type === "rating" ? 5 : 10);
-      if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || minimum < 0 || maximum > 20 || maximum <= minimum || maximum - minimum > 20) throw new Error("评分和量表必须使用 0 至 20 之间、跨度不超过 20 的整数范围。");
+      if (!Number.isInteger(minimum) || !Number.isInteger(maximum) || minimum < 0 || maximum > 20 || maximum <= minimum || maximum - minimum > 20) throw new Error(kt("knowledge.auto.e48d8d69851b8aa1"));
       validate.min = minimum;
       validate.max = maximum;
     }
@@ -84,7 +85,7 @@ function canonicalComponent(value: unknown): KnowledgeFormComponent {
     const condition = source.conditional as Record<string, unknown>;
     const when = typeof condition.when === "string" ? condition.when.trim() : "";
     if (when) {
-      if (!keyPattern.test(when) || !["string", "number", "boolean"].includes(typeof condition.eq)) throw new Error(`问题“${label}”的显示条件无效。`);
+      if (!keyPattern.test(when) || !["string", "number", "boolean"].includes(typeof condition.eq)) throw new Error(ktf("knowledge.auto.9b6dd0a97e5b70c8", { value0: label }));
       component.conditional = { show: condition.show !== false, when, eq: condition.eq as string | number | boolean };
     }
   }
@@ -92,16 +93,16 @@ function canonicalComponent(value: unknown): KnowledgeFormComponent {
 }
 
 export function normalizeFormContent(value: unknown): KnowledgeFormContent {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("问卷内容不是有效对象。");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(kt("knowledge.auto.cd8770ae0dad4e57"));
   const root = value as Record<string, unknown>;
-  if (!Array.isArray(root.components) || root.components.length < 1 || root.components.length > 200) throw new Error("问卷必须包含 1 至 200 个问题。");
+  if (!Array.isArray(root.components) || root.components.length < 1 || root.components.length > 200) throw new Error(kt("knowledge.auto.e11787e78ee07f8e"));
   const components = root.components.map(canonicalComponent);
   const keys = new Set<string>();
   for (const component of components) {
-    if (keys.has(component.key)) throw new Error(`问题标识“${component.key}”重复。`);
+    if (keys.has(component.key)) throw new Error(ktf("knowledge.auto.33058614c5f6fd17", { value0: component.key }));
     keys.add(component.key);
   }
-  for (const component of components) if (component.conditional && (!keys.has(component.conditional.when) || component.conditional.when === component.key)) throw new Error(`问题“${component.label}”引用了无效的条件题。`);
+  for (const component of components) if (component.conditional && (!keys.has(component.conditional.when) || component.conditional.when === component.key)) throw new Error(ktf("knowledge.auto.347fd91e7f2e966e", { value0: component.label }));
   const settingsSource = root.settings && typeof root.settings === "object" && !Array.isArray(root.settings) ? root.settings as Record<string, unknown> : defaultFormSettings;
   const submissionRole = settingsSource.submission_role;
   const settings: KnowledgeFormSettings = {

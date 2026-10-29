@@ -14,4 +14,4 @@ export declare function handleKnowledgeDocumentPaste({ event, editor, defaultPas
 }): boolean | undefined;
 export declare function safeDocumentFilename(title: string, extension: string): string;
 export declare function buildKnowledgePrintDocument(title: string, content: string): string;
-export declare function exportKnowledgeDocument(editor: BlockNoteEditor<any, any, any>, title: string, format: KnowledgeDocumentExportFormat): "Block JSON 已导出。" | "Markdown 已导出；不支持的富文档块已按可读文本降级。" | "已打开系统打印窗口，请选择“保存为 PDF”。";
+export declare function exportKnowledgeDocument(editor: BlockNoteEditor<any, any, any>, title: string, format: KnowledgeDocumentExportFormat): string;

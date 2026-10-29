@@ -1,15 +1,16 @@
+import { kt, ktf } from "../i18n/runtime.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Block, BlockNoteEditor } from "@blocknote/core";
 import { defaultToggledState, insertOrUpdateBlockForSlashMenu, isToggleOpen } from "@blocknote/core";
-import { zh } from "@blocknote/core/locales";
+import { ar, de, en, es, fr, it, ja, ko, pt, zh, zhTW } from "@blocknote/core/locales";
 import { withCollaboration } from "@blocknote/core/yjs";
 import { SideMenuExtension, SyntaxHighlightingExtension } from "@blocknote/core/extensions";
 import { BlockColorsItem, DragHandleButton, FormattingToolbar, FormattingToolbarController, getFormattingToolbarItems, SideMenu, SideMenuController, SuggestionMenuController, TableColumnHeaderItem, TableRowHeaderItem, useBlockNoteEditor, useComponentsContext, useCreateBlockNote, useEditorState, useExtensionState, usePortalElement } from "@blocknote/react";
 import type { FormattingToolbarProps, SideMenuProps } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/ariakit";
 import { locales as multiColumnLocales } from "@blocknote/xl-multi-column";
-import { ChevronDown, ChevronRight, Clipboard, Copy, Crop, Download, FileJson, FileText, FunctionSquare, Link2, ListTree, Printer, RefreshCw, RotateCcw, Scissors, Trash2, Type, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Clipboard, Copy, Crop, Download, FileJson, FileText, FunctionSquare, Link2, ListTree, MessageSquarePlus, Printer, RefreshCw, RotateCcw, Scissors, Trash2, Type, X } from "lucide-react";
 import "@blocknote/ariakit/style.css";
 import { renderSafeLatex } from "../latex.ts";
 import { documentBlockCommentQuote, parseDocumentBlocks, serializeDocumentBlocks } from "../documentContent.ts";
@@ -20,6 +21,11 @@ import { exportKnowledgeDocument, handleKnowledgeDocumentPaste, type KnowledgeDo
 import { KnowledgeSlashMenu } from "./KnowledgeSlashMenu.tsx";
 import { recordKnowledgeSlashRecentID } from "./slashMenu.ts";
 import type { KnowledgeSlashMenuItem } from "./slashMenu.ts";
+import { useKnowledgeLocale } from "../i18n/runtime.ts";
+import { blockNoteLocaleKey, multiColumnLocaleKey } from "../i18n/thirdParty.ts";
+import { boundKnowledgeDocumentSelection } from "../hostIntegration.ts";
+
+const blockNoteLocales = { en, zh, zhTW, ja, ko, es, pt, fr, de, it, ar };
 
 // Shiki models a core-only highlighter as HighlighterGeneric<never, never>, while
 // BlockNote accepts HighlighterGeneric<any, any>. The runtime contract is the same.
@@ -110,8 +116,8 @@ function KnowledgeAuthorizedFileReplaceButton({ busy, onPick }: { busy: boolean;
   if (!block || !editor.uploadFile) return null;
   return <Components.FormattingToolbar.Button
     className="bn-button"
-    label="替换文件"
-    mainTooltip={busy ? "文件正在上传" : "选择本地文件并直接替换"}
+    label={kt("knowledge.auto.d934840566aabcd7")}
+    mainTooltip={busy ? kt("knowledge.auto.4cc5c825fcbe1727") : kt("knowledge.auto.61d142e68896b132")}
     icon={<RefreshCw size={16} />}
     isDisabled={busy}
     onClick={() => onPick({ action: "replace", blockID: block.id, blockType: block.type as KnowledgeFileBlockType, accept: knowledgeFileAccept(editor, block.type) })}
@@ -146,16 +152,16 @@ function KnowledgeImagePropertiesButton() {
   const cropped = props.cropAspect !== "original";
   return <Components.Generic.Popover.Root open={open} onOpenChange={next => { setOpen(next); if (!next) editor.focus(); }} portalElement={portalElement}>
     <Components.Generic.Popover.Trigger>
-      <Components.FormattingToolbar.Button className="bn-button" label="图片属性与裁剪" mainTooltip="图片属性与裁剪" icon={<Crop size={16} />} isSelected={cropped} onClick={() => setOpen(value => !value)} />
+      <Components.FormattingToolbar.Button className="bn-button" label={kt("knowledge.auto.ef7e40e0c2d39fa7")} mainTooltip={kt("knowledge.auto.ef7e40e0c2d39fa7")} icon={<Crop size={16} />} isSelected={cropped} onClick={() => setOpen(value => !value)} />
     </Components.Generic.Popover.Trigger>
     <Components.Generic.Popover.Content className="bn-popover-content knowledge-image-properties" variant="form-popover">
-      <label><span>替代文本</span><input value={props.name} maxLength={512} onChange={event => update({ name: event.currentTarget.value })} placeholder="描述图片内容，供无障碍阅读" /></label>
-      <label><span>图片说明</span><input value={props.caption} maxLength={2048} onChange={event => update({ caption: event.currentTarget.value })} placeholder="显示在图片下方" /></label>
-      <fieldset><legend>裁剪比例</legend><div className="knowledge-image-aspects">{knowledgeImageCropAspects.map(aspect => <button key={aspect} type="button" aria-pressed={props.cropAspect === aspect} onClick={() => update({ cropAspect: aspect })}>{aspect === "original" ? "原图" : aspect}</button>)}</div></fieldset>
-      <label><span>水平焦点 <b>{props.cropX}%</b></span><input type="range" min="0" max="100" step="1" value={props.cropX} disabled={!cropped} onChange={event => update({ cropX: Number(event.currentTarget.value) })} /></label>
-      <label><span>垂直焦点 <b>{props.cropY}%</b></span><input type="range" min="0" max="100" step="1" value={props.cropY} disabled={!cropped} onChange={event => update({ cropY: Number(event.currentTarget.value) })} /></label>
-      <label><span>裁剪缩放 <b>{props.cropZoom}%</b></span><input type="range" min="100" max="300" step="1" value={props.cropZoom} disabled={!cropped} onChange={event => update({ cropZoom: Number(event.currentTarget.value) })} /></label>
-      <button type="button" className="knowledge-image-reset" onClick={() => update({ cropAspect: "original", cropX: 50, cropY: 50, cropZoom: 100 })}><RotateCcw size={14} />恢复原图</button>
+      <label><span>{kt("knowledge.auto.e9e31d4f87815d53")}</span><input value={props.name} maxLength={512} onChange={event => update({ name: event.currentTarget.value })} placeholder={kt("knowledge.auto.4fcb30796c15e23d")} /></label>
+      <label><span>{kt("knowledge.auto.5e137136f6aa5d6a")}</span><input value={props.caption} maxLength={2048} onChange={event => update({ caption: event.currentTarget.value })} placeholder={kt("knowledge.auto.1830df7f95124280")} /></label>
+      <fieldset><legend>{kt("knowledge.auto.03834fd0c8119b91")}</legend><div className="knowledge-image-aspects">{knowledgeImageCropAspects.map(aspect => <button key={aspect} type="button" aria-pressed={props.cropAspect === aspect} onClick={() => update({ cropAspect: aspect })}>{aspect === "original" ? kt("knowledge.auto.4b1db520af460460") : aspect}</button>)}</div></fieldset>
+      <label><span>{kt("knowledge.auto.c10994fbb9e75783")}<b>{props.cropX}%</b></span><input type="range" min="0" max="100" step="1" value={props.cropX} disabled={!cropped} onChange={event => update({ cropX: Number(event.currentTarget.value) })} /></label>
+      <label><span>{kt("knowledge.auto.1138948da476724d")}<b>{props.cropY}%</b></span><input type="range" min="0" max="100" step="1" value={props.cropY} disabled={!cropped} onChange={event => update({ cropY: Number(event.currentTarget.value) })} /></label>
+      <label><span>{kt("knowledge.auto.45215b6544af38a0")}<b>{props.cropZoom}%</b></span><input type="range" min="100" max="300" step="1" value={props.cropZoom} disabled={!cropped} onChange={event => update({ cropZoom: Number(event.currentTarget.value) })} /></label>
+      <button type="button" className="knowledge-image-reset" onClick={() => update({ cropAspect: "original", cropX: 50, cropY: 50, cropZoom: 100 })}><RotateCcw size={14} />{kt("knowledge.auto.76709ce82501d0c2")}</button>
     </Components.Generic.Popover.Content>
   </Components.Generic.Popover.Root>;
 }
@@ -167,15 +173,15 @@ type KnowledgeBlockActionProps = {
 };
 
 const blockConversionItems = [
-  { label: "正文", type: "paragraph", props: {} },
-  { label: "一级标题", type: "heading", props: { level: 1, isToggleable: false } },
-  { label: "二级标题", type: "heading", props: { level: 2, isToggleable: false } },
-  { label: "三级标题", type: "heading", props: { level: 3, isToggleable: false } },
-  { label: "无序列表", type: "bulletListItem", props: {} },
-  { label: "有序列表", type: "numberedListItem", props: {} },
-  { label: "任务列表", type: "checkListItem", props: {} },
-  { label: "折叠列表", type: "toggleListItem", props: {} },
-  { label: "引用", type: "quote", props: {} },
+  { get label() { return kt("knowledge.auto.d661c3d96d53ebc0"); }, type: "paragraph", props: {} },
+  { get label() { return kt("knowledge.auto.a75d25cd026c6374"); }, type: "heading", props: { level: 1, isToggleable: false } },
+  { get label() { return kt("knowledge.auto.d69947f39796fc11"); }, type: "heading", props: { level: 2, isToggleable: false } },
+  { get label() { return kt("knowledge.auto.7d96cb13e68934a4"); }, type: "heading", props: { level: 3, isToggleable: false } },
+  { get label() { return kt("knowledge.auto.9ee5773e25a9d739"); }, type: "bulletListItem", props: {} },
+  { get label() { return kt("knowledge.auto.5d0bb2712dc8b22b"); }, type: "numberedListItem", props: {} },
+  { get label() { return kt("knowledge.auto.c5ced4b36c072ffc"); }, type: "checkListItem", props: {} },
+  { get label() { return kt("knowledge.auto.5d9ddf1c258cac8f"); }, type: "toggleListItem", props: {} },
+  { get label() { return kt("knowledge.auto.e0ec651f0dae7cf3"); }, type: "quote", props: {} },
 ] as const;
 
 function actionBlocks(editor: BlockNoteEditor<any, any, any>, hovered?: Block<any, any, any>) {
@@ -264,49 +270,49 @@ function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, onFeedba
   const collapse = collapsible.some(isToggleOpen);
   const copy = async (cut: boolean) => {
     try {
-      if (!authorizeContentAction) throw new Error("当前页面禁止复制内容。");
+      if (!authorizeContentAction) throw new Error(kt("knowledge.auto.c91475ac5cf19ca4"));
       await authorizeContentAction("copy");
       await writeBlocksToClipboard(editor, blocks);
       if (cut) editor.removeBlocks(blocks);
-      onFeedback?.(`${blocks.length} 个 Block 已${cut ? "剪切" : "复制"}。`);
+      onFeedback?.(ktf("knowledge.auto.8a2df9946e7801f3", { value0: blocks.length, value1: cut ? kt("knowledge.auto.410a8e8a6bf253ac") : kt("knowledge.auto.63d90d977348ab1f") }));
     } catch (failure) {
-      onFeedback?.(failure instanceof Error ? failure.message : "浏览器未授予剪贴板权限，请重试。");
+      onFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.7bcffeeab729ed5c"));
     }
   };
   const copyLinks = async () => {
     if (!blockLink) return;
     try {
       await writeTextToClipboard(blocks.map(block => blockLink(block.id)).join("\n"));
-      onFeedback?.(`${blocks.length} 个 Block 链接已复制。`);
+      onFeedback?.(ktf("knowledge.auto.1eb0928c719f9a0e", { value0: blocks.length }));
     } catch {
-      onFeedback?.("Block 链接复制失败，请检查剪贴板权限。");
+      onFeedback?.(kt("knowledge.auto.082dc0c483c7f3e0"));
     }
   };
   const convert = (type: string, props: Record<string, boolean | number | string>) => {
     editor.transact(() => blocks.forEach(block => editor.updateBlock(block, { type, props } as never)));
-    onFeedback?.(`${blocks.length} 个 Block 已转换类型。`);
+    onFeedback?.(ktf("knowledge.auto.864c9321fd73fa43", { value0: blocks.length }));
   };
   const toggleCollapse = () => {
     collapsible.forEach(block => defaultToggledState.set(block, !collapse));
     setFoldRevision(value => value + 1);
-    onFeedback?.(`${collapsible.length} 个 Block 已${collapse ? "折叠" : "展开"}。`);
+    onFeedback?.(ktf("knowledge.auto.8a2df9946e7801f3", { value0: collapsible.length, value1: collapse ? kt("knowledge.common.collapse") : kt("knowledge.auto.00bd3960fea8ea98") }));
   };
   return <Components.Generic.Menu.Dropdown className="bn-menu-dropdown bn-drag-handle-menu knowledge-block-actions">
-    <Components.Generic.Menu.Label>{blocks.length > 1 ? `已选 ${blocks.length} 个 Block` : "Block 操作"}</Components.Generic.Menu.Label>
-    {authorizeContentAction && <Components.Generic.Menu.Item className="bn-menu-item" icon={<Copy size={16} />} onClick={() => void copy(false)}>复制</Components.Generic.Menu.Item>}
-    {authorizeContentAction && <Components.Generic.Menu.Item className="bn-menu-item" icon={<Scissors size={16} />} onClick={() => void copy(true)}>剪切</Components.Generic.Menu.Item>}
-    <Components.Generic.Menu.Item className="bn-menu-item" icon={<Link2 size={16} />} disabled={!blockLink} onClick={() => void copyLinks()}>复制 Block 链接</Components.Generic.Menu.Item>
+    <Components.Generic.Menu.Label>{blocks.length > 1 ? ktf("knowledge.auto.80efcafaed1c4d61", { value0: blocks.length }) : kt("knowledge.auto.c1381c419c85a96b")}</Components.Generic.Menu.Label>
+    {authorizeContentAction && <Components.Generic.Menu.Item className="bn-menu-item" icon={<Copy size={16} />} onClick={() => void copy(false)}>{kt("knowledge.auto.63d90d977348ab1f")}</Components.Generic.Menu.Item>}
+    {authorizeContentAction && <Components.Generic.Menu.Item className="bn-menu-item" icon={<Scissors size={16} />} onClick={() => void copy(true)}>{kt("knowledge.auto.410a8e8a6bf253ac")}</Components.Generic.Menu.Item>}
+    <Components.Generic.Menu.Item className="bn-menu-item" icon={<Link2 size={16} />} disabled={!blockLink} onClick={() => void copyLinks()}>{kt("knowledge.auto.a7992ff56c90b03b")}</Components.Generic.Menu.Item>
     <Components.Generic.Menu.Divider className="knowledge-block-menu-divider" />
     {canConvert ? <Components.Generic.Menu.Root position="right" sub portalElement={portalElement}>
-      <Components.Generic.Menu.Trigger sub><Components.Generic.Menu.Item className="bn-menu-item" icon={<Type size={16} />} subTrigger>转换类型</Components.Generic.Menu.Item></Components.Generic.Menu.Trigger>
+      <Components.Generic.Menu.Trigger sub><Components.Generic.Menu.Item className="bn-menu-item" icon={<Type size={16} />} subTrigger>{kt("knowledge.auto.562406cf8b498a2a")}</Components.Generic.Menu.Item></Components.Generic.Menu.Trigger>
       <Components.Generic.Menu.Dropdown className="bn-menu-dropdown knowledge-block-convert-menu" sub>{blockConversionItems.map(item => <Components.Generic.Menu.Item key={`${item.type}:${JSON.stringify(item.props)}`} className="bn-menu-item" checked={blocks.every(block => block.type === item.type && Object.entries(item.props).every(([key, value]) => block.props[key] === value))} onClick={() => convert(item.type, item.props)}>{item.label}</Components.Generic.Menu.Item>)}</Components.Generic.Menu.Dropdown>
-    </Components.Generic.Menu.Root> : <Components.Generic.Menu.Item className="bn-menu-item" icon={<Type size={16} />} disabled>当前 Block 不支持类型转换</Components.Generic.Menu.Item>}
-    <Components.Generic.Menu.Item className="bn-menu-item" icon={collapse ? <ChevronDown size={16} /> : <ChevronRight size={16} />} disabled={collapsible.length === 0} onClick={toggleCollapse}>{collapse ? "折叠子块" : "展开子块"}</Components.Generic.Menu.Item>
-    <BlockColorsItem>文字与背景颜色</BlockColorsItem>
-    <TableRowHeaderItem>切换表头行</TableRowHeaderItem>
-    <TableColumnHeaderItem>切换表头列</TableColumnHeaderItem>
+    </Components.Generic.Menu.Root> : <Components.Generic.Menu.Item className="bn-menu-item" icon={<Type size={16} />} disabled>{kt("knowledge.auto.4016d27b48e8ee0f")}</Components.Generic.Menu.Item>}
+    <Components.Generic.Menu.Item className="bn-menu-item" icon={collapse ? <ChevronDown size={16} /> : <ChevronRight size={16} />} disabled={collapsible.length === 0} onClick={toggleCollapse}>{collapse ? kt("knowledge.auto.6b4e7c7bba7fc079") : kt("knowledge.auto.7961fc08cfc4eea7")}</Components.Generic.Menu.Item>
+    <BlockColorsItem>{kt("knowledge.auto.1aced5ecbf667167")}</BlockColorsItem>
+    <TableRowHeaderItem>{kt("knowledge.auto.933e281f11a902d3")}</TableRowHeaderItem>
+    <TableColumnHeaderItem>{kt("knowledge.auto.5ee1f7b461c54692")}</TableColumnHeaderItem>
     <Components.Generic.Menu.Divider className="knowledge-block-menu-divider" />
-    <Components.Generic.Menu.Item className="bn-menu-item knowledge-block-delete" icon={<Trash2 size={16} />} onClick={() => { editor.removeBlocks(blocks); onFeedback?.(`${blocks.length} 个 Block 已删除。`); }}>删除{blocks.length > 1 ? ` ${blocks.length} 个 Block` : ""}</Components.Generic.Menu.Item>
+    <Components.Generic.Menu.Item className="bn-menu-item knowledge-block-delete" icon={<Trash2 size={16} />} onClick={() => { editor.removeBlocks(blocks); onFeedback?.(ktf("knowledge.auto.2d83b348f844d8d8", { value0: blocks.length })); }}>{kt("knowledge.auto.2f9daa828907b93f")}{blocks.length > 1 ? ktf("knowledge.auto.c7b73e5c86ab3fa9", { value0: blocks.length }) : ""}</Components.Generic.Menu.Item>
   </Components.Generic.Menu.Dropdown>;
 }
 
@@ -321,13 +327,13 @@ function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedb
   const copySelection = async (cut: boolean) => {
     if (selectedBlocks.length < 2) return;
     try {
-      if (!authorizeContentAction) throw new Error("当前页面禁止复制内容。");
+      if (!authorizeContentAction) throw new Error(kt("knowledge.auto.c91475ac5cf19ca4"));
       await authorizeContentAction("copy");
       await writeBlocksToClipboard(editor, selectedBlocks);
       if (cut) editor.removeBlocks(selectedBlocks);
-      onFeedback?.(`${selectedBlocks.length} 个 Block 已${cut ? "剪切" : "复制"}。`);
+      onFeedback?.(ktf("knowledge.auto.8a2df9946e7801f3", { value0: selectedBlocks.length, value1: cut ? kt("knowledge.auto.410a8e8a6bf253ac") : kt("knowledge.auto.63d90d977348ab1f") }));
     } catch (failure) {
-      onFeedback?.(failure instanceof Error ? failure.message : "浏览器未授予剪贴板权限，请重试。");
+      onFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.7bcffeeab729ed5c"));
     }
   };
   return <FormattingToolbar {...props}>
@@ -335,11 +341,11 @@ function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedb
     <KnowledgeAuthorizedFileReplaceButton busy={filePickerBusy} onPick={onFilePick} />
     <KnowledgeImagePropertiesButton />
     {selectedBlocks.length > 1 && <>
-      <span className="knowledge-block-selection-count">已选 {selectedBlocks.length} 个 Block</span>
-      {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title="复制所选 Block" aria-label="复制所选 Block" onClick={() => void copySelection(false)}><Clipboard size={15} /></button>}
-      {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title="剪切所选 Block" aria-label="剪切所选 Block" onClick={() => void copySelection(true)}><Scissors size={15} /></button>}
-      {blockLink && <button type="button" className="knowledge-block-selection-action" title="复制所选 Block 链接" aria-label="复制所选 Block 链接" onClick={() => void writeTextToClipboard(selectedBlocks.map(block => blockLink(block.id)).join("\n")).then(() => onFeedback?.(`${selectedBlocks.length} 个 Block 链接已复制。`), () => onFeedback?.("Block 链接复制失败，请检查剪贴板权限。"))}><Link2 size={15} /></button>}
-      <button type="button" className="knowledge-block-selection-action is-danger" title="删除所选 Block" aria-label="删除所选 Block" onClick={() => { editor.removeBlocks(selectedBlocks); onFeedback?.(`${selectedBlocks.length} 个 Block 已删除。`); }}><Trash2 size={15} /></button>
+      <span className="knowledge-block-selection-count">{kt("knowledge.auto.7ecf1cde648680d2")}{selectedBlocks.length} {kt("knowledge.auto.b69dbc5c8c49b07e")}</span>
+      {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.c6e01bb56ae196c3")} aria-label={kt("knowledge.auto.c6e01bb56ae196c3")} onClick={() => void copySelection(false)}><Clipboard size={15} /></button>}
+      {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.0352fee8ae0cbdec")} aria-label={kt("knowledge.auto.0352fee8ae0cbdec")} onClick={() => void copySelection(true)}><Scissors size={15} /></button>}
+      {blockLink && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.bab98daa53f53de2")} aria-label={kt("knowledge.auto.bab98daa53f53de2")} onClick={() => void writeTextToClipboard(selectedBlocks.map(block => blockLink(block.id)).join("\n")).then(() => onFeedback?.(ktf("knowledge.auto.1eb0928c719f9a0e", { value0: selectedBlocks.length })), () => onFeedback?.(kt("knowledge.auto.082dc0c483c7f3e0")))}><Link2 size={15} /></button>}
+      <button type="button" className="knowledge-block-selection-action is-danger" title={kt("knowledge.auto.a8617dfb917ca595")} aria-label={kt("knowledge.auto.a8617dfb917ca595")} onClick={() => { editor.removeBlocks(selectedBlocks); onFeedback?.(ktf("knowledge.auto.2d83b348f844d8d8", { value0: selectedBlocks.length })); }}><Trash2 size={15} /></button>
     </>}
   </FormattingToolbar>;
 }
@@ -348,33 +354,33 @@ function KnowledgeDocumentTransfer({ editor, title, authorizeContentAction, onFe
   const details = useRef<HTMLDetailsElement>(null);
   const run = async (format: KnowledgeDocumentExportFormat) => {
     try {
-      if (!authorizeContentAction) throw new Error("当前页面禁止导出内容。");
+      if (!authorizeContentAction) throw new Error(kt("knowledge.auto.5838a06d4990c165"));
       await authorizeContentAction(format === "pdf" ? "print" : "export");
       onFeedback?.(exportKnowledgeDocument(editor, title, format));
       if (details.current) details.current.open = false;
     } catch (failure) {
-      onFeedback?.(failure instanceof Error ? failure.message : "文档导出失败，请重试。");
+      onFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.4f526dcc9989d1bf"));
     }
   };
   const convert = async () => {
     if (!onConvertToMindNote) return;
     if (details.current) details.current.open = false;
     try {
-      if (!authorizeContentAction) throw new Error("当前页面禁止创建副本。");
+      if (!authorizeContentAction) throw new Error(kt("knowledge.auto.c79fd658db132faf"));
       await authorizeContentAction("duplicate");
-      await onConvertToMindNote(`${title}（思维笔记）`, canonicalMindNoteContent(documentBlocksToMindNote(editor.document)));
+      await onConvertToMindNote(ktf("knowledge.auto.0431425ed392a80b", { value0: title }), canonicalMindNoteContent(documentBlocksToMindNote(editor.document)));
     }
-    catch (failure) { onFeedback?.(failure instanceof Error ? failure.message : "转换思维笔记失败，请重试。"); }
+    catch (failure) { onFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.70bcffc1cdc4c27a")); }
   };
   if (!authorizeContentAction) return null;
   return <div className="knowledge-document-transfer no-print">
     <details ref={details}>
-      <summary className="knowledge-page-header-action" aria-label="导出文档"><Download size={14} />导出</summary>
-      <div role="menu" aria-label="文档导出格式">
-        <button type="button" role="menuitem" onClick={() => void run("json")}><FileJson size={16} /><span><strong>Block JSON</strong><small>完整保留结构、稳定 ID 与属性</small></span></button>
-        <button type="button" role="menuitem" onClick={() => void run("markdown")}><FileText size={16} /><span><strong>Markdown</strong><small>导出为可移植的纯文本格式</small></span></button>
-        <button type="button" role="menuitem" onClick={() => void run("pdf")}><Printer size={16} /><span><strong>PDF</strong><small>使用系统打印引擎保存为 PDF</small></span></button>
-        {onConvertToMindNote && <button type="button" role="menuitem" onClick={() => void convert()}><ListTree size={16} /><span><strong>复制为思维笔记</strong><small>创建同级大纲页面，保留文本层级和完成状态</small></span></button>}
+      <summary className="knowledge-page-header-action" aria-label={kt("knowledge.auto.fa7881119f17edb9")}><Download size={14} />{kt("knowledge.auto.76420433f22d1c80")}</summary>
+      <div role="menu" aria-label={kt("knowledge.auto.ee2487b1df174033")}>
+        <button type="button" role="menuitem" onClick={() => void run("json")}><FileJson size={16} /><span><strong>Block JSON</strong><small>{kt("knowledge.auto.116420443b65d273")}</small></span></button>
+        <button type="button" role="menuitem" onClick={() => void run("markdown")}><FileText size={16} /><span><strong>Markdown</strong><small>{kt("knowledge.auto.b549ec46eb439225")}</small></span></button>
+        <button type="button" role="menuitem" onClick={() => void run("pdf")}><Printer size={16} /><span><strong>PDF</strong><small>{kt("knowledge.auto.ced7e3c6457c1541")}</small></span></button>
+        {onConvertToMindNote && <button type="button" role="menuitem" onClick={() => void convert()}><ListTree size={16} /><span><strong>{kt("knowledge.auto.1ebb1987efcbd90c")}</strong><small>{kt("knowledge.auto.5058e2765becebda")}</small></span></button>}
       </div>
     </details>
   </div>;
@@ -398,13 +404,15 @@ function changedDocumentBlockIDs(before: string, after: string) {
   return [...changed].slice(0, 2048);
 }
 
-function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, commentMarkers = [], onCommentMarkerOpen, blockLink, insertMarkdownRequest, pageActionHost, authorizeContentAction, onActionFeedback, uploadFile, fileUploadsEnabled, fileUploadAccept, readFile, convertPage, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
+function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.auto.fba1208c267ba57c"), collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, commentMarkers = [], onCommentMarkerOpen, blockLink, insertMarkdownRequest, pageActionHost, authorizeContentAction, onActionFeedback, uploadFile, fileUploadsEnabled, fileUploadAccept, readFile, convertPage, addDocumentSelection, addDocumentSelectionBusy = false, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
+  const locale = useKnowledgeLocale();
   const applying = useRef(false), emitted = useRef(body), seeded = useRef(false);
   const revealedBlockID = useRef("");
   const uploadFileRef = useRef(uploadFile), readFileRef = useRef(readFile);
   const filePickerInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFilePickerRef = useRef<KnowledgeFilePickerRequest | null>(null);
   const [filePickerBusy, setFilePickerBusy] = useState(false);
+  const [documentSelection, setDocumentSelection] = useState<ReturnType<typeof boundKnowledgeDocumentSelection>>(null);
   const [formulaInput, setFormulaInput] = useState<KnowledgeFormulaInputRequest | null>(null), [formulaSource, setFormulaSource] = useState("");
   const mentionRuntimeRef = useRef(mentions);
   const taskRuntimeRef = useRef(tasks);
@@ -442,9 +450,13 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     for (const pending of resolvedFileURLs.current.values()) void pending.then(url => URL.revokeObjectURL(url), () => undefined);
     resolvedFileURLs.current.clear();
   }, []);
+  const dictionary = {
+    ...blockNoteLocales[blockNoteLocaleKey[locale]],
+    multi_column: multiColumnLocales[multiColumnLocaleKey[locale]],
+  };
   const baseOptions = {
     schema: knowledgeDocumentSchema,
-    dictionary: { ...zh, multi_column: multiColumnLocales.zh },
+    dictionary,
     pasteHandler: (context: Parameters<typeof handleKnowledgeDocumentPaste>[0]) => handleKnowledgeDocumentPaste({ ...context, onFeedback: message => actionFeedbackRef.current?.(message) }),
     uploadFile: !readOnly && fileUploadsEnabled && uploadFile ? uploadKnowledgeFile : undefined,
     resolveFileUrl: readFile ? resolveKnowledgeFileURL : undefined,
@@ -474,6 +486,12 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     ...baseOptions,
     initialContent: initialBlocks.length ? initialBlocks as never : undefined,
   }, [collaboration?.fragment]);
+  useEffect(() => {
+    // BlockNote does not expose a locale setter. Menus read the editor
+    // dictionary during render, so update the existing instance and preserve
+    // selection, undo history, and the collaboration binding.
+    Object.assign(editor.dictionary, dictionary);
+  }, [editor, locale]);
   const preparedCollaborationEditor = useRef<typeof editor | null>(null);
   if (collaboration && preparedCollaborationEditor.current !== editor) {
     preparedCollaborationEditor.current = editor;
@@ -499,7 +517,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
   }), [editor, fileUploadAccept, fileUploadsEnabled, readOnly, uploadFile]);
   const requestFilePick = useCallback((request: KnowledgeFilePickerRequest) => {
     if (filePickerBusy) {
-      actionFeedbackRef.current?.("文件正在上传，请稍候。");
+      actionFeedbackRef.current?.(kt("knowledge.auto.ef1927290c9cd5fc"));
       return;
     }
     const input = filePickerInputRef.current;
@@ -517,7 +535,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     try {
       const uploaded = await uploadKnowledgeFile(file, request.blockID);
       const target = editor.getBlock(request.blockID);
-      if (!target) throw new Error("原内容位置已变化，请重新选择文件。");
+      if (!target) throw new Error(kt("knowledge.auto.1df46e53c6a68264"));
       const update = typeof uploaded === "string" ? { props: { name: file.name, url: uploaded } } : uploaded;
       if (request.action === "replace") {
         editor.updateBlock(target, update as never);
@@ -527,7 +545,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
         if (request.recentID) recordKnowledgeSlashRecentID(request.recentID);
       }
     } catch (failure) {
-      if (failure instanceof Error && failure.message === "原内容位置已变化，请重新选择文件。") actionFeedbackRef.current?.(failure.message);
+      if (failure instanceof Error && failure.message === kt("knowledge.auto.1df46e53c6a68264")) actionFeedbackRef.current?.(failure.message);
     } finally {
       setFilePickerBusy(false);
     }
@@ -541,7 +559,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
       let blockID = "";
       try { blockID = editor.getTextCursorPosition().block.id; } catch { /* The menu cannot insert without an active editor cursor. */ }
       if (!blockID) {
-        actionFeedbackRef.current?.("无法确定文件插入位置，请重新定位光标。");
+        actionFeedbackRef.current?.(kt("knowledge.auto.350d103c663fa621"));
         return;
       }
       requestFilePick({ action: "insert", blockID, recentID: item.id, ...item.filePicker });
@@ -549,7 +567,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     }
     if (item.formulaInput) {
       try { editor.getTextCursorPosition(); } catch {
-        actionFeedbackRef.current?.("无法确定公式插入位置，请重新定位光标。");
+        actionFeedbackRef.current?.(kt("knowledge.auto.2efd011ca89b5d39"));
         return;
       }
       setFormulaSource("");
@@ -571,7 +589,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
       setFormulaSource("");
       editor.focus();
     } catch {
-      actionFeedbackRef.current?.("公式插入位置已变化，请重新插入。");
+      actionFeedbackRef.current?.(kt("knowledge.auto.2a628cf75fa57b4e"));
     }
   }, [editor, formulaInput, formulaResult.error, formulaSource]);
   const formattingToolbar = useCallback((props: FormattingToolbarProps) => <KnowledgeFormattingToolbar {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} filePickerBusy={filePickerBusy} onFilePick={requestFilePick} />, [authorizeContentAction, blockLink, filePickerBusy, onActionFeedback, requestFilePick]);
@@ -615,14 +633,14 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
     insertedMarkdownRequestRef.current = insertMarkdownRequest.id;
     try {
       const blocks = editor.tryParseMarkdownToBlocks(insertMarkdownRequest.markdown);
-      if (blocks.length === 0) throw new Error("AI 结果没有可插入内容");
+      if (blocks.length === 0) throw new Error(kt("knowledge.auto.c5ca059d9a05d09a"));
       let reference = editor.document[editor.document.length - 1];
       try { reference = editor.getTextCursorPosition().block; } catch { /* Insert after the document tail when the editor has no cursor. */ }
       editor.insertBlocks(blocks, reference, "after");
       emitDocument();
-      actionFeedbackRef.current?.("AI 候选内容已追加到当前草稿，尚未发布。");
+      actionFeedbackRef.current?.(kt("knowledge.auto.15a829baf522b1ab"));
     } catch (failure) {
-      actionFeedbackRef.current?.(failure instanceof Error ? failure.message : "AI 结果插入失败");
+      actionFeedbackRef.current?.(failure instanceof Error ? failure.message : kt("knowledge.auto.b5e011251299e2df"));
     }
   }, [editor, insertMarkdownRequest, readOnly]);
 
@@ -640,6 +658,20 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
       onCommentAnchor(quote ? { nodeID: blocks[0].id, quote } : undefined);
     } catch {
       onCommentAnchor(undefined);
+    }
+  };
+
+  const emitDocumentSelection = () => {
+    if (!addDocumentSelection) { setDocumentSelection(null); return; }
+    try {
+      const selection = editor.getSelection();
+      const selectedText = editor.getSelectedText().replace(/\s+/g, " ").trim();
+      if (!selection && !selectedText) { setDocumentSelection(null); return; }
+      const blocks = selection?.blocks?.length ? selection.blocks : [editor.getTextCursorPosition().block];
+      const quote = selectedText || blocks.map(block => documentBlockCommentQuote(block)).filter(Boolean).join("\n");
+      setDocumentSelection(quote ? boundKnowledgeDocumentSelection(blocks.map(block => block.id), quote) : null);
+    } catch {
+      setDocumentSelection(null);
     }
   };
 
@@ -710,8 +742,8 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
         button.type = "button";
         button.className = "knowledge-block-comment-marker";
         button.textContent = String(marker.count);
-        button.title = `${marker.count} 条评论 · ${marker.quote}`;
-        button.setAttribute("aria-label", `打开此内容块的 ${marker.count} 条评论`);
+        button.title = ktf("knowledge.auto.bae530031eeaa8db", { value0: marker.count, value1: marker.quote });
+        button.setAttribute("aria-label", ktf("knowledge.auto.9513fee146b9dbc2", { value0: marker.count }));
         button.addEventListener("click", event => {
           event.preventDefault();
           event.stopPropagation();
@@ -730,11 +762,17 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
   const documentTransfer = <KnowledgeDocumentTransfer editor={editor} title={documentTitle} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} onConvertToMindNote={!readOnly && convertPage ? (nextTitle, nextBody) => convertPage("mind_note", nextTitle, nextBody) : undefined} />;
   return <div className={`knowledge-open-editor is-blocknote is-document${pageActionHost ? " has-page-action-host" : ""}`}>
     {pageActionHost ? createPortal(documentTransfer, pageActionHost) : documentTransfer}
+    {addDocumentSelection && documentSelection && <div className="knowledge-host-selection-action no-print" role="toolbar" aria-label={kt("knowledge.host.add_selection")}>
+      <button type="button" disabled={addDocumentSelectionBusy} aria-busy={addDocumentSelectionBusy} onMouseDown={event => event.preventDefault()} onClick={() => void addDocumentSelection(documentSelection)}>
+        {addDocumentSelectionBusy ? <RefreshCw className="knowledge-spin" size={15} /> : <MessageSquarePlus size={15} />}
+        {addDocumentSelectionBusy ? kt("knowledge.host.adding_selection") : kt("knowledge.host.add_selection")}
+      </button>
+    </div>}
     {formulaInput && <div className="knowledge-ai-dialog-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) closeFormulaInput(); }}><section className="knowledge-ai-dialog" style={{ width: "min(560px, 100%)" }} role="dialog" aria-modal="true" aria-labelledby="knowledge-formula-input-title">
-      <header><div><span className="knowledge-ai-icon" aria-hidden="true"><FunctionSquare size={18} /></span><div><h3 id="knowledge-formula-input-title">{formulaInput.displayMode === "block" ? "插入公式块" : "插入行内公式"}</h3><p>输入 LaTeX，确认后才会写入正文。</p></div></div><button type="button" className="knowledge-button" aria-label="关闭公式输入" title="关闭" onClick={closeFormulaInput}><X size={16} /></button></header>
-      <div className="knowledge-ai-form"><label className="knowledge-ai-prompt"><span>LaTeX 公式</span><textarea autoFocus rows={3} value={formulaSource} onChange={event => setFormulaSource(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeFormulaInput(); } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); insertFormula(); } }} placeholder={formulaInput.displayMode === "block" ? String.raw`例如：\sum_{i=1}^{n} i = \frac{n(n+1)}{2}` : String.raw`例如：E = mc^2`} /></label></div>
-      {(formulaResult.html || formulaResult.error) && <article className="knowledge-ai-execution"><header><strong>预览</strong><span>{formulaInput.displayMode === "block" ? "独立公式" : "行内公式"}</span></header>{formulaResult.html ? <div className={`knowledge-formula-preview ${formulaInput.displayMode === "block" ? "is-block" : "is-inline"}`} dangerouslySetInnerHTML={{ __html: formulaResult.html }} /> : <p className="knowledge-ai-error" role="alert">{formulaResult.error}</p>}</article>}
-      <footer><p>支持标准 KaTeX 语法，按 Ctrl/⌘ + Enter 可直接插入。</p><div><button type="button" className="knowledge-button" onClick={closeFormulaInput}>取消</button><button type="button" className="knowledge-button primary" disabled={!formulaSource.trim() || !!formulaResult.error} onClick={insertFormula}>插入公式</button></div></footer>
+      <header><div><span className="knowledge-ai-icon" aria-hidden="true"><FunctionSquare size={18} /></span><div><h3 id="knowledge-formula-input-title">{formulaInput.displayMode === "block" ? kt("knowledge.auto.141011974735b33b") : kt("knowledge.auto.8a72923fe94cf05e")}</h3><p>{kt("knowledge.auto.20991e960561ec30")}</p></div></div><button type="button" className="knowledge-button" aria-label={kt("knowledge.auto.983e76438106283b")} title={kt("knowledge.auto.3fd47edce45b3603")} onClick={closeFormulaInput}><X size={16} /></button></header>
+      <div className="knowledge-ai-form"><label className="knowledge-ai-prompt"><span>{kt("knowledge.auto.7e202a3add63fbb1")}</span><textarea autoFocus rows={3} value={formulaSource} onChange={event => setFormulaSource(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); closeFormulaInput(); } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); insertFormula(); } }} placeholder={formulaInput.displayMode === "block" ? kt("knowledge.auto.b3134335dc9ac53f") : kt("knowledge.auto.013f292aca2d50c4")} /></label></div>
+      {(formulaResult.html || formulaResult.error) && <article className="knowledge-ai-execution"><header><strong>{kt("knowledge.auto.13d61fea9f174905")}</strong><span>{formulaInput.displayMode === "block" ? kt("knowledge.auto.868aa34dd36ebcae") : kt("knowledge.auto.e3efe95c7f617abf")}</span></header>{formulaResult.html ? <div className={`knowledge-formula-preview ${formulaInput.displayMode === "block" ? "is-block" : "is-inline"}`} dangerouslySetInnerHTML={{ __html: formulaResult.html }} /> : <p className="knowledge-ai-error" role="alert">{formulaResult.error}</p>}</article>}
+      <footer><p>{kt("knowledge.auto.16ddf846aff3203f")}</p><div><button type="button" className="knowledge-button" onClick={closeFormulaInput}>{kt("knowledge.auto.2cd0f3be8738a86c")}</button><button type="button" className="knowledge-button primary" disabled={!formulaSource.trim() || !!formulaResult.error} onClick={insertFormula}>{kt("knowledge.auto.85fbe03102bdb89f")}</button></div></footer>
     </section></div>}
     {!readOnly && <input
       ref={filePickerInputRef}
@@ -758,7 +796,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = "知识页面", c
       slashMenu={false}
       sideMenu={false}
       filePanel={false}
-      onSelectionChange={() => { emitPresence(); emitCommentAnchor(); }}
+      onSelectionChange={() => { emitPresence(); emitCommentAnchor(); emitDocumentSelection(); }}
     >
       {!readOnly && <FormattingToolbarController formattingToolbar={formattingToolbar} />}
       {!readOnly && <SideMenuController sideMenu={sideMenu} />}

@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 import type { FilePreviewSource, KnowledgeClient, KnowledgeDocument } from "./types.ts";
 import { readHTTPErrorResponse } from "./http-error.ts";
 
@@ -53,8 +54,8 @@ export function downloadFilename(header: string | null) {
   const plain = header?.match(/filename="((?:[^"\\]|\\.)*)"/i)?.[1]?.replace(/\\(.)/g, "$1") || header?.match(/filename=([^;\s]+)/i)?.[1];
   let value: string | undefined;
   try { value = encoded ? decodeURIComponent(encoded) : plain; }
-  catch { throw Error("文档文件名无效。"); }
-  if (!value || value.length > 512 || /[\x00-\x1f/\\]/.test(value)) throw Error("文档文件名无效。");
+  catch { throw Error(kt("knowledge.auto.69dc4a3fa3292385")); }
+  if (!value || value.length > 512 || /[\x00-\x1f/\\]/.test(value)) throw Error(kt("knowledge.auto.69dc4a3fa3292385"));
   return value;
 }
 
@@ -64,7 +65,7 @@ function responseSize(response: Response) {
   const total = match ? Number(match[3]) : length;
   const loaded = match ? Number(match[2]) - Number(match[1]) + 1 : length;
   const start = match ? Number(match[1]) : 0, end = match ? Number(match[2]) + 1 : length;
-  if (!Number.isSafeInteger(length) || length < 1 || !Number.isSafeInteger(total) || total < 1 || !Number.isSafeInteger(loaded) || loaded !== length || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > total) throw Error("文件内容长度无法核对。");
+  if (!Number.isSafeInteger(length) || length < 1 || !Number.isSafeInteger(total) || total < 1 || !Number.isSafeInteger(loaded) || loaded !== length || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > total) throw Error(kt("knowledge.auto.6470b596eab997c9"));
   return { total, loaded, start, end };
 }
 
@@ -72,14 +73,14 @@ async function checkedContent(source: FilePreviewSource, signal: AbortSignal, ra
   const response = await source.read({ signal, range });
   if (!response.ok && response.status !== 206) {
     const error = await readHTTPErrorResponse(response);
-    throw Error(error ? `${error.message}（${error.code}）` : `读取文件失败（${response.status}）`);
+    throw Error(error ? `${error.message}（${error.code}）` : ktf("knowledge.auto.326c16c2fbb7a49a", { value0: response.status }));
   }
   const filename = downloadFilename(response.headers.get("Content-Disposition"));
   const sha256 = response.headers.get(fileSHA256Header) || "";
   const { total, loaded, start, end } = responseSize(response);
   if (!/^[a-f0-9]{64}$/.test(sha256) || (source.file.sha256 && sha256 !== source.file.sha256) || (source.file.bytes !== undefined && total !== source.file.bytes)) {
     await response.body?.cancel();
-    throw Error("文件内容与所选版本不一致，请刷新后重试。");
+    throw Error(kt("knowledge.auto.6ef0b18a6f13ade7"));
   }
   return { response, filename, sha256, total, loaded, start, end };
 }
@@ -88,10 +89,10 @@ export async function readPreviewFile(source: FilePreviewSource, signal: AbortSi
   const current = await checkedContent(source, signal);
   if (current.total > maxBytes) {
     await current.response.body?.cancel();
-    throw Error(`此文件有 ${(current.total / 1024 / 1024).toFixed(1)} MiB，超过当前查看器 ${(maxBytes / 1024 / 1024).toFixed(0)} MiB 的安全预览上限，请下载原文件查看。`);
+    throw Error(ktf("knowledge.auto.1ae0ac051a4c8dca", { value0: (current.total / 1024 / 1024).toFixed(1), value1: (maxBytes / 1024 / 1024).toFixed(0) }));
   }
   let blob = await current.response.blob();
-  if (blob.size !== current.total) throw Error("文件内容没有完整读取。");
+  if (blob.size !== current.total) throw Error(kt("knowledge.auto.a587b9da0fcaea81"));
   signal.throwIfAborted();
   const format = previewFormat(current.filename);
   blob = blob.slice(0, blob.size, previewContentTypes[format] || "application/octet-stream");
@@ -101,23 +102,23 @@ export async function readPreviewFile(source: FilePreviewSource, signal: AbortSi
 export async function readPreviewText(source: FilePreviewSource, signal: AbortSignal): Promise<PreviewText> {
   const current = await checkedContent(source, signal, `bytes=0-${previewTextChunkBytes - 1}`);
   const data = await current.response.arrayBuffer();
-  if (data.byteLength !== current.loaded) throw Error("文件内容没有完整读取。");
+  if (data.byteLength !== current.loaded) throw Error(kt("knowledge.auto.a587b9da0fcaea81"));
   let text: string;
   try { text = new TextDecoder("utf-8", { fatal: true }).decode(data); }
-  catch { throw Error("此文件不是有效的 UTF-8 文本，请下载原文件查看。"); }
-  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) throw Error("此文件包含二进制控制字符，不能作为文本安全预览。");
+  catch { throw Error(kt("knowledge.auto.fbece0e6ad6a8d15")); }
+  if (/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) throw Error(kt("knowledge.auto.c67e2e9008bf94ce"));
   return { filename: current.filename, format: previewFormat(current.filename), text, bytes: current.total, loadedBytes: current.loaded, truncated: current.loaded < current.total };
 }
 
 export async function readPreviewRange(source: FilePreviewSource, begin: number, end: number, signal: AbortSignal) {
-  if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin) throw Error("文件分段范围无效。");
+  if (!Number.isSafeInteger(begin) || !Number.isSafeInteger(end) || begin < 0 || end <= begin) throw Error(kt("knowledge.auto.aa7fbd25783bbde0"));
   const current = await checkedContent(source, signal, `bytes=${begin}-${end - 1}`);
   if (current.start !== begin || current.end !== Math.min(end, current.total)) {
     await current.response.body?.cancel();
-    throw Error("服务端返回了错误的文件分段。");
+    throw Error(kt("knowledge.auto.cd71c51396bb6cdc"));
   }
   const data = new Uint8Array(await current.response.arrayBuffer());
-  if (data.byteLength !== current.loaded) throw Error("文件分段没有完整读取。");
+  if (data.byteLength !== current.loaded) throw Error(kt("knowledge.auto.b32145a345095572"));
   return { data, total: current.total, filename: current.filename, sha256: current.sha256 };
 }
 
@@ -149,7 +150,7 @@ export function knowledgePageDocumentDownloadSource(client: KnowledgeClient, pag
     identity: `knowledge-page-download:${document.library_id}:${pageID}:${document.id}:${document.revision}:${document.bytes}:${document.sha256}`,
     file: { filename: document.filename, bytes: document.bytes, sha256: document.sha256 },
     async read(request) {
-      if (!client.readPageDocumentContent) throw Error("当前宿主未启用页面受控下载。");
+      if (!client.readPageDocumentContent) throw Error(kt("knowledge.auto.2fba86ca07c4281c"));
       const response = await client.readPageDocumentContent(document.library_id, pageID, document.id, request);
       const headers = new Headers(response.headers);
       return new Response(response.body, { status: response.status, statusText: response.statusText, headers });

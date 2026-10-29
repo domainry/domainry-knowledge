@@ -1,3 +1,4 @@
+import { kt } from "./i18n/runtime.ts";
 import katex from "katex";
 
 export type SafeLatexResult = {
@@ -20,6 +21,6 @@ export function renderSafeLatex(source: string, displayMode: boolean): SafeLatex
       }),
     };
   } catch (error) {
-    return { error: error instanceof Error ? error.message : "公式语法无效" };
+    return { error: error instanceof Error ? error.message : kt("knowledge.auto.17646aac0c7362fb") };
   }
 }

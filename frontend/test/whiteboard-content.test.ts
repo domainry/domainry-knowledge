@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalWhiteboardContent, emptyWhiteboardContent, parseWhiteboardContent, whiteboardElementQuote, whiteboardScene } from "../src/editors/whiteboardContent.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("whiteboard canonical content removes Excalidraw transient state", () => {
   const content = canonicalWhiteboardContent([{

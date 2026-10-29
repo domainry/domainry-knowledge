@@ -277,7 +277,10 @@ export type KnowledgePageSuggestion = {
   id: string;
   library_id: string;
   page_id: string;
-  kind: "insert" | "delete";
+  kind: "insert" | "delete" | "replace";
+  source: "knowledge_ui" | "verdent_agent";
+  client_id: string;
+  tool_call_id?: string;
   status: "open" | "accepted" | "rejected" | "withdrawn";
   base_draft_revision: number;
   anchor: { node_id?: string; quote?: string; block_sha256?: string; changed?: boolean };
@@ -287,6 +290,9 @@ export type KnowledgePageSuggestion = {
   mentioned_user_ids: string[];
   author_user_id: string;
   decided_by_user_id?: string;
+  decision_source?: "knowledge_ui" | "verdent_agent";
+  decision_client_id?: string;
+  decision_tool_call_id?: string;
   revision: number;
   created_at: string;
   updated_at: string;
@@ -960,8 +966,8 @@ export interface KnowledgeClient {
   listPageVersions(libraryID: string, pageID: string, before: number, limit: number, signal: AbortSignal): Promise<KnowledgePageVersionPage>;
   listPageEditHistory(libraryID: string, pageID: string, before: number, limit: number, signal: AbortSignal): Promise<KnowledgePageEditHistoryPage>;
   listPageSuggestions(libraryID: string, pageID: string, signal: AbortSignal): Promise<KnowledgePageSuggestionPage>;
-  createPageSuggestion(libraryID: string, pageID: string, request: { client_id: string; kind: "insert" | "delete"; base_draft_revision: number; anchor: { node_id: string; quote: string }; proposed_text?: string; comment?: string; mentioned_user_ids: string[] }, signal: AbortSignal): Promise<KnowledgePageSuggestion>;
-  decidePageSuggestion(libraryID: string, pageID: string, suggestionID: string, request: { client_id: string; expected_revision: number; expected_draft_revision: number; decision: "accept" | "reject" | "withdraw" }, signal: AbortSignal): Promise<KnowledgePageSuggestion>;
+  createPageSuggestion(libraryID: string, pageID: string, request: { client_id: string; source: "knowledge_ui" | "verdent_agent"; tool_call_id?: string; kind: "insert" | "delete" | "replace"; base_draft_revision: number; anchor: { node_id: string; quote: string }; expected_block_sha256?: string; proposed_text?: string; comment?: string; mentioned_user_ids: string[] }, signal: AbortSignal): Promise<KnowledgePageSuggestion>;
+  decidePageSuggestion(libraryID: string, pageID: string, suggestionID: string, request: { client_id: string; source: "knowledge_ui" | "verdent_agent"; tool_call_id?: string; expected_revision: number; expected_draft_revision: number; decision: "accept" | "reject" | "withdraw" }, signal: AbortSignal): Promise<KnowledgePageSuggestion>;
   getPageVersion(libraryID: string, pageID: string, version: number, signal: AbortSignal): Promise<KnowledgePageVersion>;
   diffPageVersions(libraryID: string, pageID: string, fromVersion: number, toVersion: number, signal: AbortSignal): Promise<KnowledgePageVersionDiff>;
   restorePageVersion(libraryID: string, pageID: string, version: number, request: { client_id: string; expected_page_revision: number; expected_draft_revision: number }, signal: AbortSignal): Promise<KnowledgePageView>;

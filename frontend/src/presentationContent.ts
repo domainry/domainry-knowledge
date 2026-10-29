@@ -1,3 +1,4 @@
+import { kt, ktf } from "./i18n/runtime.ts";
 export const presentationCanvasWidth = 1600;
 export const presentationCanvasHeight = 900;
 
@@ -73,28 +74,28 @@ export type PresentationContent = {
 
 export const presentationThemes: Record<PresentationThemeID, { label: string; master: PresentationMaster }> = {
   forest: {
-    label: "知绿",
+    get label() { return kt("knowledge.auto.6eb9191264eb441d"); },
     master: { background_color: "#FFFFFF", text_color: "#17221C", accent_color: "#176B52", muted_color: "#66746C", font_family: "Arial", footer: "", show_slide_number: true },
   },
   midnight: {
-    label: "深夜",
+    get label() { return kt("knowledge.auto.30003ad423e4c2ec"); },
     master: { background_color: "#101D19", text_color: "#F5F8F6", accent_color: "#59C89B", muted_color: "#A8B7AF", font_family: "Arial", footer: "", show_slide_number: true },
   },
   sunrise: {
-    label: "晨光",
+    get label() { return kt("knowledge.auto.e1a205acd9d171cd"); },
     master: { background_color: "#FFF9F1", text_color: "#31271E", accent_color: "#C85D35", muted_color: "#806F61", font_family: "Arial", footer: "", show_slide_number: true },
   },
 };
 
 export const presentationLayouts: Array<{ id: PresentationLayout; label: string }> = [
-  { id: "title", label: "标题页" },
-  { id: "section", label: "章节页" },
-  { id: "agenda", label: "目录页" },
-  { id: "title_content", label: "标题与正文" },
-  { id: "two_column", label: "双栏" },
-  { id: "quote", label: "引言页" },
-  { id: "image_focus", label: "大图" },
-  { id: "blank", label: "空白" },
+  { id: "title", get label() { return kt("knowledge.auto.21cdeff3c4a2dd46"); } },
+  { id: "section", get label() { return kt("knowledge.auto.d3ddf2d8c51afff5"); } },
+  { id: "agenda", get label() { return kt("knowledge.auto.0b8046a7206bfca6"); } },
+  { id: "title_content", get label() { return kt("knowledge.auto.66d42243c237d121"); } },
+  { id: "two_column", get label() { return kt("knowledge.auto.8f1387be20d72938"); } },
+  { id: "quote", get label() { return kt("knowledge.auto.0d6040e211a3e177"); } },
+  { id: "image_focus", get label() { return kt("knowledge.auto.5e48a0e23879d6d4"); } },
+  { id: "blank", get label() { return kt("knowledge.auto.f0bf4574ce25c131"); } },
 ];
 
 function element(id: string, type: PresentationElementType, values: Omit<PresentationElement, "id" | "type">): PresentationElement {
@@ -103,48 +104,48 @@ function element(id: string, type: PresentationElementType, values: Omit<Present
 
 export function presentationLayoutElements(slideID: string, layout: PresentationLayout, master: PresentationMaster): PresentationElement[] {
   const title = (suffix: string, values: Omit<PresentationElement, "id" | "type">) => element(`${slideID}-${suffix}`, "text", values);
-  const commonTitle = { x: 112, y: 88, width: 1376, height: 118, rotation: 0, text: "演示标题", font_size: 56, font_weight: "bold" as const, color: master.text_color, align: "left" as const };
+  const commonTitle = { x: 112, y: 88, width: 1376, height: 118, rotation: 0, text: kt("knowledge.auto.acab733512504e9b"), font_size: 56, font_weight: "bold" as const, color: master.text_color, align: "left" as const };
   switch (layout) {
     case "title":
       return [
         title("title", { ...commonTitle, x: 168, y: 260, width: 1264, height: 150, font_size: 72, align: "center" }),
-        title("subtitle", { x: 260, y: 438, width: 1080, height: 78, rotation: 0, text: "补充一句清晰的说明", font_size: 28, font_weight: "normal", color: master.muted_color, align: "center" }),
+        title("subtitle", { x: 260, y: 438, width: 1080, height: 78, rotation: 0, text: kt("knowledge.auto.50a978aaf7b0ad13"), font_size: 28, font_weight: "normal", color: master.muted_color, align: "center" }),
       ];
     case "section":
       return [
         element(`${slideID}-accent`, "shape", { x: 170, y: 242, width: 18, height: 248, rotation: 0, shape: "rounded_rectangle", fill_color: master.accent_color, stroke_color: master.accent_color, stroke_width: 0, text: "", font_size: 18, font_weight: "normal", color: master.background_color, align: "center" }),
-        title("eyebrow", { x: 234, y: 245, width: 1120, height: 46, rotation: 0, text: "01 章节", font_size: 24, font_weight: "bold", color: master.accent_color, align: "left" }),
-        title("title", { x: 228, y: 310, width: 1180, height: 160, rotation: 0, text: "章节标题", font_size: 72, font_weight: "bold", color: master.text_color, align: "left" }),
-        title("subtitle", { x: 234, y: 492, width: 980, height: 64, rotation: 0, text: "用一句话说明这一章节的核心主题", font_size: 26, font_weight: "normal", color: master.muted_color, align: "left" }),
+        title("eyebrow", { x: 234, y: 245, width: 1120, height: 46, rotation: 0, text: kt("knowledge.auto.76c50841d30b443b"), font_size: 24, font_weight: "bold", color: master.accent_color, align: "left" }),
+        title("title", { x: 228, y: 310, width: 1180, height: 160, rotation: 0, text: kt("knowledge.auto.b260439872218651"), font_size: 72, font_weight: "bold", color: master.text_color, align: "left" }),
+        title("subtitle", { x: 234, y: 492, width: 980, height: 64, rotation: 0, text: kt("knowledge.auto.2203c7dbec8e8a97"), font_size: 26, font_weight: "normal", color: master.muted_color, align: "left" }),
       ];
     case "agenda":
       return [
         title("title", commonTitle),
-        title("agenda", { x: 168, y: 260, width: 1264, height: 420, rotation: 0, text: "01  背景与目标\n\n02  方案与执行\n\n03  数据与结论", font_size: 38, font_weight: "normal", color: master.text_color, align: "left" }),
+        title("agenda", { x: 168, y: 260, width: 1264, height: 420, rotation: 0, text: kt("knowledge.auto.e3054e710d48010e"), font_size: 38, font_weight: "normal", color: master.text_color, align: "left" }),
       ];
     case "two_column":
       return [
         title("title", commonTitle),
-        title("left", { x: 112, y: 260, width: 632, height: 450, rotation: 0, text: "左侧要点\n\n• 观点一\n• 观点二", font_size: 30, font_weight: "normal", color: master.text_color, align: "left" }),
-        title("right", { x: 856, y: 260, width: 632, height: 450, rotation: 0, text: "右侧要点\n\n• 观点一\n• 观点二", font_size: 30, font_weight: "normal", color: master.text_color, align: "left" }),
+        title("left", { x: 112, y: 260, width: 632, height: 450, rotation: 0, text: kt("knowledge.auto.6c4bda71f7e9fe47"), font_size: 30, font_weight: "normal", color: master.text_color, align: "left" }),
+        title("right", { x: 856, y: 260, width: 632, height: 450, rotation: 0, text: kt("knowledge.auto.4738b4e180d0ff5e"), font_size: 30, font_weight: "normal", color: master.text_color, align: "left" }),
       ];
     case "image_focus":
       return [
         title("title", commonTitle),
-        element(`${slideID}-media-placeholder`, "shape", { x: 112, y: 246, width: 1376, height: 510, rotation: 0, shape: "rectangle", fill_color: master.muted_color, stroke_color: master.accent_color, stroke_width: 2, text: "从工具栏插入图片或视频", font_size: 28, font_weight: "normal", color: master.background_color, align: "center" }),
+        element(`${slideID}-media-placeholder`, "shape", { x: 112, y: 246, width: 1376, height: 510, rotation: 0, shape: "rectangle", fill_color: master.muted_color, stroke_color: master.accent_color, stroke_width: 2, text: kt("knowledge.auto.e0bede796aa37179"), font_size: 28, font_weight: "normal", color: master.background_color, align: "center" }),
       ];
     case "quote":
       return [
         title("mark", { x: 170, y: 165, width: 180, height: 150, rotation: 0, text: "“", font_size: 160, font_weight: "bold", color: master.accent_color, align: "left" }),
-        title("quote", { x: 260, y: 250, width: 1080, height: 270, rotation: 0, text: "把最有力量的一句话放在这里，让观点成为这一页的视觉中心。", font_size: 52, font_weight: "bold", color: master.text_color, align: "left" }),
-        title("source", { x: 270, y: 590, width: 980, height: 52, rotation: 0, text: "— 引用来源", font_size: 24, font_weight: "normal", color: master.muted_color, align: "left" }),
+        title("quote", { x: 260, y: 250, width: 1080, height: 270, rotation: 0, text: kt("knowledge.auto.0eb670cc0f021eed"), font_size: 52, font_weight: "bold", color: master.text_color, align: "left" }),
+        title("source", { x: 270, y: 590, width: 980, height: 52, rotation: 0, text: kt("knowledge.auto.30080922e0b0cd8d"), font_size: 24, font_weight: "normal", color: master.muted_color, align: "left" }),
       ];
     case "blank":
       return [];
     default:
       return [
         title("title", commonTitle),
-        title("content", { x: 112, y: 252, width: 1376, height: 480, rotation: 0, text: "• 输入第一个要点\n• 输入第二个要点", font_size: 32, font_weight: "normal", color: master.text_color, align: "left" }),
+        title("content", { x: 112, y: 252, width: 1376, height: 480, rotation: 0, text: kt("knowledge.auto.07c1752da961a84b"), font_size: 32, font_weight: "normal", color: master.text_color, align: "left" }),
       ];
   }
 }
@@ -152,7 +153,7 @@ export function presentationLayoutElements(slideID: string, layout: Presentation
 export function createPresentationSlide(id: string, index: number, layout: PresentationLayout, master: PresentationMaster): PresentationSlide {
   return {
     id,
-    title: index === 0 ? "演示标题" : `幻灯片 ${index + 1}`,
+    title: index === 0 ? kt("knowledge.auto.acab733512504e9b") : ktf("knowledge.auto.48df1e72ddb395f6", { value0: index + 1 }),
     layout,
     background_color: "",
     notes: "",
@@ -272,7 +273,7 @@ export function parsePresentationContent(body: string): PresentationContent {
 }
 
 export function canonicalPresentationContent(value: PresentationContent) {
-  if (!isPresentationContent(value)) throw Error("幻灯片内容不符合 canonical schema。");
+  if (!isPresentationContent(value)) throw Error(kt("knowledge.auto.093c88e77eb07424"));
   return JSON.stringify(value);
 }
 

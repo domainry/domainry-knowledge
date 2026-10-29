@@ -79,7 +79,7 @@ export declare function canonicalWhiteboardContent(elements: readonly unknown[],
 export declare function whiteboardScene(content: KnowledgeWhiteboardContent): {
     elements: {
         id: string;
-        type: "text" | "ellipse" | "image" | "line" | "rectangle" | "diamond" | "arrow" | "freedraw" | "frame";
+        type: "ellipse" | "text" | "image" | "line" | "rectangle" | "diamond" | "arrow" | "freedraw" | "frame";
         x: number;
         y: number;
         width: number;
@@ -110,7 +110,7 @@ export declare function whiteboardScene(content: KnowledgeWhiteboardContent): {
         originalText: string | undefined;
         fontSize: number | undefined;
         fontFamily: number | undefined;
-        textAlign: "center" | "left" | "right" | undefined;
+        textAlign: "right" | "left" | "center" | undefined;
         verticalAlign: "top" | "middle" | "bottom" | undefined;
         containerId: string | null;
         lineHeight: number | undefined;

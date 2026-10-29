@@ -12,8 +12,9 @@ import (
 
 type realtimeAuthorizationRepository struct {
 	*pageAuthorizationRepository
-	connectCalls int
-	syncCalls    int
+	connectCalls      int
+	syncCalls         int
+	createdSuggestion knowledgesdk.KnowledgePageSuggestion
 }
 
 func (repository *realtimeAuthorizationRepository) ConnectKnowledgeCollaboration(_ context.Context, libraryID, pageID string, input knowledgesdk.KnowledgeCollaborationConnect, a agentsdk.Authority) (knowledgesdk.KnowledgeCollaborationSession, error) {
@@ -36,6 +37,26 @@ func (*realtimeAuthorizationRepository) CloseKnowledgeCollaboration(context.Cont
 
 func (repository *realtimeAuthorizationRepository) PublishKnowledgeCollaboration(context.Context, string, string, knowledgesdk.KnowledgeCollaborationPublish, agentsdk.Authority) (knowledgesdk.KnowledgePageView, error) {
 	return repository.page, nil
+}
+
+func (*realtimeAuthorizationRepository) KnowledgePageSuggestions(context.Context, string, string, agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestionPage, error) {
+	return knowledgesdk.KnowledgePageSuggestionPage{Items: []knowledgesdk.KnowledgePageSuggestion{}}, nil
+}
+
+func (repository *realtimeAuthorizationRepository) CreateKnowledgePageSuggestion(_ context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageSuggestionCreate, a agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestion, error) {
+	repository.createdSuggestion = knowledgesdk.KnowledgePageSuggestion{
+		ID: "ksuggest_test", LibraryID: libraryID, PageID: pageID, Kind: input.Kind, Source: input.Source, ClientID: input.ClientID, ToolCallID: input.ToolCallID,
+		Status: knowledgesdk.KnowledgeSuggestionOpen, BaseDraftRevision: input.BaseDraftRevision, Anchor: input.Anchor, ProposedText: input.ProposedText,
+		Comment: input.Comment, MentionedUserIDs: input.MentionedUserIDs, AuthorUserID: a.UserID, Revision: 1,
+	}
+	return repository.createdSuggestion, nil
+}
+
+func (repository *realtimeAuthorizationRepository) DecideKnowledgePageSuggestion(_ context.Context, _, _, _ string, input knowledgesdk.KnowledgePageSuggestionDecision, a agentsdk.Authority) (knowledgesdk.KnowledgePageSuggestion, error) {
+	result := repository.createdSuggestion
+	result.Status, result.Revision, result.DecidedByUserID = knowledgesdk.KnowledgeSuggestionAccepted, result.Revision+1, a.UserID
+	result.DecisionSource, result.DecisionClientID, result.DecisionToolCallID = input.Source, input.ClientID, input.ToolCallID
+	return result, nil
 }
 
 func TestKnowledgeRealtimeRechecksExactIdentityActionAndNeverAuditsBody(t *testing.T) {
@@ -109,5 +130,43 @@ func TestKnowledgeRealtimeIdentityDenialStopsBeforeRepositoryMutation(t *testing
 	}
 	if repository.syncCalls != 0 || len(policy.actions) != 1 || policy.actions[0] != knowledgesdk.ActionPageCollaborationSync {
 		t.Fatalf("denied sync reached repository or used wrong action: calls=%d actions=%v", repository.syncCalls, policy.actions)
+	}
+}
+
+func TestKnowledgeAgentSuggestionAuditKeepsInvocationAndExcludesBody(t *testing.T) {
+	base := &pageAuthorizationRepository{
+		library: agentsdk.KnowledgeLibrary{ID: "klib_test", Role: "editor"},
+		page:    knowledgesdk.KnowledgePageView{Page: knowledgesdk.KnowledgePage{ID: "kpage_test", LibraryID: "klib_test", State: "active"}},
+	}
+	repository := &realtimeAuthorizationRepository{pageAuthorizationRepository: base}
+	sink := &knowledgeEventSink{}
+	service := NewService(repository, "runtime", Options{LibraryAuthorizer: &pageAuthorizationPolicy{}, AuditAppender: sink}, nil)
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	secret := "绝不能进入审计的会话正文"
+	created, err := service.CreateKnowledgePageSuggestion(t.Context(), base.library.ID, base.page.Page.ID, knowledgesdk.KnowledgePageSuggestionCreate{
+		ClientID: "agent-propose", Source: knowledgesdk.KnowledgeSuggestionSourceVerdentAgent, ToolCallID: "tool-propose-1",
+		Kind: knowledgesdk.KnowledgeSuggestionReplace, BaseDraftRevision: 7,
+		Anchor: knowledgesdk.KnowledgePageCommentAnchor{NodeID: "block-1", Quote: "before"}, ExpectedBlockSHA256: strings.Repeat("a", 64),
+		ProposedText: secret, Comment: secret,
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.DecideKnowledgePageSuggestion(t.Context(), base.library.ID, base.page.Page.ID, created.ID, knowledgesdk.KnowledgePageSuggestionDecision{
+		ClientID: "agent-apply", Source: knowledgesdk.KnowledgeSuggestionSourceVerdentAgent, ToolCallID: "tool-apply-1",
+		ExpectedRevision: created.Revision, ExpectedDraftRevision: 7, Decision: knowledgesdk.KnowledgeSuggestionDecisionAccept,
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.audits) != 2 || sink.audits[0].ClientID != "agent-propose" || sink.audits[0].After["source"] != knowledgesdk.KnowledgeSuggestionSourceVerdentAgent || sink.audits[0].After["tool_call_id"] != "tool-propose-1" {
+		t.Fatalf("create audit lost Agent provenance: %+v", sink.audits)
+	}
+	if sink.audits[1].ClientID != "agent-apply" || sink.audits[1].After["source"] != knowledgesdk.KnowledgeSuggestionSourceVerdentAgent || sink.audits[1].After["tool_call_id"] != "tool-apply-1" || sink.audits[1].After["suggestion_source"] != knowledgesdk.KnowledgeSuggestionSourceVerdentAgent {
+		t.Fatalf("decision audit lost Agent invocation linkage: %+v", sink.audits[1])
+	}
+	raw, _ := json.Marshal(sink.audits)
+	if strings.Contains(string(raw), secret) {
+		t.Fatalf("suggestion body escaped into audit: %s", raw)
 	}
 }

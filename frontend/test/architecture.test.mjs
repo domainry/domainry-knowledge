@@ -3,8 +3,20 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { knowledgeChineseMessages } from "../src/i18n/messages.generated.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function assertLocalized(source, chineseFragment, message) {
+  const messageIDs = Object.entries(knowledgeChineseMessages)
+    .filter(([, value]) => value.includes(chineseFragment))
+    .map(([id]) => id);
+  assert.ok(messageIDs.length > 0, `missing Chinese catalog message containing: ${chineseFragment}`);
+  assert.ok(
+    messageIDs.some(id => source.includes(`"${id}"`)),
+    message ?? `source must reference a localized message containing: ${chineseFragment}`,
+  );
+}
 
 async function sourceFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -86,14 +98,14 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   const editorBlocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const blockNoteEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
-  assert.match(panel, /正在冻结协作快照/);
+  assertLocalized(panel, "正在冻结协作快照");
   assert.match(panel, /useKnowledgeCollaboration/);
-  assert.match(panel, /内容冲突自动收敛/);
-  assert.match(panel, /光标在内容块/);
-  assert.match(panel, /选区/);
+  assertLocalized(panel, "内容冲突自动收敛");
+  assertLocalized(panel, "光标在内容块");
+  assertLocalized(panel, "选区");
   assert.match(panel, /recentActivityLabel/);
   assert.doesNotMatch(panel, /person\.editedBlocks/);
-  assert.match(panel, /Yjs/);
+  assertLocalized(panel, "Yjs");
   assert.match(panel, /has-side-panel/);
   assert.match(panel, /beforeunload/);
   assert.match(panel, /content_type !== "presentation"/, "presentation saves must not remount the editor and reset the active slide");
@@ -104,10 +116,11 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.doesNotMatch(panel, /<ArrowUp|<ArrowDown/);
   assert.match(panel, /hasExpandableChildren/);
   assert.match(editorBlocks, /const calloutToneOptions = \[/);
-  assert.match(editorBlocks, /提示类型：\$\{current\.label\}。点击切换为\$\{next\.label\}/);
+  assertLocalized(editorBlocks, "提示类型：");
   assert.doesNotMatch(editorBlocks, /aria-label="提示块图标"|aria-label="提示块类型"/);
   assert.match(pageHeader, /primary knowledge-page-header-action/);
-  assert.match(blockNoteEditor, /summary className="knowledge-page-header-action" aria-label="导出文档"/);
+  assert.match(blockNoteEditor, /summary className="knowledge-page-header-action" aria-label=\{kt\(/);
+  assertLocalized(blockNoteEditor, "导出文档");
   assert.match(panel, /if \(loadedChildren\) return loadedChildren\.length > 0 \|\| childrenComplete\[page\.id\] === false/);
   assert.match(panel, /return page\.has_children/);
   assert.doesNotMatch(panel, /probeChildPresence/);
@@ -124,7 +137,7 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(panel, /has-inline-outline/);
   assert.match(styles, /\.knowledge-page-readable\.has-inline-outline > \.knowledge-page-outline/);
   for (const tooltip of ["页内查找", "收藏页面", "订阅页面", "添加到快捷入口", "页面大纲", "AI 写作助手", "页面属性", "引用与反向链接", "知识关系图", "权限分析", "页面权限", "受控分享", "页面治理", "复制页面", "归档页面"]) {
-    assert.match(pageToolbar, new RegExp(`data-tooltip=.*${tooltip}`), `pure icon tool must expose a hover label: ${tooltip}`);
+    assertLocalized(pageToolbar, tooltip, `pure icon tool must expose a localized hover label: ${tooltip}`);
   }
   assert.match(pageToolbar, /<Network size=\{15\}/);
   assert.match(pageToolbar, /<ScanSearch size=\{15\}/);
@@ -132,7 +145,7 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(pageToolbar, /props\.archived \? <ArchiveRestore size=\{15\} \/> : <Archive size=\{15\} \/>/);
   assert.doesNotMatch(pageToolbar, /MoreHorizontal/);
   assert.match(panel, /mode === "shares"/);
-  assert.match(panel, /只读解释指定用户为什么能或不能执行某个动作，不会修改任何权限/);
+  assertLocalized(panel, "只读解释指定用户为什么能或不能执行某个动作");
   assert.match(panel, /knowledge-page-management-panel/);
   assert.match(panel, /knowledge-principal-picker/);
   assert.match(styles, /\.knowledge-page-main\.has-side-panel > \.knowledge-page-management-panel/);
@@ -150,8 +163,8 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(panel, /getPageAccess/);
   assert.match(panel, /setPageAccess/);
   assert.match(panel, /previewPageMove/);
-  assert.match(panel, /确认页面权限影响/);
-  assert.match(panel, /远端权限投影确认前，本页不会进入搜索结果/);
+  assertLocalized(panel, "确认页面权限影响");
+  assertLocalized(panel, "远端权限投影确认前，本页不会进入搜索结果");
   assert.match(editorBlocks, /personMention/);
   assert.match(editorBlocks, /dateMention/);
   assert.match(editorBlocks, /pageMention/);
@@ -160,14 +173,14 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(panel, /searchLibraryMembers/);
   assert.match(panel, /resolvePrincipals/);
   assert.match(panel, /anchor: \{ node_id: anchor\.nodeID, quote: anchor\.quote \}/);
-  assert.match(workspaceUI, /修改建议/);
+  assertLocalized(workspaceUI, "修改建议");
   assert.match(panel, /client\.createPageSuggestion/);
   assert.match(panel, /client\.decidePageSuggestion/);
   assert.match(panel, /expected_draft_revision: current\.draft\.draft_revision/);
-  assert.match(workspaceUI, /接受前不会改动草稿/);
-  assert.match(workspaceUI, /原内容块已改变，不能接受这条建议/);
+  assertLocalized(workspaceUI, "接受前不会改动草稿");
+  assertLocalized(workspaceUI, "原内容块已改变，不能接受这条建议");
   assert.match(styles, /\.knowledge-page-suggestions/);
-  assert.match(workspaceUI, /原内容块已删除或内容已经变化，锚点失效/);
+  assertLocalized(workspaceUI, "原内容块已删除或内容已经变化，锚点失效");
   assert.match(commentDrawer, /onFocusComment\(comment\)/);
   assert.match(blockNoteEditor, /getSelectedText\(\)/);
   assert.match(blockNoteEditor, /onCommentAnchor/);
@@ -256,14 +269,14 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(workspace, /aria-label="知识库工作区"/);
   assert.doesNotMatch(workspace, /knowledge-library-tabs/);
   assert.doesNotMatch(workspace, /setLibraryDialog\("documents"\)/);
-  assert.match(createMenu, /aria-label="新增"/);
-  assert.match(createMenu, /新增知识库/);
-  assert.match(createMenu, /填写信息并创建团队知识库/);
-  assert.match(createDialog, /新建团队知识库/);
-  assert.match(createDialog, /知识库名称/);
-  assert.match(createDialog, /用途说明/);
+  assertLocalized(createMenu, "新增");
+  assertLocalized(createMenu, "新增知识库");
+  assertLocalized(createMenu, "填写信息并创建团队知识库");
+  assertLocalized(createDialog, "新建团队知识库");
+  assertLocalized(createDialog, "知识库名称");
+  assertLocalized(createDialog, "用途说明");
   assert.match(createDialog, /getPrincipalDirectory/);
-  assert.match(createDialog, /企业组织与成员/);
+  assertLocalized(createDialog, "企业组织与成员");
   assert.match(createDialog, /toggleOrganization/);
   assert.match(createDialog, /normalizeSelection/);
   assert.match(createDialog, /hasSelectableDescendants/);
@@ -271,18 +284,18 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(createDialog, /snapshot\?\.current_user_id/);
   assert.match(createDialog, /isCreator \|\| selectedMembers\.has/);
   assert.match(createDialog, /disabled=\{busy \|\| isCreator\}/);
-  assert.match(createDialog, /创建者/);
-  assert.match(createDialog, /管理员/);
+  assertLocalized(createDialog, "创建者");
+  assertLocalized(createDialog, "管理员");
   assert.match(createDialog, /role: "editor"/);
-  assert.match(createDialog, /新成员统一以编辑者加入/);
+  assertLocalized(createDialog, "新成员统一以编辑者加入");
   assert.doesNotMatch(createDialog, /统一初始角色/);
-  assert.match(createDialog, /创建并授权成员/);
-  assert.match(createDialog, /创建团队知识库/);
+  assertLocalized(createDialog, "创建并授权成员");
+  assertLocalized(createDialog, "创建团队知识库");
   assert.match(createMenu, /pageTypeDefinitions\.filter/);
   assert.match(createMenu, /importPageTypes/);
-  assert.match(createMenu, /上传文件/);
+  assertLocalized(createMenu, "上传文件");
   assert.match(createMenu, /importInput\.current\?\.click\(\)/);
-  assert.match(createMenu, /新增\{definition\.label\}/);
+  assert.match(createMenu, /\{definition\.label\}/);
   assert.doesNotMatch(pages, /createPage\("document"\)/);
   assert.match(workspace, /createSharedLibrary/);
   assert.match(workspace, /KnowledgeLibraryCreateDialog/);
@@ -293,8 +306,8 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(workspace, /libraryKind === "personal" && value\.complete && value\.items\.length === 0/);
   assert.match(workspace, /personalBootstrapClientID/);
   assert.doesNotMatch(workspace, /创建个人知识库/);
-  assert.match(workspace, /创建团队知识库并邀请相关成员/);
-  assert.match(createMenu, /请先创建团队知识库/);
+  assertLocalized(workspace, "创建团队知识库并邀请相关成员");
+  assertLocalized(createMenu, "请先创建团队知识库");
   assert.match(pages, /parent_page_id: parentPageID/);
   assert.match(pages, /content_type: contentType/);
   assert.match(pages, /content_type: "file"/);
@@ -317,7 +330,7 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(styles, /\.knowledge-create-page-dialog/);
   assert.match(styles, /\.knowledge-create-menu > div \{[^}]*position: absolute/);
   assert.match(styles, /\.managed-library-browser > \.managed-library-list \{ display: none; \}/);
-  assert.match(workspace, /知识库管理/);
+  assertLocalized(workspace, "知识库管理");
 });
 
 test("file-page export is a one-click browser download without a second save-picker workflow", async () => {
@@ -327,7 +340,8 @@ test("file-page export is a one-click browser download without a second save-pic
   assert.match(preview, /URL\.createObjectURL\(current\.blob\)/);
   assert.match(preview, /link\.download = current\.filename/);
   assert.match(preview, /link\.click\(\)/);
-  assert.match(filePage, /downloading \? "\u6b63\u5728\u4e0b\u8f7d…" : "\u5bfc出"/);
+  assertLocalized(filePage, "正在下载…");
+  assertLocalized(filePage, "导出");
 });
 
 test("page search uses the authorized structured endpoint and opens canonical hit locations", async () => {
@@ -427,7 +441,8 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
   assert.match(formEditor, /normalizeFormContent/, "questionnaire design changes must pass through the Knowledge-owned canonical schema");
   assert.match(formEditor, /form\?\.formatError/, "questionnaire API failures must use the host's localized domain error formatter");
   assert.doesNotMatch(presentationEditor, /excalidraw/i, "presentations must not persist an Excalidraw scene as their product model");
-  for (const capability of ["presentationThemes", "presentationLayouts", "MasterInspector", "演讲者备注", "PresentationSlideshow", "exportPresentationPDF", "exportPresentationPPTX", "addMedia"]) assert.match(presentationEditor, new RegExp(capability));
+  for (const capability of ["presentationThemes", "presentationLayouts", "MasterInspector", "PresentationSlideshow", "exportPresentationPDF", "exportPresentationPPTX", "addMedia"]) assert.match(presentationEditor, new RegExp(capability));
+  assertLocalized(presentationEditor, "演讲者备注");
   assert.match(presentationEditor, /knowledge-document:kdoc_/);
   assert.match(panel, /content_type !== "form"/, "draft acknowledgements must not remount the form designer and discard its active tab");
   assert.match(panel, /content_type !== "mind_note"/, "draft acknowledgements must not remount the outline and discard its focus state");
@@ -455,9 +470,9 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
   assert.match(blocks, /id: "columnList"/);
   assert.match(blocks, /id: "tableOfContents"/);
   assert.match(blocks, /knowledgeCodeLanguages/);
-  assert.match(blocks, /aria-label", "代码语言"/);
-  assert.match(blocks, /aria-label", "复制代码"/);
-  assert.match(blocks, /aria-label", "切换代码自动换行"/);
+  assertLocalized(blocks, "代码语言");
+  assertLocalized(blocks, "复制代码");
+  assertLocalized(blocks, "切换代码自动换行");
   assert.match(blocks, /knowledgeImageCropAspects/);
   assert.match(blocks, /cropAspect/);
   assert.match(blocks, /knowledge-image-preview-dialog/);
@@ -474,16 +489,16 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
   assert.match(blocks, /searchParams\.set\("enablejsapi", "1"\)/);
   assert.match(blocks, /searchParams\.set\("origin", window\.location\.origin\)/);
   assert.match(blocks, /externalEmbedLocalFallback/);
-  assert.match(blocks, /YouTube 不允许 localhost 作为嵌入来源/);
+  assertLocalized(blocks, "YouTube 不允许 localhost 作为嵌入来源");
   assert.match(blocks, /externalEmbedPlatformURL/);
-  assert.match(blocks, /平台播放/);
+  assertLocalized(blocks, "平台播放");
   assert.match(styles, /\.knowledge-block-card-fields input\[aria-invalid="true"\]/);
   assert.match(styles, /\.knowledge-block-embed iframe/);
   const blockNoteEditor = await readFile(path.join(editorDirectory, "BlockNoteEditor.tsx"), "utf8");
   const documentTransfer = await readFile(path.join(editorDirectory, "documentTransfer.ts"), "utf8");
   const slashMenu = await readFile(path.join(editorDirectory, "slashMenu.ts"), "utf8");
   const slashMenuView = await readFile(path.join(editorDirectory, "KnowledgeSlashMenu.tsx"), "utf8");
-  assert.match(blockNoteEditor, /multi_column: multiColumnLocales\.zh/);
+  assert.match(blockNoteEditor, /multi_column: multiColumnLocales\[multiColumnLocaleKey\[locale\]\]/);
   assert.match(blockNoteEditor, /SyntaxHighlightingExtension/);
   assert.match(blockNoteEditor, /uploadFile: !readOnly && fileUploadsEnabled && uploadFile/);
   assert.match(blockNoteEditor, /\^knowledge-document:kdoc_\[a-f0-9\]\{32\}\$/);
@@ -501,18 +516,18 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
   assert.doesNotMatch(blocks, /onItemClick: \(\) => editor\.insertInlineContent\(\[\{ type: "inlineFormula", content: "" \}\]/);
   assert.match(blockNoteEditor, /if \(item\.formulaInput\)/);
   assert.match(blockNoteEditor, /renderSafeLatex\(formulaSource/);
-  assert.match(blockNoteEditor, /输入 LaTeX，确认后才会写入正文/);
+  assertLocalized(blockNoteEditor, "输入 LaTeX，确认后才会写入正文");
   assert.doesNotMatch(styles, /\.knowledge-upload-file-trigger/);
   assert.doesNotMatch(blockNoteEditor, /EmbedTab/);
   assert.match(blockNoteEditor, /KnowledgeImagePropertiesButton/);
   assert.match(blockNoteEditor, /KnowledgeAuthorizedFileReplaceButton/);
   assert.match(blockNoteEditor, /item\.key !== "replaceFileButton"/);
-  assert.match(blockNoteEditor, /替代文本/);
-  assert.match(blockNoteEditor, /裁剪比例/);
+  assertLocalized(blockNoteEditor, "替代文本");
+  assertLocalized(blockNoteEditor, "裁剪比例");
   assert.match(blockNoteEditor, /FormattingToolbarController formattingToolbar=\{formattingToolbar\}/);
   assert.match(blockNoteEditor, /SideMenuController sideMenu=\{sideMenu\}/);
   assert.match(blockNoteEditor, /selected\?\.some\(block => block\.id === hovered\.id\)/, "drag-handle actions must preserve a multi-block selection");
-  for (const action of ["复制 Block 链接", "转换类型", "折叠子块", "删除所选 Block"]) assert.match(blockNoteEditor, new RegExp(action));
+  for (const action of ["复制 Block 链接", "转换类型", "折叠子块", "删除所选 Block"]) assertLocalized(blockNoteEditor, action);
   assert.match(blockNoteEditor, /blocksToFullHTML/);
   assert.match(blockNoteEditor, /defaultToggledState\.set/);
   assert.match(blockNoteEditor, /knowledge-block-deep-link-target/);
@@ -530,11 +545,12 @@ test("every native page type is backed by a real lazy-loaded editor engine", asy
   assert.match(blockNoteEditor, /suggestionMenuComponent=\{KnowledgeSlashMenu\}/);
   assert.match(blockNoteEditor, /recordKnowledgeSlashRecentID/);
   assert.match(blocks, /const mediaPickers = \{/);
-  assert.match(blocks, /submenu: media \? "媒体与文件" : undefined/);
-  assert.match(blocks, /当前知识库未配置受权文件存储/);
+  assert.match(blocks, /submenu: media \? kt\(/);
+  assertLocalized(blocks, "媒体与文件");
+  assertLocalized(blocks, "当前知识库未配置受权文件存储");
   assert.match(slashMenu, /recentStorageKey/);
-  assert.match(slashMenu, /group: "最近使用"/);
-  assert.match(slashMenu, /group: "搜索结果"/);
+  assertLocalized(slashMenu, "最近使用");
+  assertLocalized(slashMenu, "搜索结果");
   assert.match(slashMenuView, /is-submenu/);
   assert.match(slashMenuView, /aria-disabled/);
   assert.match(styles, /\.knowledge-slash-item:hover/);
@@ -587,9 +603,9 @@ test("whiteboard persists a Knowledge-owned schema and exposes complete board co
   assert.match(content, /assets: Record<string, KnowledgeWhiteboardAsset>/);
   assert.match(editor, /canonicalWhiteboardContent/);
   assert.match(editor, /nextBody !== canonicalBody/, "mount-time Excalidraw normalization must not dirty an unchanged board");
-  assert.match(editor, /添加便签/);
-  assert.match(editor, /插入画板模板/);
-  assert.match(editor, /置于顶层/);
+  assertLocalized(editor, "添加便签");
+  assertLocalized(editor, "插入画板模板");
+  assertLocalized(editor, "置于顶层");
   assert.match(editor, /exportToBlob/);
   assert.match(editor, /exportToCanvas/);
   assert.match(editor, /onCommentAnchor/);
@@ -606,7 +622,8 @@ test("task blocks use backend-owned state instead of versioned block props", asy
   const blocks = await readFile(path.join(root, "src", "editors", "documentBlocks.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
-  assert.match(blocks, /propSchema: \{ title: \{ default: "待办任务" \} \}/);
+  assert.match(blocks, /propSchema: \{ title: \{ get default\(\) \{ return kt\(/);
+  assertLocalized(blocks, "待办任务");
   assert.doesNotMatch(blocks, /propSchema: \{[^}]*status:/);
   assert.match(panel, /listPageTasks/);
   assert.match(panel, /createPageTask/);
@@ -620,7 +637,8 @@ test("poll blocks keep configuration and per-user ballots in backend-owned state
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   assert.match(blocks, /type: "knowledgePoll"/);
-  assert.match(blocks, /propSchema: \{ question: \{ default: "请选择一个选项" \} \}/);
+  assert.match(blocks, /propSchema: \{ question: \{ get default\(\) \{ return kt\(/);
+  assertLocalized(blocks, "请选择一个选项");
   assert.doesNotMatch(blocks, /propSchema: \{[^}]*votes:/);
   assert.match(panel, /listPagePolls/);
   assert.match(panel, /createPagePoll/);
@@ -637,9 +655,9 @@ test("page templates are backend-owned immutable subtree snapshots", async () =>
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
   const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
 
-  assert.match(panel, /页面模板/);
-  assert.match(panel, /保存当前页面为模板/);
-  assert.match(panel, /用当前页面生成新版本/);
+  assertLocalized(panel, "页面模板");
+  assertLocalized(panel, "保存当前页面为模板");
+  assertLocalized(panel, "用当前页面生成新版本");
   assert.match(panel, /instantiatePageTemplate/);
   assert.match(panel, /listPageTemplateVersions/);
   assert.match(types, /KnowledgePageTemplateVersionSummary/);
@@ -669,8 +687,8 @@ test("native application references are governed child pages instead of raw page
   assert.match(panel, /client\.createPageReference/);
   assert.match(panel, /collaboration\.flush\(\)/);
   assert.match(panel, /KnowledgeEmbeddedReference/);
-  assert.match(panel, /固定版本 \$\{reference\.targetVersion\}/);
-  assert.match(panel, /引用不可用或权限已撤销/);
+  assertLocalized(panel, "固定版本 {value0}");
+  assertLocalized(panel, "引用不可用或权限已撤销");
   assert.match(panel, /streamKnowledgePageLiveEvents/);
   assert.doesNotMatch(panel, /setInterval/);
   assert.match(client, /\/references/);
@@ -694,10 +712,10 @@ test("personal page navigation is backend-owned and visible in the workspace", a
   assert.match(client, /\/page-collections/);
   assert.match(panel, /client\.recordPageView/);
   assert.match(panel, /client\.setPagePersonalState/);
-  assert.match(panel, /快捷入口/);
-  assert.match(panel, /最近访问/);
-  assert.match(panel, /最近编辑/);
-  assert.match(panel, /回收站/);
+  assertLocalized(panel, "快捷入口");
+  assertLocalized(panel, "最近访问");
+  assertLocalized(panel, "最近编辑");
+  assertLocalized(panel, "回收站");
   assert.doesNotMatch(panel, /showArchived/, "archive filtering must not remain a second recycle-bin interaction");
   assert.match(styles, /\.knowledge-page-collections > button:hover/);
   assert.match(styles, /\.knowledge-collection-list > button\[role="listitem"\]:hover/);
@@ -720,10 +738,10 @@ test("shared page metadata and governance are backend-owned, typed, and editable
   assert.match(panel, /client\.setPageGovernance/);
   assert.match(panel, /client\.reviewPageGovernance/);
   assert.match(panel, /client\.listPageGovernanceAudit/);
-  assert.match(panel, /下次复核时间/);
-  assert.match(panel, /归档保留期/);
-  assert.match(panel, /内容管理员/);
-  assert.match(panel, /自定义属性/);
+  assertLocalized(panel, "下次复核时间");
+  assertLocalized(panel, "归档保留期");
+  assertLocalized(panel, "内容管理员");
+  assertLocalized(panel, "自定义属性");
   assert.match(styles, /\.knowledge-page-metadata-summary/);
   assert.match(styles, /\.knowledge-metadata-property/);
   assert.match(styles, /\.knowledge-page-governance/);
@@ -742,9 +760,9 @@ test("page references and backlinks use the authorized backend graph index", asy
   assert.match(client, /listPageReferences/);
   assert.match(client, /direction, after, limit/);
   assert.match(panel, /client\.listPageReferences/);
-  assert.match(panel, /引用了谁/);
-  assert.match(panel, /被谁引用/);
-  assert.match(panel, /引用页面不可用/);
+  assertLocalized(panel, "引用了谁");
+  assertLocalized(panel, "被谁引用");
+  assertLocalized(panel, "引用页面不可用");
   assert.match(styles, /\.knowledge-page-references/);
   assert.match(styles, /\.knowledge-reference-index-list > button:hover/);
   assert.doesNotMatch(panel, /localStorage|sessionStorage|indexedDB/i);
@@ -764,11 +782,11 @@ test("page identity search and relationship graph keep stable IDs behind live la
   assert.match(client, /\/relationship-graph\?/);
   assert.match(panel, /client\.searchPageIdentities/);
   assert.match(panel, /client\.getPageRelationshipGraph/);
-  assert.match(panel, /同名页用完整路径消歧/);
-  assert.match(panel, /关系始终保存稳定 page ID/);
+  assertLocalized(panel, "同名页用完整路径消歧");
+  assertLocalized(panel, "关系始终保存稳定 page ID");
   assert.match(panel, /metadata\.related_page_ids/);
   assert.match(panel, /metadataAliases\(metadataAliasesInput\)/);
-  assert.match(panel, /目标已归档、已撤权或不存在/);
+  assertLocalized(panel, "目标已归档、已撤权或不存在");
   assert.match(panel, /metadataDirty \? relationshipResults\.find/);
   assert.match(panel, /client\.searchPageIdentities\(library\.id, relationshipQuery\.trim\(\), 30, signal\)/);
   assert.match(blocks, /page\.path\.map\(item => item\.title\)\.join\(" \/ "\)/);
@@ -814,7 +832,7 @@ test("content copy download print export and duplicate entries fail closed throu
   assert.match(editors[editorNames.indexOf("BlockNoteEditor")], /await authorizeContentAction\("duplicate"\)/);
   assert.match(editors[editorNames.indexOf("MindNoteEditor")], /await authorizeContentAction\("duplicate"\)/);
 	for (const field of ["classification", "watermark_mode", "sensitive_content_action", "require_outbound_approval"]) assert.match(manager, new RegExp(field));
-	assert.match(manager, /要求宿主审批系统实时放行/);
+	assertLocalized(manager, "要求宿主审批系统实时放行");
 	assert.match(panel, /KnowledgeDynamicWatermark governance=\{view\?\.governance\}/);
 	assert.match(shared, /KnowledgeDynamicWatermark governance=\{view\.view\.governance\}/);
 	assert.match(governance, /dynamic_watermark/);
@@ -832,7 +850,7 @@ test("AI candidates are source-pinned, visible, and require explicit editor conf
   assert.match(types, /KnowledgeAIExecutionState = "pending" \| "running" \| "completed" \| "failed" \| "confirmed"/);
   assert.match(client, /\/ai-executions/);
   assert.match(panel, /aiExecution\.source\.content_sha256/);
-  assert.match(panel, /确认并追加到草稿/);
+  assertLocalized(panel, "确认并追加到草稿");
   assert.match(panel, /await collaboration\.flush\(\)/);
   assert.match(panel, /client\.confirmAIExecution/);
   assert.match(editor, /editor\.tryParseMarkdownToBlocks/);
@@ -847,12 +865,12 @@ test("page history prioritizes immutable versions and restores snapshots through
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
 
   assert.match(panel, /historySection/);
-  assert.match(history, />发布版本<\/button>/);
-  assert.match(history, />编辑记录<\/button>/);
+  assertLocalized(history, "发布版本");
+  assertLocalized(history, "编辑记录");
   assert.match(panel, /client\.restorePageVersion/);
   assert.match(panel, /expected_page_revision: current\.page\.revision/);
   assert.match(panel, /expected_draft_revision: current\.draft\.draft_revision/);
-  assert.match(panel, /已回滚到版本 \$\{version\} 并生成当前草稿/);
+  assertLocalized(panel, "已回滚到版本 {value0} 并生成当前草稿");
   assert.match(client, /\/versions\/\$\{version\}\/restore/);
   assert.match(styles, /\.knowledge-page-history \{[^}]*width: 100%;[^}]*margin: 0;/);
 });
@@ -869,18 +887,49 @@ test("page workspace keeps focused surfaces and mention composition outside the 
   assert.match(suggestions, /<MentionComposer/);
   assert.match(mention, /textarea/);
   assert.match(mention, /mentionRangeAt/);
-  assert.match(mention, /aria-label="文字样式"/);
-  assert.match(mention, /aria-label="插入表情"/);
-  assert.match(mention, /aria-label="提及成员"/);
-  assert.match(mention, /aria-label="更多内容"/);
-  assert.match(mention, />日期</);
-  assert.match(mention, />待办事项</);
+  for (const label of ["文字样式", "插入表情", "提及成员", "更多内容", "日期", "待办事项"]) assertLocalized(mention, label);
   assert.match(comments, /editingMentionedUserIDs/);
   assert.doesNotMatch(suggestions, /<textarea/);
   assert.doesNotMatch(comments, /按姓名或邮箱搜索/);
   assert.doesNotMatch(suggestions, /按姓名或邮箱搜索/);
   assert.match(activity, /knowledge-page-mode-surface/);
   assert.doesNotMatch(panel, /mode === "activity" \? " has-side-panel"/);
+});
+
+test("host selection integration is opt-in, bounded, and does not invoke content authorization", async () => {
+  const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const editor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
+  const host = await readFile(path.join(root, "src", "hostIntegration.ts"), "utf8");
+  assert.match(workspace, /hostIntegration\?: KnowledgeHostIntegration/);
+  assert.match(workspace, /hostIntegration=\{hostIntegration\}/);
+  assert.match(panel, /hostIntegration\?\.capabilities\.addSelectionToConversation/);
+  assert.match(panel, /createKnowledgeSelectionReference/);
+  assert.match(panel, /hostIntegration\.addSelection\(reference\)/);
+  assert.ok((panel.match(/addDocumentSelection=\{addDocumentSelectionAction\}/g) || []).length >= 3, "read, suggestion, and edit document surfaces must expose the host action");
+  const selectionHandler = panel.slice(panel.indexOf("async function addDocumentSelection"), panel.indexOf("async function controlledPageCopy"));
+  assert.doesNotMatch(selectionHandler, /authorizeContentAction|authorizePageContentOperation|agent_context/);
+  assert.match(editor, /editor\.getSelection\(\)/);
+  assert.match(editor, /editor\.getSelectedText\(\)/);
+  assert.match(editor, /boundKnowledgeDocumentSelection/);
+  assert.match(editor, /addDocumentSelection && documentSelection/);
+  assert.match(host, /slice\(0, KNOWLEDGE_SELECTION_MAX_BLOCKS\)/);
+  assert.match(host, /slice\(0, KNOWLEDGE_SELECTION_MAX_QUOTE_LENGTH\)/);
+});
+
+test("suggestion UI recognizes replace and sends explicit non-Agent provenance", async () => {
+  const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const drawer = await readFile(path.join(root, "src", "page-workspace", "SuggestionDrawer.tsx"), "utf8");
+
+  assert.match(types, /kind: "insert" \| "delete" \| "replace"/);
+  assert.match(types, /source: "knowledge_ui" \| "verdent_agent"/);
+  assert.match(types, /expected_block_sha256\?: string/);
+  assert.match(types, /decision_tool_call_id\?: string/);
+  assert.equal((panel.match(/source: "knowledge_ui"/g) || []).length, 2, "Knowledge UI must identify both suggestion create and decision calls without impersonating the Agent");
+  assert.match(drawer, /suggestion\.kind === "replace"/);
+  assert.match(drawer, /suggestion\.source === "verdent_agent"/);
+  assert.match(drawer, /Verdent Agent/);
 });
 
 test("repository-owned selects share the accessible product popover instead of native browser chrome", async () => {

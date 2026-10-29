@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"strings"
 	"time"
 
@@ -26,7 +27,26 @@ func suggestionScope(a agentsdk.Authority, id string) query.Predicate {
 }
 
 func validKnowledgeSuggestionKind(kind string) bool {
-	return kind == knowledgesdk.KnowledgeSuggestionInsert || kind == knowledgesdk.KnowledgeSuggestionDelete
+	return kind == knowledgesdk.KnowledgeSuggestionInsert || kind == knowledgesdk.KnowledgeSuggestionDelete || kind == knowledgesdk.KnowledgeSuggestionReplace
+}
+
+func validKnowledgeSuggestionInvocation(source, toolCallID string) bool {
+	switch source {
+	case knowledgesdk.KnowledgeSuggestionSourceKnowledgeUI:
+		return toolCallID == ""
+	case knowledgesdk.KnowledgeSuggestionSourceVerdentAgent:
+		return personalMemoryKey(toolCallID)
+	default:
+		return false
+	}
+}
+
+func validKnowledgeSuggestionBlockSHA256(value string) bool {
+	if len(value) != 64 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 func validKnowledgeSuggestionDecision(decision string) bool {
@@ -95,11 +115,15 @@ func (s *Store) KnowledgePageSuggestions(ctx context.Context, libraryID, pageID 
 }
 
 func (s *Store) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageSuggestionCreate, a agentsdk.Authority) (out knowledgesdk.KnowledgePageSuggestion, err error) {
-	if !validKnowledgeSuggestionKind(in.Kind) || in.BaseDraftRevision < 1 || !validCommentAnchor(in.Anchor) || !executionText(in.Comment, knowledgePageSuggestionMaximumCommentBytes, false) {
+	if !validKnowledgeSuggestionKind(in.Kind) || !validKnowledgeSuggestionInvocation(in.Source, in.ToolCallID) || in.BaseDraftRevision < 1 || !validCommentAnchor(in.Anchor) || !executionText(in.Comment, knowledgePageSuggestionMaximumCommentBytes, false) {
 		return out, conversationError("bad_request", "page_suggestion_invalid")
 	}
 	proposedText := strings.TrimSpace(in.ProposedText)
-	if in.Kind == knowledgesdk.KnowledgeSuggestionInsert && !executionText(proposedText, knowledgePageSuggestionMaximumTextBytes, true) || in.Kind == knowledgesdk.KnowledgeSuggestionDelete && proposedText != "" {
+	requiresProposedText := in.Kind == knowledgesdk.KnowledgeSuggestionInsert || in.Kind == knowledgesdk.KnowledgeSuggestionReplace
+	if requiresProposedText && !executionText(proposedText, knowledgePageSuggestionMaximumTextBytes, true) || in.Kind == knowledgesdk.KnowledgeSuggestionDelete && proposedText != "" {
+		return out, conversationError("bad_request", "page_suggestion_invalid")
+	}
+	if in.Kind == knowledgesdk.KnowledgeSuggestionReplace && !validKnowledgeSuggestionBlockSHA256(in.ExpectedBlockSHA256) || in.Kind != knowledgesdk.KnowledgeSuggestionReplace && in.ExpectedBlockSHA256 != "" {
 		return out, conversationError("bad_request", "page_suggestion_invalid")
 	}
 	mentions, err := normalizedMentions(in.MentionedUserIDs)
@@ -135,6 +159,9 @@ func (s *Store) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, pa
 		if e != nil {
 			return out, e
 		}
+		if in.Kind == knowledgesdk.KnowledgeSuggestionReplace && anchor.BlockSHA256 != in.ExpectedBlockSHA256 {
+			return out, conversationError("conflict", "page_suggestion_anchor_changed")
+		}
 		if e = s.validateMentionedMembers(ctx, tx, libraryID, mentions, a); e != nil {
 			return out, e
 		}
@@ -152,6 +179,7 @@ func (s *Store) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, pa
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		out = knowledgesdk.KnowledgePageSuggestion{
 			ID: id, LibraryID: libraryID, PageID: pageID, Kind: in.Kind, Status: knowledgesdk.KnowledgeSuggestionOpen,
+			Source: in.Source, ClientID: in.ClientID, ToolCallID: in.ToolCallID,
 			BaseDraftRevision: draft.DraftRevision, Anchor: anchor, ProposedBlockID: proposedBlockID, ProposedText: proposedText,
 			Comment: strings.TrimSpace(in.Comment), MentionedUserIDs: mentions, AuthorUserID: a.UserID, Revision: 1, CreatedAt: now, UpdatedAt: now,
 		}
@@ -161,11 +189,14 @@ func (s *Store) CreateKnowledgePageSuggestion(ctx context.Context, libraryID, pa
 		}
 		return out, nil
 	}, &out)
+	if err == nil {
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
+	}
 	return
 }
 
 func (s *Store) DecideKnowledgePageSuggestion(ctx context.Context, libraryID, pageID, suggestionID string, in knowledgesdk.KnowledgePageSuggestionDecision, a agentsdk.Authority) (out knowledgesdk.KnowledgePageSuggestion, err error) {
-	if !validKnowledgeSuggestionID(suggestionID) || !validKnowledgeSuggestionDecision(in.Decision) || in.ExpectedRevision < 1 || in.ExpectedDraftRevision < 1 {
+	if !validKnowledgeSuggestionID(suggestionID) || !validKnowledgeSuggestionDecision(in.Decision) || !validKnowledgeSuggestionInvocation(in.Source, in.ToolCallID) || in.ExpectedRevision < 1 || in.ExpectedDraftRevision < 1 {
 		return out, conversationError("bad_request", "page_suggestion_decision_invalid")
 	}
 	if _, err = pageRequestKey("suggestion_decide", libraryID, suggestionID, in.ClientID, a); err != nil {
@@ -246,13 +277,16 @@ func (s *Store) DecideKnowledgePageSuggestion(ctx context.Context, libraryID, pa
 			out.Status = knowledgesdk.KnowledgeSuggestionWithdrawn
 		}
 		out.Revision++
-		out.DecidedByUserID, out.UpdatedAt = a.UserID, now
+		out.DecidedByUserID, out.DecisionSource, out.DecisionClientID, out.DecisionToolCallID, out.UpdatedAt = a.UserID, in.Source, in.ClientID, in.ToolCallID, now
 		q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageSuggestionTable).Set("status", out.Status).Set("revision", out.Revision).Set("updated_at", now.UnixMilli()).Set("payload_json", conversationJSON(out)).Where(query.And(suggestionScope(a, suggestionID), query.Equal("revision", in.ExpectedRevision), query.Equal("status", knowledgesdk.KnowledgeSuggestionOpen))).Build()
 		if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 			return out, conversationError("conflict", "page_suggestion_revision_conflict")
 		}
 		return out, nil
 	}, &out)
+	if err == nil {
+		s.notifyKnowledgeCollaboration(ctx, a, libraryID, pageID)
+	}
 	return
 }
 

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { canonicalFormFromBuilder, emptyFormContent, formSubmissionAnswers, formioSchema, normalizeFormContent, parseFormContent } from "../src/formContent.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("form content keeps only the canonical supported component fields", () => {
   const canonical = canonicalFormFromBuilder({ components: [{ type: "textfield", key: "name", label: "姓名", input: true, validate: { required: true }, customClass: "unsafe", calculateValue: "fetch('/')" }] }, emptyFormContent().settings);

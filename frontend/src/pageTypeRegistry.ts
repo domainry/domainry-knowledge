@@ -1,3 +1,4 @@
+import { kt } from "./i18n/runtime.ts";
 import { createElement, lazy } from "react";
 import type { ComponentType } from "react";
 import { FileSpreadsheet, FileText, GitBranch, LayoutGrid, ListChecks, ListTree, Network, Paintbrush, Presentation } from "lucide-react";
@@ -51,11 +52,11 @@ const MindMapEditor = lazy(() => import("./editors/MindMapEditor.tsx").then(modu
 const FlowchartEditor = lazy(() => import("./editors/FlowchartEditor.tsx").then(module => ({ default: module.FlowchartEditor })));
 
 function FileReferenceRenderer({ body }: KnowledgeEditorProps) {
-  let title = "文件引用";
+  let title = kt("knowledge.auto.b1a5d50b3c3b808e");
   try { title = JSON.parse(body).title || title; } catch { /* The server reports invalid canonical content. */ }
   return createElement("div", { className: "knowledge-file-reference-editor" },
     createElement("strong", null, title),
-    createElement("p", null, "文件内容由受权原件提供，不在页面正文中复制。"),
+    createElement("p", null, kt("knowledge.auto.fc7696cffb84c20a")),
   );
 }
 
@@ -66,7 +67,7 @@ export function emptySpreadsheet() {
     schema_version: 1,
     workbook: {
       id: "workbook-1",
-      name: "工作表",
+      name: kt("knowledge.auto.b02781ee06c6587e"),
       appVersion: "1.1.0",
       locale: "zhCN",
       dateSystem: "date1900",
@@ -75,7 +76,7 @@ export function emptySpreadsheet() {
       sheets: {
         "sheet-1": {
           id: "sheet-1",
-          name: "工作表 1",
+          name: kt("knowledge.auto.345cc0e777c05058"),
           tabColor: "",
           hidden: 0,
           rowCount: 1000,
@@ -111,16 +112,16 @@ function nativeDefinition(input: Omit<PageTypeDefinition, "capabilities" | "crea
 }
 
 const definitions: PageTypeDefinition[] = [
-  nativeDefinition({ id: "document", label: "文档", description: "富文本、内容块与内嵌应用", defaultTitle: "未命名文档", icon: FileText, capabilities: commonCapabilities | pageTypeCapability.realtime, createContent: () => JSON.stringify({ blocks: [] }), editor: DocumentEditor }),
-  nativeDefinition({ id: "multidimensional_table", label: "多维表格", description: "22 类字段与六种业务视图", defaultTitle: "未命名多维表格", icon: LayoutGrid, createContent: () => JSON.stringify({ schema_version: 1, fields: [{ id: "title", name: "标题", type: "text", required: true }], records: [], views: [{ id: "view-grid", name: "表格", type: "grid", row_height: "normal" }] }), editor: GridEditor }),
-  nativeDefinition({ id: "spreadsheet", label: "表格", description: "公式、透视与十类数据图表", defaultTitle: "未命名表格", icon: FileSpreadsheet, createContent: () => JSON.stringify(emptySpreadsheet()), editor: SpreadsheetEditor }),
-  nativeDefinition({ id: "presentation", label: "幻灯片", description: "版式、图表、表格、公式与媒体", defaultTitle: "未命名幻灯片", icon: Presentation, createContent: () => JSON.stringify(emptyPresentationContent), editor: PresentationEditor }),
-  nativeDefinition({ id: "form", label: "问卷", description: "15 类题型、条件逻辑与答卷统计", defaultTitle: "未命名问卷", icon: ListChecks, createContent: () => JSON.stringify(emptyFormContent()), editor: FormEditor }),
-  nativeDefinition({ id: "mind_note", label: "思维笔记", description: "大纲、优先级、标签与截止日期", defaultTitle: "未命名思维笔记", icon: ListTree, createContent: () => JSON.stringify(emptyMindNoteContent), editor: MindNoteEditor }),
-  nativeDefinition({ id: "whiteboard", label: "画板", description: "自由卡片与连接关系", defaultTitle: "未命名画板", icon: Paintbrush, createContent: () => JSON.stringify(emptyWhiteboardContent), editor: WhiteboardEditor }),
-  nativeDefinition({ id: "mind_map", label: "思维导图", description: "主题、布局、标签、备注与链接", defaultTitle: "未命名思维导图", icon: Network, createContent: () => JSON.stringify(emptyMindMapContent), editor: MindMapEditor }),
-  nativeDefinition({ id: "flowchart", label: "流程图", description: "15 类语义节点与三类连接", defaultTitle: "未命名流程图", icon: GitBranch, createContent: () => JSON.stringify(emptyFlowchartContent), editor: FlowchartEditor }),
-  Object.freeze({ id: "file", label: "文件", description: "受权原文件与安全预览", defaultTitle: "未命名文件", icon: FileText, capabilities: pageTypeCapability.edit | pageTypeCapability.read | pageTypeCapability.preview | pageTypeCapability.import | pageTypeCapability.search | pageTypeCapability.comment | pageTypeCapability.version, createAction: null, createContent: null, editor: FileReferenceRenderer, readonlyRenderer: FileReferenceRenderer, previewRenderer: FileReferenceRenderer, importer: { kind: "document-upload", accept: "library-policy" } as const, trusted: true }),
+  nativeDefinition({ id: "document", get label() { return kt("knowledge.auto.2687ccdbb1d2288a"); }, get description() { return kt("knowledge.auto.c03fb2ca1157a643"); }, get defaultTitle() { return kt("knowledge.auto.17f12081cd8b16d3"); }, icon: FileText, capabilities: commonCapabilities | pageTypeCapability.realtime, createContent: () => JSON.stringify({ blocks: [] }), editor: DocumentEditor }),
+  nativeDefinition({ id: "multidimensional_table", get label() { return kt("knowledge.auto.68e97018cb979fe5"); }, get description() { return kt("knowledge.auto.436fbc35cb69c938"); }, get defaultTitle() { return kt("knowledge.auto.7d2753830dec720a"); }, icon: LayoutGrid, createContent: () => JSON.stringify({ schema_version: 1, fields: [{ id: "title", name: kt("knowledge.auto.c3405f8c7d9d392a"), type: "text", required: true }], records: [], views: [{ id: "view-grid", name: kt("knowledge.auto.22d9e7c54b88cacd"), type: "grid", row_height: "normal" }] }), editor: GridEditor }),
+  nativeDefinition({ id: "spreadsheet", get label() { return kt("knowledge.auto.22d9e7c54b88cacd"); }, get description() { return kt("knowledge.auto.d99ac2e4a075846c"); }, get defaultTitle() { return kt("knowledge.auto.16fd76d5c62436bb"); }, icon: FileSpreadsheet, createContent: () => JSON.stringify(emptySpreadsheet()), editor: SpreadsheetEditor }),
+  nativeDefinition({ id: "presentation", get label() { return kt("knowledge.auto.81574e23e48aec6b"); }, get description() { return kt("knowledge.auto.4d0f7e60952425cd"); }, get defaultTitle() { return kt("knowledge.auto.dc0e764313122d2d"); }, icon: Presentation, createContent: () => JSON.stringify(emptyPresentationContent), editor: PresentationEditor }),
+  nativeDefinition({ id: "form", get label() { return kt("knowledge.auto.dbe6b9b19150bef1"); }, get description() { return kt("knowledge.auto.c75674bd2c7402f1"); }, get defaultTitle() { return kt("knowledge.auto.930ee05178096936"); }, icon: ListChecks, createContent: () => JSON.stringify(emptyFormContent()), editor: FormEditor }),
+  nativeDefinition({ id: "mind_note", get label() { return kt("knowledge.auto.13517c3204f58770"); }, get description() { return kt("knowledge.auto.e430ce00870cbc31"); }, get defaultTitle() { return kt("knowledge.auto.24f374b540a88ba4"); }, icon: ListTree, createContent: () => JSON.stringify(emptyMindNoteContent), editor: MindNoteEditor }),
+  nativeDefinition({ id: "whiteboard", get label() { return kt("knowledge.auto.53f23afed6017d31"); }, get description() { return kt("knowledge.auto.7dc1300db34c8029"); }, get defaultTitle() { return kt("knowledge.auto.d149811ad808bd97"); }, icon: Paintbrush, createContent: () => JSON.stringify(emptyWhiteboardContent), editor: WhiteboardEditor }),
+  nativeDefinition({ id: "mind_map", get label() { return kt("knowledge.auto.c59fdacd6a72a12c"); }, get description() { return kt("knowledge.auto.6b4202861fec4132"); }, get defaultTitle() { return kt("knowledge.auto.a7065f06bb23b3b3"); }, icon: Network, createContent: () => JSON.stringify(emptyMindMapContent), editor: MindMapEditor }),
+  nativeDefinition({ id: "flowchart", get label() { return kt("knowledge.auto.f6fdf82e9a8999b7"); }, get description() { return kt("knowledge.auto.ad0da843d646cde4"); }, get defaultTitle() { return kt("knowledge.auto.237ad262228a6f15"); }, icon: GitBranch, createContent: () => JSON.stringify(emptyFlowchartContent), editor: FlowchartEditor }),
+  Object.freeze({ id: "file", get label() { return kt("knowledge.auto.39932f24fe11a6ba"); }, get description() { return kt("knowledge.auto.4dde70fddac87674"); }, get defaultTitle() { return kt("knowledge.auto.82ab58c8f14041c4"); }, icon: FileText, capabilities: pageTypeCapability.edit | pageTypeCapability.read | pageTypeCapability.preview | pageTypeCapability.import | pageTypeCapability.search | pageTypeCapability.comment | pageTypeCapability.version, createAction: null, createContent: null, editor: FileReferenceRenderer, readonlyRenderer: FileReferenceRenderer, previewRenderer: FileReferenceRenderer, importer: { kind: "document-upload", accept: "library-policy" } as const, trusted: true }),
 ];
 
 export function validatePageTypeDefinitions(items: readonly PageTypeDefinition[] = definitions) {

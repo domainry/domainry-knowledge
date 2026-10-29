@@ -1,12 +1,37 @@
+import { kt, useKnowledgeLocale } from "../i18n/runtime.ts";
 import { useEffect, useRef, useState } from "react";
 import MindElixir, { type MindElixirData, type NodeObj, type Theme } from "mind-elixir";
-import { zh_CN } from "mind-elixir/i18n";
+import { de, en, es, fr, it, ja, ko, pt, zh_CN, zh_TW } from "mind-elixir/i18n";
 import "mind-elixir/style.css";
 import { Download, FileJson, Image, LayoutTemplate, Link, Palette, StickyNote, Tags, Upload } from "lucide-react";
 import { Button, Select } from "../components.tsx";
 import { canonicalMindMapContent, decodeMindMapContent, diagramPlainText, diagramThemes, downloadDiagramBlob, mindMapLayouts, mindMapTemplates, parseMindMapContent, type DiagramTheme, type MindMapContent, type MindMapLayout, type MindMapNode } from "../diagramContent.ts";
 import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
+import { mindElixirLocaleKey } from "../i18n/thirdParty.ts";
+
+const mindElixirLocales = { en, zh_CN, zh_TW, ja, ko, es, pt, fr, de, it };
+const mindElixirMenuItems = {
+  "cm-add_child": "addChild",
+  "cm-add_parent": "addParent",
+  "cm-add_sibling": "addSibling",
+  "cm-remove_child": "removeNode",
+  "cm-fucus": "focus",
+  "cm-unfucus": "cancelFocus",
+  "cm-up": "moveUp",
+  "cm-down": "moveDown",
+  "cm-link": "link",
+  "cm-link-bidirectional": "linkBidirectional",
+  "cm-summary": "summary",
+} as const;
+
+function updateMindElixirMenu(host: HTMLElement | null, locale: typeof en) {
+  if (!host) return;
+  for (const [id, key] of Object.entries(mindElixirMenuItems)) {
+    const label = host.querySelector<HTMLElement>(`#${id} > span:first-child`);
+    if (label) label.textContent = locale[key as keyof typeof locale];
+  }
+}
 
 const mindMapThemeColors: Record<DiagramTheme, { root: string; rootText: string; node: string; text: string; accent: string; palette: string[] }> = {
   emerald: { root: "#00856a", rootText: "#ffffff", node: "#e8f5f0", text: "#17332b", accent: "#00856a", palette: ["#00856a", "#2b8f75", "#5aa58f", "#83bbaa", "#a8d0c3", "#d4e7df"] },
@@ -27,8 +52,8 @@ function mindElixirTheme(theme: DiagramTheme): Theme {
       "--root-bgcolor": selected.root,
       "--root-color": selected.rootText,
       "--selected": `${selected.accent}22`,
-      "--panel-bgcolor": "#ffffff",
-      "--panel-border-color": "#d9e4df",
+      "--panel-bgcolor": "var(--knowledge-surface-elevated)",
+      "--panel-border-color": "var(--knowledge-border)",
     },
   };
 }
@@ -130,9 +155,12 @@ function restoreMindMapSelection(mind: MindElixir, nodeID: string) {
   }
 }
 
-export function MindMapEditor({ body, readOnly = false, documentTitle = "思维导图", initialBlockID, pageActionHost, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
+export function MindMapEditor({ body, readOnly = false, documentTitle = kt("knowledge.auto.c59fdacd6a72a12c"), initialBlockID, pageActionHost, authorizeContentAction, onChange, onPresence, onCommentAnchor, onActionFeedback }: KnowledgeEditorProps) {
+  const locale = useKnowledgeLocale();
   const host = useRef<HTMLDivElement>(null);
   const instance = useRef<MindElixir | null>(null);
+  const contextMenuLocale = useRef({ ...mindElixirLocales[mindElixirLocaleKey[locale]] });
+  Object.assign(contextMenuLocale.current, mindElixirLocales[mindElixirLocaleKey[locale]]);
   const importInput = useRef<HTMLInputElement>(null);
   const initialBody = useRef(body);
   const content = useRef(parseMindMapContent(body));
@@ -159,7 +187,8 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       el: host.current,
       direction: layoutDirection[content.current.layout],
       editable: !readOnly,
-      contextMenu: readOnly ? false : { locale: zh_CN, focus: true, link: true },
+      contextMenu: readOnly ? false : { locale: contextMenuLocale.current, focus: true, link: true },
+      newTopicName: kt("knowledge.auto.bdbce97482269b4c"),
       toolBar: !readOnly,
       keypress: !readOnly,
       overflowHidden: true,
@@ -178,7 +207,7 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       const first = selected[0];
       setSelectedID(first?.id || "");
       selectionCallbacksRef.current.onPresence?.(first?.id, selected.length > 1 ? selected[selected.length - 1]?.id : undefined);
-      selectionCallbacksRef.current.onCommentAnchor?.(first ? { nodeID: first.id, quote: (first.topic || "思维导图节点").trim() } : undefined);
+      selectionCallbacksRef.current.onCommentAnchor?.(first ? { nodeID: first.id, quote: (first.topic || kt("knowledge.auto.96a32e8e207257b2")).trim() } : undefined);
     };
     const selectNew = (node: NodeObj) => select([node]);
     const clear = () => {
@@ -209,7 +238,7 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       if (!node) return;
       setSelectedID(node.id);
       selectionCallbacksRef.current.onPresence?.(node.id);
-      selectionCallbacksRef.current.onCommentAnchor?.({ nodeID: node.id, quote: (node.topic || "思维导图节点").trim() });
+      selectionCallbacksRef.current.onCommentAnchor?.({ nodeID: node.id, quote: (node.topic || kt("knowledge.auto.96a32e8e207257b2")).trim() });
     };
     mind.bus.addListener("operation", sync);
     mind.bus.addListener("selectNodes", select);
@@ -221,6 +250,14 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       mind.destroy();
     };
   }, [readOnly]);
+
+  useEffect(() => {
+    const mind = instance.current;
+    if (!mind) return;
+    Object.assign(contextMenuLocale.current, mindElixirLocales[mindElixirLocaleKey[locale]]);
+    mind.newTopicName = kt("knowledge.auto.bdbce97482269b4c");
+    updateMindElixirMenu(host.current, contextMenuLocale.current);
+  }, [locale]);
 
   useEffect(() => {
     const mind = instance.current;
@@ -288,7 +325,7 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       restoreMindMapSelection(mind, selectedID);
       commit(next);
       setMetadataRevision(value => value + 1);
-    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : "节点属性无效。"); }
+    } catch (failure) { onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.a2d658fe1b4f4fe0")); }
   };
 
   const applyTemplate = (key: string) => {
@@ -301,7 +338,7 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
     mind.refresh(runtimeMindMap(next));
     mind.clearHistory?.();
     commit(next);
-    onActionFeedback?.("已应用思维导图模板。");
+    onActionFeedback?.(kt("knowledge.auto.4ec7e5d9784d732f"));
   };
 
   const importJSON = async (file?: File) => {
@@ -313,47 +350,47 @@ export function MindMapEditor({ body, readOnly = false, documentTitle = "思维�
       instance.current?.refresh(runtimeMindMap(next));
       instance.current?.clearHistory?.();
       commit(next);
-      onActionFeedback?.("已导入思维导图 JSON。");
-    } catch (error) { onActionFeedback?.(error instanceof Error ? error.message : "导入失败。"); }
+      onActionFeedback?.(kt("knowledge.auto.5c7e4df57c189f49"));
+    } catch (error) { onActionFeedback?.(error instanceof Error ? error.message : kt("knowledge.auto.d5d4ca58693603db")); }
     if (importInput.current) importInput.current.value = "";
   };
 
   const exportJSON = async () => {
-    if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+    if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165"));
     await authorizeContentAction("export");
-    downloadDiagramBlob(new Blob([canonicalMindMapContent(content.current)], { type: "application/json" }), `${documentTitle || "思维导图"}.json`);
+    downloadDiagramBlob(new Blob([canonicalMindMapContent(content.current)], { type: "application/json" }), `${documentTitle || kt("knowledge.auto.c59fdacd6a72a12c")}.json`);
   };
   const exportPNG = async () => {
-    if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+    if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165"));
     await authorizeContentAction("export");
     const blob = await instance.current?.exportPng(false);
-    if (blob) downloadDiagramBlob(blob, `${documentTitle || "思维导图"}.png`);
-    else onActionFeedback?.("当前浏览器无法导出思维导图图片。");
+    if (blob) downloadDiagramBlob(blob, `${documentTitle || kt("knowledge.auto.c59fdacd6a72a12c")}.png`);
+    else onActionFeedback?.(kt("knowledge.auto.4aaefa3d89b28b78"));
   };
 
   const selectedNode = selectedID ? findMindMapNode(content.current.root, selectedID) : null;
 
   return <div className="knowledge-open-editor is-mind-elixir">
     {authorizeContentAction && <PageActionPortal host={pageActionHost}>
-      <Button title="导出 canonical JSON" onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><FileJson size={15} />JSON</Button>
-      <Button title="导出 PNG" onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : "导出失败。"))}><Image size={15} />PNG</Button>
+      <Button title={kt("knowledge.auto.28ff768a104f56a9")} onClick={() => void exportJSON().catch(error => onActionFeedback?.(error instanceof Error ? error.message : kt("knowledge.auto.f7862b83251f2349")))}><FileJson size={15} />JSON</Button>
+      <Button title={kt("knowledge.auto.8c52149aae4527da")} onClick={() => void exportPNG().catch(error => onActionFeedback?.(error instanceof Error ? error.message : kt("knowledge.auto.f7862b83251f2349")))}><Image size={15} />PNG</Button>
     </PageActionPortal>}
-    {!readOnly && <div className="diagram-editor-toolbar" aria-label="思维导图工具栏">
-      <label><Palette size={15} />主题<Select aria-label="思维导图主题" value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: "翡翠", ocean: "海洋", sunset: "日落", mono: "中性" } as const)[item]}</option>)}</Select></label>
-      <label>布局<Select aria-label="思维导图布局" value={layout} onChange={event => applyLayout(event.target.value as MindMapLayout)}>{mindMapLayouts.map(item => <option key={item} value={item}>{({ side: "双侧", left: "向左", right: "向右", down: "向下" } as const)[item]}</option>)}</Select></label>
-      <label><LayoutTemplate size={15} />模板<Select aria-label="思维导图模板" defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>选择模板</option><option value="brainstorming">头脑风暴</option><option value="swot">SWOT 分析</option></Select></label>
-      <span className="diagram-style-tools" aria-label="节点样式">
-        <button type="button" disabled={!selectedID} aria-label="节点加粗" onClick={() => applySelectedStyle({ font_weight: "bold" })}><strong>B</strong></button>
-        {[mindMapThemeColors[theme].node, mindMapThemeColors[theme].text].map((item, index) => <button type="button" key={item} disabled={!selectedID} className="diagram-color-swatch" style={{ background: item }} aria-label={index === 0 ? "节点背景色" : "节点文字色"} onClick={() => applySelectedStyle(index === 0 ? { background_color: item } : { color: item })} />)}
+    {!readOnly && <div className="diagram-editor-toolbar" aria-label={kt("knowledge.auto.8bdb02e8292144e9")}>
+      <label><Palette size={15} />{kt("knowledge.auto.788db1cfec2a3db5")}<Select aria-label={kt("knowledge.auto.6e63dcaf2f8260c5")} value={theme} onChange={event => applyTheme(event.target.value as DiagramTheme)}>{diagramThemes.map(item => <option key={item} value={item}>{({ emerald: kt("knowledge.auto.8fabc966781dcce2"), ocean: kt("knowledge.auto.44467431f287c616"), sunset: kt("knowledge.auto.67995f590a93c211"), mono: kt("knowledge.auto.574ce385b86dddcc") } as const)[item]}</option>)}</Select></label>
+      <label>{kt("knowledge.auto.faa2f2ed67357847")}<Select aria-label={kt("knowledge.auto.f03d544a0bc27c56")} value={layout} onChange={event => applyLayout(event.target.value as MindMapLayout)}>{mindMapLayouts.map(item => <option key={item} value={item}>{({ side: kt("knowledge.auto.1aaf161623b5d59e"), left: kt("knowledge.auto.233b5e712d178862"), right: kt("knowledge.auto.09ea06dc6b2b90e8"), down: kt("knowledge.auto.967a206e3aa79ada") } as const)[item]}</option>)}</Select></label>
+      <label><LayoutTemplate size={15} />{kt("knowledge.auto.62b95daecb7f81da")}<Select aria-label={kt("knowledge.auto.079640d090bdfc05")} defaultValue="" onChange={event => { applyTemplate(event.target.value); event.target.value = ""; }}><option value="" disabled>{kt("knowledge.auto.a3623cdcb7e18390")}</option><option value="brainstorming">{kt("knowledge.auto.ea4d59a0e56e937f")}</option><option value="swot">{kt("knowledge.auto.8498736be653401c")}</option></Select></label>
+      <span className="diagram-style-tools" aria-label={kt("knowledge.auto.bd4825d7d6ce923d")}>
+        <button type="button" disabled={!selectedID} aria-label={kt("knowledge.auto.3b3faff736f848df")} onClick={() => applySelectedStyle({ font_weight: "bold" })}><strong>B</strong></button>
+        {[mindMapThemeColors[theme].node, mindMapThemeColors[theme].text].map((item, index) => <button type="button" key={item} disabled={!selectedID} className="diagram-color-swatch" style={{ background: item }} aria-label={index === 0 ? kt("knowledge.auto.8482ed6c4fd90539") : kt("knowledge.auto.da7a563d4a6be766")} onClick={() => applySelectedStyle(index === 0 ? { background_color: item } : { color: item })} />)}
       </span>
-      <Button title="导入 canonical JSON" aria-label="导入思维导图 JSON" onClick={() => importInput.current?.click()}><Upload size={15} />导入</Button>
-      <span className="diagram-toolbar-hint"><Download size={14} />选择节点后可同步位置与调整样式；评论请切换到评论页签</span>
+      <Button title={kt("knowledge.auto.40a86fa9e4a4ac09")} aria-label={kt("knowledge.auto.52b4bea345a5f5a8")} onClick={() => importInput.current?.click()}><Upload size={15} />{kt("knowledge.auto.576d81bb0631b165")}</Button>
+      <span className="diagram-toolbar-hint"><Download size={14} />{kt("knowledge.auto.cafd94a3ebf01e7e")}</span>
       <input ref={importInput} hidden type="file" accept="application/json,.json" onChange={event => importJSON(event.target.files?.[0])} />
     </div>}
-    {!readOnly && selectedNode && <section className="mindmap-node-metadata" key={`${selectedNode.id}:${metadataRevision}`} aria-label="节点属性">
-      <label><Tags size={14} /><span>标签</span><input defaultValue={(selectedNode.tags || []).join(", ")} placeholder="产品, 发布" onBlur={event => applySelectedMetadata({ tags: [...new Set(event.target.value.split(/[,，]/).map(tag => Array.from(tag.trim()).slice(0, 20).join("")).filter(Boolean))].slice(0, 12) })} /></label>
-      <label><StickyNote size={14} /><span>备注</span><input maxLength={1365} defaultValue={selectedNode.note || ""} placeholder="补充节点背景" onBlur={event => applySelectedMetadata({ note: event.target.value })} /></label>
-      <label><Link size={14} /><span>链接</span><input type="url" maxLength={2048} defaultValue={selectedNode.link || ""} placeholder="https://example.com" onBlur={event => applySelectedMetadata({ link: event.target.value.trim() })} /></label>
+    {!readOnly && selectedNode && <section className="mindmap-node-metadata" key={`${selectedNode.id}:${metadataRevision}`} aria-label={kt("knowledge.auto.0edd9e06a41d4430")}>
+      <label><Tags size={14} /><span>{kt("knowledge.auto.1d0fd5f9336d9103")}</span><input defaultValue={(selectedNode.tags || []).join(", ")} placeholder={kt("knowledge.auto.02d3a3e342d411f2")} onBlur={event => applySelectedMetadata({ tags: [...new Set(event.target.value.split(/[,，]/).map(tag => Array.from(tag.trim()).slice(0, 20).join("")).filter(Boolean))].slice(0, 12) })} /></label>
+      <label><StickyNote size={14} /><span>{kt("knowledge.auto.daede9881787abe7")}</span><input maxLength={1365} defaultValue={selectedNode.note || ""} placeholder={kt("knowledge.auto.db2ae6cfbd885fd7")} onBlur={event => applySelectedMetadata({ note: event.target.value })} /></label>
+      <label><Link size={14} /><span>{kt("knowledge.auto.305378ddd2b86b60")}</span><input type="url" maxLength={2048} defaultValue={selectedNode.link || ""} placeholder="https://example.com" onBlur={event => applySelectedMetadata({ link: event.target.value.trim() })} /></label>
     </section>}
     <div ref={host} className="native-mindmap-host" data-plain-text={diagramPlainText(content.current)} />
   </div>;

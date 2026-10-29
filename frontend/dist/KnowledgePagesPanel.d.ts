@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { KnowledgeClient, KnowledgeLibrary, KnowledgePageSearchLocation } from "./types.ts";
+import { type KnowledgeHostIntegration } from "./hostIntegration.ts";
 export declare function pageContentSHA256(content: string): Promise<string>;
-export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, scopeTabs, teamLibraries, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: {
+export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: {
     client: KnowledgeClient;
     library: KnowledgeLibrary;
     currentUserID?: string;
@@ -14,6 +15,7 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
     initialPageMode?: "read" | "edit";
     scopeTabs?: ReactNode;
     teamLibraries?: KnowledgeLibrary[];
+    hostIntegration?: KnowledgeHostIntegration;
     onLibrarySelect?: (libraryID: string) => void;
     onCreateLibrary?: () => void;
     onSelectionChange?: (page: {

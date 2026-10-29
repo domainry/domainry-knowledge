@@ -1,10 +1,15 @@
+import { kt } from "./i18n/runtime.ts";
 import type { KnowledgeCitation, KnowledgeResult } from "./types.ts";
 
-const searchModeLabels = { hybrid: "混合检索", dense: "语义检索", sparse: "关键词检索" } as const;
+const searchModeLabels = {
+  get hybrid() { return kt("knowledge.auto.9b33c416a1fac0a9"); },
+  get dense() { return kt("knowledge.auto.d3b1a48d68e44490"); },
+  get sparse() { return kt("knowledge.auto.a4a04cd4413a3588"); },
+} as const;
 const searchDegradedLabels = {
-  embedder_unavailable: "语义向量服务不可用，本次已降级为关键词检索。",
-  bm25_unavailable: "关键词召回不可用，本次已降级为语义检索。",
-  rerank_unavailable: "精排服务不可用，本次结果使用召回顺序。",
+  get embedder_unavailable() { return kt("knowledge.auto.19439d8c784d0769"); },
+  get bm25_unavailable() { return kt("knowledge.auto.3c03ecdc196823e1"); },
+  get rerank_unavailable() { return kt("knowledge.auto.390dc93f25474342"); },
 } as const;
 
 export function knowledgeSearchStatus(result: KnowledgeResult | null) {
@@ -12,7 +17,7 @@ export function knowledgeSearchStatus(result: KnowledgeResult | null) {
   const parts: string[] = [];
   if (result.search_mode) parts.push(searchModeLabels[result.search_mode]);
   if (Number.isSafeInteger(result.search_top_k) && result.search_top_k! > 0) parts.push(`Top ${result.search_top_k}`);
-  if (result.search_reranked !== undefined) parts.push(result.search_reranked ? "已精排" : "未精排");
+  if (result.search_reranked !== undefined) parts.push(result.search_reranked ? kt("knowledge.auto.545e3cf0601d206c") : kt("knowledge.auto.3c011104ee3d86cc"));
   return {
     summary: parts.join(" · "),
     degraded: result.search_degraded_reason ? searchDegradedLabels[result.search_degraded_reason] : "",

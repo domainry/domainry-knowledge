@@ -1,3 +1,4 @@
+import { kt } from "../i18n/runtime.ts";
 import { ChevronRight, LockKeyhole, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { SuggestionMenuProps } from "@blocknote/react";
@@ -37,10 +38,10 @@ export function KnowledgeSlashMenu({ items, loadingState, selectedIndex, onItemC
     document.getElementById(`bn-suggestion-menu-item-${selectedIndex}`)?.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  return <div id="bn-suggestion-menu" className={`knowledge-slash-menu${activeSubmenu ? " has-submenu" : ""}`} role="listbox" aria-label="插入内容" onMouseLeave={() => setHoveredSubmenu("")}>
+  return <div id="bn-suggestion-menu" className={`knowledge-slash-menu${activeSubmenu ? " has-submenu" : ""}`} role="listbox" aria-label={kt("knowledge.auto.9bac27eedf89088e")} onMouseLeave={() => setHoveredSubmenu("")}>
     <section className="knowledge-slash-main">
       <header>
-        <span><Search size={14} aria-hidden="true" />继续输入以筛选</span>
+        <span><Search size={14} aria-hidden="true" />{kt("knowledge.auto.4cde4735a772c42a")}</span>
         <span className="knowledge-slash-shortcuts" aria-hidden="true"><kbd>↑↓</kbd><kbd>Enter</kbd></span>
       </header>
       <div className="knowledge-slash-scroll">
@@ -54,16 +55,16 @@ export function KnowledgeSlashMenu({ items, loadingState, selectedIndex, onItemC
             onMouseDown={event => event.preventDefault()}
           >
             <span className="knowledge-slash-item-icon" aria-hidden="true">{entry.items[0]?.item.icon}</span>
-            <span className="knowledge-slash-item-copy"><strong>{entry.label}</strong><small>{entry.items.length} 项内容</small></span>
+            <span className="knowledge-slash-item-copy"><strong>{entry.label}</strong><small>{entry.items.length} {kt("knowledge.auto.0710ad45a5d1f18c")}</small></span>
             <ChevronRight size={15} aria-hidden="true" />
           </div>)}
         </div>)}
-        {items.length === 0 && loadingState !== "loading-initial" && loadingState !== "loading" && <div className="knowledge-slash-empty">没有匹配的内容块</div>}
-        {(loadingState === "loading-initial" || loadingState === "loading") && <div className="knowledge-slash-loading" role="status">正在查找…</div>}
+        {items.length === 0 && loadingState !== "loading-initial" && loadingState !== "loading" && <div className="knowledge-slash-empty">{kt("knowledge.auto.5cf454f78a178d35")}</div>}
+        {(loadingState === "loading-initial" || loadingState === "loading") && <div className="knowledge-slash-loading" role="status">{kt("knowledge.auto.1986994f30573b23")}</div>}
       </div>
     </section>
     {activeSubmenu && <aside className="knowledge-slash-submenu" aria-label={activeSubmenu} onMouseEnter={() => setHoveredSubmenu(activeSubmenu)}>
-      <header><strong>{activeSubmenu}</strong><small>{submenuItems.length} 项</small></header>
+      <header><strong>{activeSubmenu}</strong><small>{submenuItems.length} {kt("knowledge.auto.49ccde43a1549791")}</small></header>
       <div className="knowledge-slash-scroll">{submenuItems.map(({ item, index }) => <SlashItem key={`${item.id}:${index}`} item={item} index={index} selected={index === selectedIndex} onItemClick={onItemClick} />)}</div>
     </aside>}
   </div>;

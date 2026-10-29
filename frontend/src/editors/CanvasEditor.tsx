@@ -1,3 +1,4 @@
+import { kt, ktf } from "../i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Excalidraw, convertToExcalidrawElements, exportToBlob, exportToCanvas, viewportCoordsToSceneCoords } from "@excalidraw/excalidraw";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -11,6 +12,7 @@ import { safeDocumentFilename } from "./documentTransfer.ts";
 import { PageActionPortal } from "./PageActionPortal.tsx";
 import type { KnowledgeEditorProps } from "./types.ts";
 import { pickWhiteboardElement } from "./whiteboardHitTest.ts";
+import { useKnowledgeTheme } from "../theme.tsx";
 
 type CanvasSnapshot = { nodes: readonly ExcalidrawElement[]; files?: BinaryFiles; appState?: Partial<AppState> };
 type LayerAction = "front" | "forward" | "backward" | "back";
@@ -41,6 +43,7 @@ function ExcalidrawCanvas({ snapshot, readOnly, onSnapshot, onPresence, onSelect
   onElementHit?(element: ExcalidrawElement | null): void;
   onAPI?(api: ExcalidrawImperativeAPI): void;
 }) {
+  const theme = useKnowledgeTheme();
   const initialData = useMemo(() => ({ elements: snapshot.nodes || [], appState: snapshot.appState || {}, files: snapshot.files || {} }), []);
   const emitted = useRef(JSON.stringify({ nodes: snapshot.nodes || [], files: snapshot.files || {} }));
   const selected = useRef("");
@@ -58,6 +61,7 @@ function ExcalidrawCanvas({ snapshot, readOnly, onSnapshot, onPresence, onSelect
     onElementHit(pickWhiteboardElement(api.getSceneElements(), point.x, point.y, state.zoom.value));
   }}>
     <Excalidraw
+      theme={theme}
       excalidrawAPI={registerAPI}
       initialData={initialData}
       viewModeEnabled={readOnly}
@@ -84,27 +88,27 @@ function ExcalidrawCanvas({ snapshot, readOnly, onSnapshot, onPresence, onSelect
 function templateSkeletons(template: string): ExcalidrawElementSkeleton[] {
   const common = { strokeColor: "#2f493b", strokeWidth: 2, roughness: 1, fillStyle: "solid" as const };
   if (template === "brainstorm") return [
-    { type: "text", x: 80, y: 45, text: "头脑风暴", fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
-    { type: "rectangle", x: 60, y: 110, width: 220, height: 130, backgroundColor: "#fff3bf", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "想法一", fontSize: 22 } },
-    { type: "rectangle", x: 320, y: 110, width: 220, height: 130, backgroundColor: "#d3f9d8", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "想法二", fontSize: 22 } },
-    { type: "rectangle", x: 580, y: 110, width: 220, height: 130, backgroundColor: "#d0ebff", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "想法三", fontSize: 22 } },
+    { type: "text", x: 80, y: 45, text: kt("knowledge.auto.ea4d59a0e56e937f"), fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
+    { type: "rectangle", x: 60, y: 110, width: 220, height: 130, backgroundColor: "#fff3bf", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.3be46541dcf10320"), fontSize: 22 } },
+    { type: "rectangle", x: 320, y: 110, width: 220, height: 130, backgroundColor: "#d3f9d8", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.5e19fcd98b4ab7ae"), fontSize: 22 } },
+    { type: "rectangle", x: 580, y: 110, width: 220, height: 130, backgroundColor: "#d0ebff", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.10aa00ad2cedc203"), fontSize: 22 } },
   ] as ExcalidrawElementSkeleton[];
   if (template === "flow") return [
-    { type: "text", x: 80, y: 45, text: "流程梳理", fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
-    { type: "ellipse", x: 70, y: 130, width: 150, height: 80, backgroundColor: "#d3f9d8", ...common, label: { text: "开始", fontSize: 20 } },
-    { type: "rectangle", x: 340, y: 120, width: 180, height: 100, backgroundColor: "#d0ebff", ...common, label: { text: "处理步骤", fontSize: 20 } },
-    { type: "diamond", x: 650, y: 115, width: 130, height: 110, backgroundColor: "#fff3bf", ...common, label: { text: "判断", fontSize: 18 } },
+    { type: "text", x: 80, y: 45, text: kt("knowledge.auto.383e505ceaa1b79b"), fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
+    { type: "ellipse", x: 70, y: 130, width: 150, height: 80, backgroundColor: "#d3f9d8", ...common, label: { text: kt("knowledge.auto.d2bb025a2e51c410"), fontSize: 20 } },
+    { type: "rectangle", x: 340, y: 120, width: 180, height: 100, backgroundColor: "#d0ebff", ...common, label: { text: kt("knowledge.auto.43cfc12dea36e045"), fontSize: 20 } },
+    { type: "diamond", x: 650, y: 115, width: 130, height: 110, backgroundColor: "#fff3bf", ...common, label: { text: kt("knowledge.auto.65ae7e60a3f2eb10"), fontSize: 18 } },
     { type: "arrow", x: 220, y: 170, width: 120, height: 0, strokeColor: "#2f493b", strokeWidth: 2, endArrowhead: "arrow" },
     { type: "arrow", x: 520, y: 170, width: 130, height: 0, strokeColor: "#2f493b", strokeWidth: 2, endArrowhead: "arrow" },
   ] as ExcalidrawElementSkeleton[];
   if (template === "retro") return [
-    { type: "text", x: 70, y: 40, text: "团队复盘", fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
-    { type: "frame", x: 50, y: 100, width: 240, height: 360, name: "做得好", children: [] },
-    { type: "frame", x: 320, y: 100, width: 240, height: 360, name: "待改进", children: [] },
-    { type: "frame", x: 590, y: 100, width: 240, height: 360, name: "下一步", children: [] },
-    { type: "rectangle", x: 75, y: 150, width: 190, height: 100, backgroundColor: "#d3f9d8", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "记录亮点", fontSize: 20 } },
-    { type: "rectangle", x: 345, y: 150, width: 190, height: 100, backgroundColor: "#ffe3e3", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "记录问题", fontSize: 20 } },
-    { type: "rectangle", x: 615, y: 150, width: 190, height: 100, backgroundColor: "#d0ebff", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: "明确行动", fontSize: 20 } },
+    { type: "text", x: 70, y: 40, text: kt("knowledge.auto.6427347cdfbee6c0"), fontSize: 30, strokeColor: "#183d2e", customData: { knowledgeKind: "template_heading" } },
+    { type: "frame", x: 50, y: 100, width: 240, height: 360, name: kt("knowledge.auto.cddf9121b8863d4d"), children: [] },
+    { type: "frame", x: 320, y: 100, width: 240, height: 360, name: kt("knowledge.auto.392840262f15e193"), children: [] },
+    { type: "frame", x: 590, y: 100, width: 240, height: 360, name: kt("knowledge.auto.acfc4e74a650e7df"), children: [] },
+    { type: "rectangle", x: 75, y: 150, width: 190, height: 100, backgroundColor: "#d3f9d8", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.cf7c8767fdf8d0ad"), fontSize: 20 } },
+    { type: "rectangle", x: 345, y: 150, width: 190, height: 100, backgroundColor: "#ffe3e3", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.4f60fd442eb2450d"), fontSize: 20 } },
+    { type: "rectangle", x: 615, y: 150, width: 190, height: 100, backgroundColor: "#d0ebff", ...common, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.ee9d31b871f6c175"), fontSize: 20 } },
   ] as ExcalidrawElementSkeleton[];
   return [];
 }
@@ -122,7 +126,7 @@ function moveLayer(elements: readonly ExcalidrawElement[], selectedIDs: Set<stri
   return next;
 }
 
-export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画板", onChange, onPresence, onCommentAnchor, initialBlockID, blockHighlightRevision, pageActionHost, authorizeContentAction, onActionFeedback }: KnowledgeEditorProps) {
+export function WhiteboardEditor({ body, readOnly = false, documentTitle = kt("knowledge.auto.53f23afed6017d31"), onChange, onPresence, onCommentAnchor, initialBlockID, blockHighlightRevision, pageActionHost, authorizeContentAction, onActionFeedback }: KnowledgeEditorProps) {
   const content = useMemo(() => parseWhiteboardContent(body), [body]);
   const scene = useMemo(() => whiteboardScene(content), [content]);
   const canonicalBody = useMemo(() => JSON.stringify(content), [content]);
@@ -145,7 +149,7 @@ export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画�
     api.updateScene({ elements: [...existing, ...moved], appState: { selectedElementIds: Object.fromEntries(moved.map(element => [element.id, true])) } });
     window.setTimeout(() => api.scrollToContent(moved, { fitToContent: true, animate: true }), 0);
   };
-  const addSticky = () => addElements([{ type: "rectangle", x: 100, y: 100, width: 220, height: 130, strokeColor: "#5f4b00", backgroundColor: "#fff3bf", fillStyle: "solid", strokeWidth: 2, roughness: 1, roundness: { type: 3 }, customData: { knowledgeKind: "sticky_note" }, label: { text: "新便签", fontSize: 22 } } as ExcalidrawElementSkeleton]);
+  const addSticky = () => addElements([{ type: "rectangle", x: 100, y: 100, width: 220, height: 130, strokeColor: "#5f4b00", backgroundColor: "#fff3bf", fillStyle: "solid", strokeWidth: 2, roughness: 1, roundness: { type: 3 }, customData: { knowledgeKind: "sticky_note" }, label: { text: kt("knowledge.auto.cbff54d8f198d1e8"), fontSize: 22 } } as ExcalidrawElementSkeleton]);
   const applyLayer = (action: LayerAction) => {
     const api = apiRef.current;
     if (!api || !selectedSet.size) return;
@@ -155,10 +159,10 @@ export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画�
     const api = apiRef.current;
     if (!api) return;
     const elements = api.getSceneElements().filter(element => !element.isDeleted);
-    if (!elements.length) { onActionFeedback?.("画板为空，暂无可导出的内容。"); return; }
+    if (!elements.length) { onActionFeedback?.(kt("knowledge.auto.769882a453f9d5c9")); return; }
     setExporting(format);
     try {
-      if (!authorizeContentAction) throw Error("当前页面禁止导出内容。");
+      if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165"));
       await authorizeContentAction(format === "pdf" ? "print" : "export");
       const options = { elements, files: api.getFiles(), appState: { ...api.getAppState(), exportBackground: true, exportWithDarkMode: false } };
       if (format === "png") {
@@ -171,9 +175,9 @@ export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画�
         pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, canvas.width, canvas.height, undefined, "FAST");
         pdf.save(safeDocumentFilename(documentTitle, "pdf"));
       }
-      onActionFeedback?.(`已导出${format === "png" ? " PNG 图片" : " PDF 文档"}。`);
+      onActionFeedback?.(ktf("knowledge.auto.e9c41ef8344bc8ee", { value0: format === "png" ? kt("knowledge.common.png_image") : kt("knowledge.common.pdf_document") }));
     } catch (failure) {
-      onActionFeedback?.(failure instanceof Error ? failure.message : "画板导出失败");
+      onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.9bd95ec9db5c8df3"));
     } finally {
       setExporting("");
     }
@@ -194,17 +198,17 @@ export function WhiteboardEditor({ body, readOnly = false, documentTitle = "画�
 
   return <div className="knowledge-open-editor is-excalidraw is-whiteboard">
     {authorizeContentAction && <PageActionPortal host={pageActionHost}>
-      <Button title="导出 PNG" disabled={!!exporting} onClick={() => void exportBoard("png")}><ImageDown size={15} />PNG</Button>
-      <Button title="导出 PDF" disabled={!!exporting} onClick={() => void exportBoard("pdf")}><FileDown size={15} />PDF</Button>
+      <Button title={kt("knowledge.auto.8c52149aae4527da")} disabled={!!exporting} onClick={() => void exportBoard("png")}><ImageDown size={15} />PNG</Button>
+      <Button title={kt("knowledge.auto.e42c8735ec9f56e3")} disabled={!!exporting} onClick={() => void exportBoard("pdf")}><FileDown size={15} />PDF</Button>
     </PageActionPortal>}
-    {!readOnly && <div className="native-whiteboard-toolbar" aria-label="画板工具">
-      <Button title="添加便签" onClick={addSticky}><StickyNote size={15} />便签</Button>
-      <label><Layers3 size={15} /><Select aria-label="插入画板模板" defaultValue="" onChange={event => { const value = event.target.value; event.target.value = ""; if (value) addElements(templateSkeletons(value)); }}><option value="">插入模板</option><option value="brainstorm">头脑风暴</option><option value="flow">流程梳理</option><option value="retro">团队复盘</option></Select></label>
+    {!readOnly && <div className="native-whiteboard-toolbar" aria-label={kt("knowledge.auto.cd75e4025a256949")}>
+      <Button title={kt("knowledge.auto.e9882ca465d65f18")} onClick={addSticky}><StickyNote size={15} />{kt("knowledge.auto.e3c5f4c93febd398")}</Button>
+      <label><Layers3 size={15} /><Select aria-label={kt("knowledge.auto.fa0ef9fe2428453a")} defaultValue="" onChange={event => { const value = event.target.value; event.target.value = ""; if (value) addElements(templateSkeletons(value)); }}><option value="">{kt("knowledge.auto.6cfa31bd69af66f2")}</option><option value="brainstorm">{kt("knowledge.auto.ea4d59a0e56e937f")}</option><option value="flow">{kt("knowledge.auto.383e505ceaa1b79b")}</option><option value="retro">{kt("knowledge.auto.6427347cdfbee6c0")}</option></Select></label>
       <span className="native-whiteboard-toolbar-divider" />
-      <Button title="置于顶层" disabled={!selectedIDs.length} onClick={() => applyLayer("front")}><ChevronsUp size={15} /></Button>
-      <Button title="上移一层" disabled={!selectedIDs.length} onClick={() => applyLayer("forward")}><ArrowUp size={15} /></Button>
-      <Button title="下移一层" disabled={!selectedIDs.length} onClick={() => applyLayer("backward")}><ArrowDown size={15} /></Button>
-      <Button title="置于底层" disabled={!selectedIDs.length} onClick={() => applyLayer("back")}><ChevronsDown size={15} /></Button>
+      <Button title={kt("knowledge.auto.248b1741576a8768")} disabled={!selectedIDs.length} onClick={() => applyLayer("front")}><ChevronsUp size={15} /></Button>
+      <Button title={kt("knowledge.auto.a145ede1bd686c20")} disabled={!selectedIDs.length} onClick={() => applyLayer("forward")}><ArrowUp size={15} /></Button>
+      <Button title={kt("knowledge.auto.dd2971fe3b47c10a")} disabled={!selectedIDs.length} onClick={() => applyLayer("backward")}><ArrowDown size={15} /></Button>
+      <Button title={kt("knowledge.auto.6015a77f3e774264")} disabled={!selectedIDs.length} onClick={() => applyLayer("back")}><ChevronsDown size={15} /></Button>
     </div>}
     <ExcalidrawCanvas
       snapshot={{ nodes: scene.elements as unknown as readonly ExcalidrawElement[], files: scene.files as unknown as BinaryFiles, appState: scene.appState as Partial<AppState> }}

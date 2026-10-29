@@ -27,7 +27,7 @@ export declare function registerKnowledgeDynamicBlockRuntime(editor: object, run
 export declare function notifyKnowledgeDynamicBlockRuntime(editor: object): void;
 export declare const knowledgeCodeLanguages: {
     text: {
-        name: string;
+        readonly name: string;
         aliases: string[];
     };
     javascript: {

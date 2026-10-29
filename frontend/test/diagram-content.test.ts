@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { decodeFlowchartContent, decodeMindMapContent, diagramPlainText, emptyFlowchartContent, emptyMindMapContent, flowchartNodeTypes, flowchartTemplates, layoutFlowchart, mindMapTemplates } from "../src/diagramContent.ts";
+import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
+
+activateKnowledgeLocale("zh-CN");
 
 test("mind map canonical schema owns themes, layout, styles, hierarchy, and relations", () => {
   const content = structuredClone(mindMapTemplates.swot);

@@ -1,3 +1,4 @@
+import { kt, ktf } from "../i18n/runtime.ts";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Select } from "../components.tsx";
 import type { FilePreviewLocation } from "../types.ts";
@@ -22,9 +23,9 @@ export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: F
 
   function jump(value: string) {
     const match = /^([A-Z]{1,3})([1-9][0-9]{0,5})$/.exec(value.toUpperCase());
-    if (!match || !sheet) { setError("请输入有效单元格，例如 B12。"); return; }
+    if (!match || !sheet) { setError(kt("knowledge.auto.b25de26f3bbeb88f")); return; }
     const column = [...match[1]].reduce((result, character) => result * 26 + character.charCodeAt(0) - 64, 0), row = Number(match[2]);
-    if (row > sheet.rows || column > sheet.cols) { setError("该位置超出当前工作表范围。"); return; }
+    if (row > sheet.rows || column > sheet.cols) { setError(kt("knowledge.auto.230a5daf47e1ebd1")); return; }
     setError(""); setRowPage(Math.floor((row - 1) / rowsPerPage)); setColumnPage(Math.floor((column - 1) / columnsPerPage)); setSelected(`${row}:${column}`);
   }
 
@@ -36,7 +37,7 @@ export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: F
       setSheets(next);
       const requested = next.findIndex(item => item.name === location?.sheet);
       if (requested >= 0) setSheetIndex(requested);
-    }).catch(failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : "Excel 文件无法预览。"); });
+    }).catch(failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.95a8bd308bcb4562")); });
     return () => abort.abort();
   }, [blob, location?.sheet]);
 
@@ -57,13 +58,13 @@ export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: F
 
   return <div className="knowledge-file-viewer" data-static-ui-list>
     {error && <p role="alert" className="knowledge-error">{error}</p>}
-    {!sheet && !error && <p role="status">正在打开工作簿…</p>}
+    {!sheet && !error && <p role="status">{kt("knowledge.auto.8a3d46c1ed6a9c3a")}</p>}
     {sheet && <>
-      <div className="knowledge-file-toolbar"><label>工作表 <Select aria-label="工作表" value={sheetIndex} onChange={event => { setSheetIndex(Number(event.target.value)); setRowPage(0); setColumnPage(0); setSelected(""); setError(""); }}>{sheets.map((item, index) => <option value={index} key={index}>{item.name}</option>)}</Select></label><form onSubmit={event => { event.preventDefault(); jump(address); }}><label>定位单元格 <input value={address} onChange={event => setAddress(event.target.value)} placeholder="B12" maxLength={10} /></label><Button type="submit">定位</Button></form></div>
-      <p className="knowledge-subtle">{sheet.rows} 行 × {sheet.cols} 列 · 只读预览，公式显示文件保存的结果；图表与嵌入对象请下载查看。</p>
+      <div className="knowledge-file-toolbar"><label>{kt("knowledge.auto.b02781ee06c6587e")}<Select aria-label={kt("knowledge.auto.b02781ee06c6587e")} value={sheetIndex} onChange={event => { setSheetIndex(Number(event.target.value)); setRowPage(0); setColumnPage(0); setSelected(""); setError(""); }}>{sheets.map((item, index) => <option value={index} key={index}>{item.name}</option>)}</Select></label><form onSubmit={event => { event.preventDefault(); jump(address); }}><label>{kt("knowledge.auto.14f27de51c56bdd6")}<input value={address} onChange={event => setAddress(event.target.value)} placeholder="B12" maxLength={10} /></label><Button type="submit">{kt("knowledge.auto.49726f09c8123a40")}</Button></form></div>
+      <p className="knowledge-subtle">{sheet.rows} {kt("knowledge.auto.5cc8055e634793b4")}{sheet.cols} {kt("knowledge.auto.6e26093f0bd530da")}</p>
       {current && <p className="knowledge-spreadsheet-value"><strong>{columnName(current.col)}{current.row}</strong> {current.formula ? `=${current.formula} → ` : ""}{current.text}</p>}
-      <div className="knowledge-sheet-scroll"><table aria-label={`${sheet.name} 工作表`}><colgroup><col style={{ width: 50 }} />{columns.map(column => <col key={column} style={{ width: sheet.widths[column] || 110 }} />)}</colgroup><thead><tr><th scope="col">行</th>{columns.map(column => <th key={column} scope="col">{columnName(column)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row} style={{ height: sheet.heights[row] }}><th scope="row">{row}</th>{columns.map(column => { const key = `${row}:${column}`, span = spans.get(key); if (span === null) return null; const cell = cells.get(span?.master || key); return <td key={column} rowSpan={span?.rowSpan} colSpan={span?.colSpan} style={cell?.style} data-selected={selected === (span?.master || key)} onClick={() => { setSelected(span?.master || key); setAddress(`${columnName(cell?.col || column)}${cell?.row || row}`); }}>{cell?.text || ""}</td>; })}</tr>)}</tbody></table></div>
-      <nav className="knowledge-file-toolbar" aria-label="工作表行分页" data-static-ui-pagination><Button disabled={rowPage === 0} onClick={() => setRowPage(value => value - 1)}>上一页行</Button><span>第 {rowPage + 1} / {Math.max(1, Math.ceil(sheet.rows / rowsPerPage))} 页</span><Button disabled={(rowPage + 1) * rowsPerPage >= sheet.rows} onClick={() => setRowPage(value => value + 1)}>下一页行</Button><Button disabled={columnPage === 0} onClick={() => setColumnPage(value => value - 1)}>前一组列</Button><span>{columnName(columnPage * columnsPerPage + 1)}–{columnName(Math.max(1, Math.min(sheet.cols, (columnPage + 1) * columnsPerPage)))}</span><Button disabled={(columnPage + 1) * columnsPerPage >= sheet.cols} onClick={() => setColumnPage(value => value + 1)}>后一组列</Button></nav>
+      <div className="knowledge-sheet-scroll"><table aria-label={ktf("knowledge.auto.c26834877dfd9070", { value0: sheet.name })}><colgroup><col style={{ width: 50 }} />{columns.map(column => <col key={column} style={{ width: sheet.widths[column] || 110 }} />)}</colgroup><thead><tr><th scope="col">{kt("knowledge.auto.4cc7b00050cb1c21")}</th>{columns.map(column => <th key={column} scope="col">{columnName(column)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row} style={{ height: sheet.heights[row] }}><th scope="row">{row}</th>{columns.map(column => { const key = `${row}:${column}`, span = spans.get(key); if (span === null) return null; const cell = cells.get(span?.master || key); return <td key={column} rowSpan={span?.rowSpan} colSpan={span?.colSpan} style={cell?.style} data-selected={selected === (span?.master || key)} onClick={() => { setSelected(span?.master || key); setAddress(`${columnName(cell?.col || column)}${cell?.row || row}`); }}>{cell?.text || ""}</td>; })}</tr>)}</tbody></table></div>
+      <nav className="knowledge-file-toolbar" aria-label={kt("knowledge.auto.5b62687797a4b97d")} data-static-ui-pagination><Button disabled={rowPage === 0} onClick={() => setRowPage(value => value - 1)}>{kt("knowledge.auto.9a45cd4d9d8c3ddb")}</Button><span>{kt("knowledge.auto.af50a0fe2a50a3d1")}{rowPage + 1} / {Math.max(1, Math.ceil(sheet.rows / rowsPerPage))} {kt("knowledge.auto.d24d3c99460c7e3a")}</span><Button disabled={(rowPage + 1) * rowsPerPage >= sheet.rows} onClick={() => setRowPage(value => value + 1)}>{kt("knowledge.auto.e8e8277bfd84d507")}</Button><Button disabled={columnPage === 0} onClick={() => setColumnPage(value => value - 1)}>{kt("knowledge.auto.1026ce594c4b4bd5")}</Button><span>{columnName(columnPage * columnsPerPage + 1)}–{columnName(Math.max(1, Math.min(sheet.cols, (columnPage + 1) * columnsPerPage)))}</span><Button disabled={(columnPage + 1) * columnsPerPage >= sheet.cols} onClick={() => setColumnPage(value => value + 1)}>{kt("knowledge.auto.d787fa5af4f3ea9e")}</Button></nav>
     </>}
   </div>;
 }
