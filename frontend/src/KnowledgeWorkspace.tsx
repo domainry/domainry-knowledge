@@ -77,6 +77,12 @@ function citationProvenance(citation: KnowledgeCitation) {
 export function KnowledgeWorkspace({ client, currentUserID = "", formatError = defaultErrorMessage, headerSearchHost, theme = "system", locale, hostIntegration }: KnowledgeWorkspaceProps) {
   const resolvedTheme = useResolvedKnowledgeTheme(theme);
   const resolvedLocale = locale ? normalizeKnowledgeLocale(locale) : browserKnowledgeLocale();
+	return <KnowledgeI18nProvider locale={resolvedLocale}>
+		<KnowledgeWorkspaceContent client={client} currentUserID={currentUserID} formatError={formatError} headerSearchHost={headerSearchHost} resolvedTheme={resolvedTheme} resolvedLocale={resolvedLocale} hostIntegration={hostIntegration} />
+	</KnowledgeI18nProvider>;
+}
+
+function KnowledgeWorkspaceContent({ client, currentUserID, formatError, headerSearchHost, resolvedTheme, resolvedLocale, hostIntegration }: Omit<KnowledgeWorkspaceProps, "theme" | "locale"> & { currentUserID: string; formatError: (error: unknown) => string; resolvedTheme: "light" | "dark"; resolvedLocale: KnowledgeHostLocale }) {
   const direction = knowledgeDirection(resolvedLocale);
   const initialDeepLink = useMemo(() => typeof window === "undefined" ? null : parseKnowledgeDeepLink(window.location.href), []);
   const [libraryKind, setLibraryKind] = useState<"personal" | "shared">(initialDeepLink?.libraryKind || "personal");
@@ -105,10 +111,10 @@ export function KnowledgeWorkspace({ client, currentUserID = "", formatError = d
     <button type="button" className="knowledge-header-search-toggle" aria-label={kt("knowledge.auto.5c5b89ccbe7bab73")} title={kt("knowledge.auto.64fbeaa5708e1660")} aria-expanded={searchExpanded} onClick={openGlobalSearch}><Search size={18} aria-hidden="true" /></button>
     <form className="knowledge-global-search" role="search" onSubmit={event => { event.preventDefault(); const query = searchInput.trim(); if (query) setSearchRequest(current => ({ query, revision: current.revision + 1 })); }}><Search size={16} aria-hidden="true" /><input ref={searchInputRef} aria-label={kt("knowledge.auto.f1390e1f22bf2285")} aria-keyshortcuts="Meta+K Control+K" value={searchInput} maxLength={4096} onChange={event => setSearchInput(event.target.value)} onKeyDown={event => { if (event.key === "Escape" && !searchInput.trim()) { event.currentTarget.blur(); setSearchExpanded(false); } }} placeholder={kt("knowledge.auto.e8654dfeb4e5b61c")} />{searchRequest.query && <Button type="button" aria-label={kt("knowledge.auto.55d67963b01493ed")} onClick={() => { setSearchInput(""); setSearchRequest(current => ({ query: "", revision: current.revision + 1 })); }}><X size={14} /></Button>}<Button type="submit" className="primary" disabled={!searchInput.trim()}>{kt("knowledge.auto.44ce7ae909bbb28b")}</Button></form>
   </div>;
-  return <KnowledgeI18nProvider locale={resolvedLocale}><KnowledgeThemeProvider theme={resolvedTheme}><main className="knowledge-workspace" data-knowledge-theme={resolvedTheme} lang={resolvedLocale} dir={direction}>
+  return <KnowledgeThemeProvider theme={resolvedTheme}><main className="knowledge-workspace" data-knowledge-theme={resolvedTheme} lang={resolvedLocale} dir={direction}>
     {headerSearchHost && createPortal(searchControl, headerSearchHost)}
     <KnowledgeLibraryManager key={libraryKind} client={client} currentUserID={currentUserID} formatError={formatError} initialLibraryID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.libraryID : ""} initialPageID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.pageID : ""} initialBlockID={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.blockID : undefined} initialPageMode={initialDeepLink?.libraryKind === libraryKind ? initialDeepLink.mode : "read"} libraryKind={libraryKind} scopeTabs={scopeNavigation} searchQuery={searchRequest.query} searchRevision={searchRequest.revision} hostIntegration={hostIntegration} />
-  </main></KnowledgeThemeProvider></KnowledgeI18nProvider>;
+  </main></KnowledgeThemeProvider>;
 }
 
 type PageSearchFilters = {

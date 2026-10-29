@@ -3,14 +3,17 @@ import { I18nProvider } from "@lingui/react";
 import { createContext, createElement, useContext, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { KnowledgeHostLocale } from "../hostIntegration.ts";
-import { knowledgeChineseMessages, knowledgeEnglishMessages, type KnowledgeMessageID } from "./messages.generated.ts";
-import { knowledgeTranslatedCatalogs } from "./catalogs.generated.ts";
+import { knowledgeCompiledCatalogs } from "./compiledCatalogs.ts";
+import { knowledgeEnglishMessages, type KnowledgeMessageID } from "./messages.generated.ts";
 
 export const KNOWLEDGE_LOCALES = ["en", "zh-CN", "zh-TW", "ja", "ko", "es", "pt", "fr", "de", "it", "tr", "ar"] as const satisfies readonly KnowledgeHostLocale[];
 const localeSet = new Set<string>(KNOWLEDGE_LOCALES);
 
-const englishMessages: Messages = knowledgeEnglishMessages;
-const chineseMessages: Messages = knowledgeChineseMessages;
+const englishMessages = knowledgeCompiledCatalogs.en;
+const runtimeCatalogs = Object.fromEntries(KNOWLEDGE_LOCALES.map(locale => [
+  locale,
+  locale === "en" ? englishMessages : { ...englishMessages, ...knowledgeCompiledCatalogs[locale] },
+])) as Record<KnowledgeHostLocale, Messages>;
 
 export const knowledgeI18n = setupI18n({
   locale: "en",
@@ -61,8 +64,7 @@ export function knowledgeDirection(locale: KnowledgeHostLocale) {
 }
 
 export function activateKnowledgeLocale(locale: KnowledgeHostLocale) {
-  const messages = locale === "en" ? englishMessages : locale === "zh-CN" ? chineseMessages : knowledgeTranslatedCatalogs[locale] as Messages;
-  knowledgeI18n.load(locale, messages);
+  knowledgeI18n.load(locale, runtimeCatalogs[locale]);
   if (knowledgeI18n.locale !== locale) knowledgeI18n.activate(locale);
 }
 

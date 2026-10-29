@@ -4,12 +4,14 @@ import path from "node:path";
 import test from "node:test";
 import { KNOWLEDGE_HOST_LOCALES } from "../src/hostIntegration.ts";
 import { knowledgeTranslatedCatalogs } from "../src/i18n/catalogs.generated.ts";
+import { knowledgeCompiledCatalogs } from "../src/i18n/compiledCatalogs.ts";
 import { knowledgeChineseMessages, knowledgeEnglishMessages } from "../src/i18n/messages.generated.ts";
 import {
   activateKnowledgeLocale,
   formatKnowledgeNumber,
   KNOWLEDGE_LOCALES,
   knowledgeDirection,
+  knowledgeI18n,
   kt,
   ktf,
   normalizeKnowledgeLocale,
@@ -44,6 +46,17 @@ test("every locale has the complete source ID and placeholder contract", () => {
   }
 });
 
+test("every runtime locale uses the compiled Lingui catalog", () => {
+  assert.deepEqual(Object.keys(knowledgeCompiledCatalogs).sort(), [...KNOWLEDGE_LOCALES].sort());
+  for (const locale of KNOWLEDGE_LOCALES) {
+    const catalog = knowledgeCompiledCatalogs[locale] as Record<string, unknown>;
+    assert.deepEqual(Object.keys(catalog).sort(), messageIDs, `${locale} compiled message IDs differ from English`);
+    for (const id of messageIDs) {
+      assert.ok(Array.isArray(catalog[id]), `${locale} left ${id} as an uncompiled ICU string`);
+    }
+  }
+});
+
 test("runtime activation changes messages and known missing translations fall back to English", () => {
   const id = "knowledge.common.published_at";
   activateKnowledgeLocale("zh-CN");
@@ -52,10 +65,10 @@ test("runtime activation changes messages and known missing translations fall ba
   assert.equal(kt(id), knowledgeTranslatedCatalogs.de[id]);
 
   const fallbackID = "knowledge.common.unavailable_page";
-  const french = knowledgeTranslatedCatalogs.fr as Record<string, string>;
+  activateKnowledgeLocale("fr");
+  const french = knowledgeI18n.messages as Record<string, unknown>;
   const saved = french[fallbackID];
   delete french[fallbackID];
-  activateKnowledgeLocale("fr");
   assert.equal(kt(fallbackID), knowledgeEnglishMessages[fallbackID]);
   french[fallbackID] = saved;
 });
@@ -68,6 +81,25 @@ test("runtime formatting preserves every named placeholder", () => {
     assert.match(formatted, /future_failure/, `${locale} dropped the runtime placeholder`);
     assert.doesNotMatch(formatted, /\{value0\}/, `${locale} leaked an unresolved placeholder`);
   }
+});
+
+test("production-sensitive search labels interpolate their page scope", () => {
+  activateKnowledgeLocale("zh-CN");
+  assert.equal(ktf("knowledge.auto.c35a69c818e8575e", { value0: "全部页面" }), "搜索全部页面");
+  assert.equal(ktf("knowledge.auto.c5abb64060320597", { value0: "全部页面" }), "筛选全部页面");
+  assert.equal(ktf("knowledge.auto.b9da6aab77e5cdbc", { value0: "快捷入口" }), "刷新快捷入口");
+  assert.equal(ktf("knowledge.auto.ff1f95f1d49e6ba9", { value0: "快捷入口" }), "快捷入口中还没有页面。");
+});
+
+test("workspace activates its locale before rendering any translated controls", async () => {
+  const workspace = await readFile(path.join(sourceRoot, "KnowledgeWorkspace.tsx"), "utf8");
+  const wrapperStart = workspace.indexOf("export function KnowledgeWorkspace");
+  const contentStart = workspace.indexOf("function KnowledgeWorkspaceContent");
+  assert.ok(wrapperStart >= 0 && contentStart > wrapperStart);
+  const wrapper = workspace.slice(wrapperStart, contentStart);
+  assert.match(wrapper, /<KnowledgeI18nProvider locale=\{resolvedLocale\}>/);
+  assert.match(wrapper, /<KnowledgeWorkspaceContent /);
+  assert.doesNotMatch(wrapper, /\bktf?\(/, "translated controls rendered before locale activation");
 });
 
 test("number formatting follows the active locale", () => {
