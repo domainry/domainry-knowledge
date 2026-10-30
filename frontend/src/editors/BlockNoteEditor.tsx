@@ -76,6 +76,95 @@ type KnowledgeFilePickerRequest = {
   recentID?: string;
 };
 type KnowledgeFormulaInputRequest = { displayMode: "block" | "inline"; recentID: string };
+type KnowledgeSelectionActionPosition = {
+  left: number;
+  top: number;
+  placement: "above" | "below";
+};
+
+function knowledgeSelectionFocusRect(root: HTMLElement): DOMRect | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  const container = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+    ? range.commonAncestorContainer as Element
+    : range.commonAncestorContainer.parentElement;
+  if (!container || !root.contains(container)) return null;
+
+  const rects = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0);
+  if (rects.length === 0) return null;
+  try {
+    if (selection.focusNode) {
+      const focus = document.createRange();
+      focus.setStart(selection.focusNode, selection.focusOffset);
+      focus.collapse(true);
+      if (focus.compareBoundaryPoints(Range.START_TO_START, range) === 0) return rects[0];
+    }
+  } catch {
+    // Fall back to the last visual line when the browser cannot compare ranges.
+  }
+  return rects[rects.length - 1];
+}
+
+function knowledgeSelectionBlockRect(root: HTMLElement, blockIDs: readonly string[]): DOMRect | null {
+  const selected = new Set(blockIDs);
+  const blocks = [...root.querySelectorAll<HTMLElement>('[data-node-type="blockContainer"][data-id]')];
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    if (selected.has(blocks[index].dataset.id || "")) return blocks[index].getBoundingClientRect();
+  }
+  return null;
+}
+
+function knowledgeSelectionVisibleBounds(root: HTMLElement) {
+  const bounds = { top: 0, right: window.innerWidth, bottom: window.innerHeight, left: 0 };
+  for (let ancestor = root.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    const style = window.getComputedStyle(ancestor);
+    const rect = ancestor.getBoundingClientRect();
+    if (/auto|scroll|hidden|clip/.test(style.overflowX)) {
+      bounds.left = Math.max(bounds.left, rect.left);
+      bounds.right = Math.min(bounds.right, rect.right);
+    }
+    if (/auto|scroll|hidden|clip/.test(style.overflowY)) {
+      bounds.top = Math.max(bounds.top, rect.top);
+      bounds.bottom = Math.min(bounds.bottom, rect.bottom);
+    }
+  }
+  return bounds;
+}
+
+function knowledgeSelectionActionPosition(root: HTMLElement, blockIDs: readonly string[], action: HTMLElement | null): KnowledgeSelectionActionPosition | null {
+  const target = knowledgeSelectionFocusRect(root) || knowledgeSelectionBlockRect(root, blockIDs);
+  if (!target) return null;
+
+  const rootRect = root.getBoundingClientRect();
+  const bounds = knowledgeSelectionVisibleBounds(root);
+  const width = action?.offsetWidth || 168;
+  const height = action?.offsetHeight || 34;
+  const gap = 8;
+  const gutter = 10;
+  const desiredLeft = target.left + target.width / 2;
+  const minimumLeft = bounds.left + width / 2 + gutter;
+  const maximumLeft = bounds.right - width / 2 - gutter;
+  const left = minimumLeft <= maximumLeft
+    ? Math.min(Math.max(desiredLeft, minimumLeft), maximumLeft)
+    : (bounds.left + bounds.right) / 2;
+
+  const below = target.bottom + gap;
+  const above = target.top - gap - height;
+  const fitsBelow = below + height <= bounds.bottom - gutter;
+  const fitsAbove = above >= bounds.top + gutter;
+  const placement = fitsBelow || !fitsAbove ? "below" : "above";
+  const desiredTop = placement === "below" ? below : above;
+  const minimumTop = bounds.top + gutter;
+  const maximumTop = Math.max(minimumTop, bounds.bottom - height - gutter);
+  const top = Math.min(Math.max(desiredTop, minimumTop), maximumTop);
+
+  return {
+    left: left - rootRect.left,
+    top: top - rootRect.top,
+    placement,
+  };
+}
 
 function createCollaborationSyncGate(awareness: NonNullable<NonNullable<KnowledgeEditorProps["collaboration"]>["provider"]>["awareness"]) {
   const listeners = new Set<(synced: boolean) => void>();
@@ -411,8 +500,11 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
   const uploadFileRef = useRef(uploadFile), readFileRef = useRef(readFile);
   const filePickerInputRef = useRef<HTMLInputElement | null>(null);
   const pendingFilePickerRef = useRef<KnowledgeFilePickerRequest | null>(null);
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+  const selectionActionRef = useRef<HTMLDivElement | null>(null);
   const [filePickerBusy, setFilePickerBusy] = useState(false);
   const [documentSelection, setDocumentSelection] = useState<ReturnType<typeof boundKnowledgeDocumentSelection>>(null);
+  const [selectionActionPosition, setSelectionActionPosition] = useState<KnowledgeSelectionActionPosition | null>(null);
   const [formulaInput, setFormulaInput] = useState<KnowledgeFormulaInputRequest | null>(null), [formulaSource, setFormulaSource] = useState("");
   const mentionRuntimeRef = useRef(mentions);
   const taskRuntimeRef = useRef(tasks);
@@ -676,6 +768,36 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
   };
 
   useEffect(() => {
+    if (!documentSelection) {
+      setSelectionActionPosition(null);
+      return;
+    }
+    let frame = 0;
+    const placeAction = () => {
+      const root = editorRootRef.current;
+      const action = selectionActionRef.current;
+      const position = root ? knowledgeSelectionActionPosition(root, documentSelection.blockIds, action) : null;
+      setSelectionActionPosition(position);
+      if (!action && position) frame = window.requestAnimationFrame(placeAction);
+    };
+    const updatePosition = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(placeAction);
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updatePosition);
+    if (editorRootRef.current) resizeObserver?.observe(editorRootRef.current);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+      resizeObserver?.disconnect();
+    };
+  }, [documentSelection]);
+
+  useEffect(() => {
     if (collaboration) {
       if (seeded.current || !collaboration.initializeFromBody) return;
       seeded.current = true;
@@ -760,9 +882,16 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
   }, [body, commentMarkers, editor, onCommentMarkerOpen]);
 
   const documentTransfer = <KnowledgeDocumentTransfer editor={editor} title={documentTitle} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} onConvertToMindNote={!readOnly && convertPage ? (nextTitle, nextBody) => convertPage("mind_note", nextTitle, nextBody) : undefined} />;
-  return <div className={`knowledge-open-editor is-blocknote is-document${pageActionHost ? " has-page-action-host" : ""}`}>
+  return <div ref={editorRootRef} className={`knowledge-open-editor is-blocknote is-document${pageActionHost ? " has-page-action-host" : ""}`}>
     {pageActionHost ? createPortal(documentTransfer, pageActionHost) : documentTransfer}
-    {addDocumentSelection && documentSelection && <div className="knowledge-host-selection-action no-print" role="toolbar" aria-label={kt("knowledge.host.add_selection")}>
+    {addDocumentSelection && documentSelection && selectionActionPosition && <div
+      ref={selectionActionRef}
+      className="knowledge-host-selection-action no-print"
+      role="toolbar"
+      aria-label={kt("knowledge.host.add_selection")}
+      data-placement={selectionActionPosition.placement}
+      style={{ left: selectionActionPosition.left, top: selectionActionPosition.top }}
+    >
       <button type="button" disabled={addDocumentSelectionBusy} aria-busy={addDocumentSelectionBusy} onMouseDown={event => event.preventDefault()} onClick={() => void addDocumentSelection(documentSelection)}>
         {addDocumentSelectionBusy ? <RefreshCw className="knowledge-spin" size={15} /> : <MessageSquarePlus size={15} />}
         {addDocumentSelectionBusy ? kt("knowledge.host.adding_selection") : kt("knowledge.host.add_selection")}

@@ -882,8 +882,8 @@ body[data-knowledge-theme="dark"] .knowledge-modal-backdrop {
 .knowledge-open-editor.is-blocknote .bn-editor { min-height: 430px; padding: 24px 48px 36px; background: var(--knowledge-surface); }
 .knowledge-open-editor.is-document .bn-editor { padding-top: 54px; }
 .knowledge-open-editor.is-document.has-page-action-host .bn-editor { padding-top: 24px; }
-.knowledge-host-selection-action { position: sticky; z-index: 24; top: 12px; display: flex; height: 0; justify-content: flex-end; padding-inline: 16px; pointer-events: none; }
-.knowledge-host-selection-action > button { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 7px 11px; color: var(--knowledge-on-accent); background: var(--knowledge-primary); border: 1px solid var(--knowledge-primary); border-radius: 8px; box-shadow: 0 8px 24px var(--knowledge-shadow-color); cursor: pointer; font: inherit; font-size: 11px; font-weight: 720; pointer-events: auto; }
+.knowledge-host-selection-action { position: absolute; z-index: 24; display: flex; pointer-events: none; }
+.knowledge-host-selection-action > button { display: inline-flex; min-height: 34px; align-items: center; gap: 7px; padding: 7px 11px; color: var(--knowledge-on-accent); background: var(--knowledge-primary); border: 1px solid var(--knowledge-primary); border-radius: 8px; box-shadow: 0 8px 24px var(--knowledge-shadow-color); cursor: pointer; font: inherit; font-size: 11px; font-weight: 720; pointer-events: auto; white-space: nowrap; }
 .knowledge-host-selection-action > button:hover:not(:disabled), .knowledge-host-selection-action > button:focus-visible { background: var(--knowledge-primary-hover); border-color: var(--knowledge-primary-hover); outline: none; }
 .knowledge-host-selection-action > button:focus-visible { box-shadow: 0 0 0 3px var(--knowledge-focus-ring), 0 8px 24px var(--knowledge-shadow-color); }
 .knowledge-host-selection-action > button:disabled { cursor: wait; opacity: .75; }
