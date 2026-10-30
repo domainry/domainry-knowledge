@@ -223,3 +223,34 @@ func TestKnowledgeSeparatesDocumentGrantsFromPrincipalReadIdentities(t *testing.
 		t.Fatalf("upload=%t read=%t", uploadChecked, readChecked)
 	}
 }
+
+func TestKnowledgeProjectionInspectionUsesExactPagePermission(t *testing.T) {
+	var seen [][]string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			PermissionIDs []string `json:"permission_ids"`
+		}
+		if json.NewDecoder(r.Body).Decode(&input) != nil {
+			t.Error("invalid inspection body")
+		}
+		seen = append(seen, slices.Clone(input.PermissionIDs))
+		io.WriteString(w, `{"err_code":0,"data":{"doc_id":"doc-page","status":"INDEXED","hits":[]}}`)
+	}))
+	defer upstream.Close()
+	k, err := newKnowledgeWithOfficialAdapter(KnowledgeConfig{
+		BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace",
+		DocumentManagement: true, DocumentPermissionIDs: []string{"space:library"}, ReadPermissionIDs: []string{"space:library"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = k.InspectKnowledgeDocument(t.Context(), "doc-page", knowledgeAuthority()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = k.InspectKnowledgeDocumentWithPermissions(t.Context(), "doc-page", []string{"scope:knowledge:page:token"}, knowledgeAuthority()); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || !slices.Equal(seen[0], []string{"space:library"}) || !slices.Equal(seen[1], []string{"scope:knowledge:page:token"}) {
+		t.Fatalf("inspection did not preserve the page ACL boundary: %+v", seen)
+	}
+}

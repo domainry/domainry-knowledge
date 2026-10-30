@@ -16,6 +16,10 @@ func knowledgePageProjectionDocumentID(a agentsdk.Authority, pageID string) (str
 	return entityid.Derive("kdoc", "knowledge.page_projection_document", a.RuntimeID, a.WorkspaceID, pageID)
 }
 
+func knowledgePageProjectionRemoteID(sourceID string, authority agentsdk.Authority, pageID string, version, accessRevision int64, sha256 string) string {
+	return "dka_" + conversationHash([]any{sourceID, libraryScope(authority), pageID, version, accessRevision, sha256})
+}
+
 func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, owner string, now time.Time, ttl time.Duration) (out knowledgesdk.KnowledgePageProjectionWork, found bool, err error) {
 	if !executionText(runtimeID, 255, true) || !personalMemoryKey(owner) || ttl < 100*time.Millisecond || ttl > knowledgeDocumentMaximumLease {
 		return out, false, conversationError("bad_request", "page_projection_lease_invalid")
@@ -134,7 +138,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		if !found {
-			remoteID := "dka_" + conversationHash([]any{sourceID, libraryScope(lease.Actor), lease.PageID, lease.Version, sha256})
+			remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
 			record = persistence.KnowledgeDocumentRecord{
 				PageProjection: &origin,
 				Document:       agentsdk.KnowledgeDocument{ID: documentID, LibraryID: lease.LibraryID, ProjectionKind: "page", OriginPageID: lease.PageID, OriginPageVersion: lease.Version, Filename: filename, ContentType: "text/markdown; charset=utf-8", Bytes: bytes, SHA256: sha256, ContentVersion: lease.Version, IndexGeneration: 1, CreatedByUserID: version.PublishedByUserID, State: "queued", ProcessingStage: "parse", SecurityStatus: "clean", SecurityScanner: "knowledge-page-schema", SecurityReportSHA256: sha256, Revision: 1, CreatedAt: now, UpdatedAt: now},
@@ -153,7 +157,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				// An acknowledgement may have been lost after the document intent
 				// was committed. Treat the source-owned projection as idempotent.
 			} else if record.Document.State == "deleted" {
-				remoteID := "dka_" + conversationHash([]any{sourceID, libraryScope(lease.Actor), lease.PageID, lease.Version, sha256})
+				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
 				revision := record.Document.Revision
 				record.PageProjection, record.Replacement = &origin, nil
 				record.Actor, record.BodyRef, record.RemoteID = lease.Actor, bodyRef, remoteID
@@ -176,7 +180,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				record.Actor = lease.Actor
 				record.Replacement = &persistence.KnowledgeDocumentReplacement{PageProjection: origin, Filename: filename, Bytes: bytes, SHA256: sha256, ContentVersion: lease.Version, BodyRef: bodyRef}
 				generation := record.Document.IndexGeneration + 1
-				remoteID := "dka_" + conversationHash([]any{sourceID, libraryScope(lease.Actor), lease.PageID, lease.Version, sha256})
+				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
 				record.Reindex = &persistence.KnowledgeDocumentReindex{Generation: generation, RemoteID: remoteID, PutRequestID: "kput_" + conversationHash([]any{sourceID, remoteID, lease.Version, sha256})}
 				record.Document.Reindexing = true
 				if err = s.saveDocumentRecord(ctx, tx, &record, record.Document.Revision); err != nil {

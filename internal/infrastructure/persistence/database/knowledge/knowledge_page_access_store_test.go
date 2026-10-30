@@ -1,10 +1,13 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
@@ -167,6 +170,65 @@ func TestKnowledgePageAccessProjectionFailsClosedUntilExactACLReady(t *testing.T
 	}
 	if policy.ProjectionStatus != "queued" {
 		t.Fatalf("remote ACL reprojection was not required: %+v", policy)
+	}
+}
+
+func TestKnowledgePageACLReprojectionUsesDistinctShadowRemoteID(t *testing.T) {
+	store, db := openSubjectKnowledgeStore(t)
+	manager := agentsdk.Authority{Known: true, RuntimeID: "page-runtime", WorkspaceID: "page-workspace", UserID: "alice", RoleKey: "editor"}
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "acl-shadow-library", Kind: "shared", Name: "ACL shadow"}, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "acl-shadow-page", Title: "权限页面", ContentType: knowledgesdk.KnowledgePageTypeDocument}, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page = savePageFixture(t, store, manager, library, page, "acl-shadow-body", "权限页面", "权限正文")
+	page = publishPageFixture(t, store, manager, library, page, "acl-shadow-publish")
+	if err = store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{RuntimeID: manager.RuntimeID, WorkspaceID: manager.WorkspaceID, LibraryID: library.ID}, conversationHash([]string{"acl-shadow-source", library.ID})); err != nil {
+		t.Fatal(err)
+	}
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), manager.RuntimeID, "acl-shadow-worker", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("initial projection not claimable: found=%t err=%v", found, err)
+	}
+	content := []byte("# 权限页面\n\n权限正文")
+	digest := sha256.Sum256(content)
+	contentHash := hex.EncodeToString(digest[:])
+	if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://acl-shadow-v1", int64(len(content)), contentHash, page.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	documentID, err := knowledgePageProjectionDocumentID(manager, page.Page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.KnowledgeDocumentRecord(t.Context(), documentID, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+	record.PutStarted, record.PutAcknowledged, record.IndexObserved = true, true, true
+	record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+	record.Document.SecurityStatus, record.Document.IndexStatus = "clean", "INDEXED"
+	saveRetryFixture(t, db, record, manager)
+	markPageProjectionReady(t, store, library.ID, page.Page.ID, manager)
+	oldRemoteID := record.RemoteID
+
+	policy := setPageAccessFixture(t, store, library.ID, page.Page.ID, "acl-shadow-restrict", 1, knowledgesdk.KnowledgePageAccessRestricted, nil, manager)
+	work, found, err = store.ClaimKnowledgePageProjection(t.Context(), manager.RuntimeID, "acl-shadow-worker", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found || work.Lease.AccessRevision != policy.Revision {
+		t.Fatalf("ACL reprojection not claimable: found=%t work=%+v err=%v", found, work, err)
+	}
+	if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://acl-shadow-v2", int64(len(content)), contentHash, page.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.KnowledgeDocumentRecord(t.Context(), documentID, manager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Reindex == nil || updated.Replacement == nil || updated.Reindex.RemoteID == oldRemoteID || updated.Replacement.PageProjection.AccessRevision != policy.Revision {
+		t.Fatalf("ACL change did not create a distinct shadow generation: old=%s record=%+v", oldRemoteID, updated)
 	}
 }
 

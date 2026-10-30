@@ -16,6 +16,26 @@ const (
 	knowledgeDocumentUploadExpiryInterval  = time.Minute
 )
 
+func knowledgeDocumentProjectionPermissionIDs(r persistence.KnowledgeDocumentRecord, replacement bool) []string {
+	projection := r.PageProjection
+	if replacement && r.Replacement != nil {
+		projection = &r.Replacement.PageProjection
+	}
+	if projection == nil || projection.PermissionID == "" {
+		return nil
+	}
+	return []string{projection.PermissionID}
+}
+
+func inspectKnowledgeDocument(ctx context.Context, source agentsdk.KnowledgeDocumentSource, id string, permissionIDs []string, actor agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
+	if len(permissionIDs) != 0 {
+		if scoped, ok := source.(agentsdk.KnowledgeDocumentPermissionInspectionSource); ok {
+			return scoped.InspectKnowledgeDocumentWithPermissions(ctx, id, permissionIDs, actor)
+		}
+	}
+	return source.InspectKnowledgeDocument(ctx, id, actor)
+}
+
 type knowledgeDocumentUploadRepository interface {
 	TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.Authority) (persistence.KnowledgeDocumentRecord, error)
 	ExpireKnowledgeDocumentUploads(context.Context, string, time.Time, int) (int, error)
@@ -199,7 +219,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		defer content.Close()
 		// Never overwrite a preexisting remote document, even with our exclusive
 		// deterministic ID. The provider does not promise idempotent uploads.
-		state, err := source.InspectKnowledgeDocument(ctx, r.RemoteID, r.Actor)
+		state, err := inspectKnowledgeDocument(ctx, source, r.RemoteID, knowledgeDocumentProjectionPermissionIDs(r, false), r.Actor)
 		if err != nil {
 			progress.ErrorCode = "document_inspect_failed"
 			return
@@ -225,10 +245,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		if err != nil || !started {
 			return
 		}
-		permissionIDs := []string(nil)
-		if startedRecord.PageProjection != nil && startedRecord.PageProjection.PermissionID != "" {
-			permissionIDs = []string{startedRecord.PageProjection.PermissionID}
-		}
+		permissionIDs := knowledgeDocumentProjectionPermissionIDs(startedRecord, false)
 		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_put_uncertain"
 			return
@@ -236,7 +253,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		progress = persistence.KnowledgeDocumentProgress{Event: "put_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
 		return
 	}
-	state, err := source.InspectKnowledgeDocument(ctx, r.RemoteID, r.Actor)
+	state, err := inspectKnowledgeDocument(ctx, source, r.RemoteID, knowledgeDocumentProjectionPermissionIDs(r, false), r.Actor)
 	if err != nil || state.DocumentID != r.RemoteID {
 		progress.ErrorCode = "document_inspect_failed"
 		return
@@ -322,7 +339,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 			progress.ErrorCode = "document_upload_access_denied"
 			return
 		}
-		state, err := source.InspectKnowledgeDocument(ctx, target.RemoteID, r.Actor)
+		state, err := inspectKnowledgeDocument(ctx, source, target.RemoteID, knowledgeDocumentProjectionPermissionIDs(r, true), r.Actor)
 		if err != nil || state.DocumentID != target.RemoteID {
 			progress.ErrorCode = "document_inspect_failed"
 			return
@@ -346,12 +363,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 		if err != nil || !started || startedRecord.Reindex == nil {
 			return
 		}
-		permissionIDs := []string(nil)
-		if startedRecord.Replacement != nil && startedRecord.Replacement.PageProjection.PermissionID != "" {
-			permissionIDs = []string{startedRecord.Replacement.PageProjection.PermissionID}
-		} else if startedRecord.PageProjection != nil && startedRecord.PageProjection.PermissionID != "" {
-			permissionIDs = []string{startedRecord.PageProjection.PermissionID}
-		}
+		permissionIDs := knowledgeDocumentProjectionPermissionIDs(startedRecord, true)
 		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_reindex_put_uncertain"
 			return
@@ -359,7 +371,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 		*progress = persistence.KnowledgeDocumentProgress{Event: "reindex_put_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
 		return
 	}
-	state, err := source.InspectKnowledgeDocument(ctx, target.RemoteID, r.Actor)
+	state, err := inspectKnowledgeDocument(ctx, source, target.RemoteID, knowledgeDocumentProjectionPermissionIDs(r, true), r.Actor)
 	if err != nil || state.DocumentID != target.RemoteID {
 		progress.ErrorCode = "document_inspect_failed"
 		return
@@ -417,7 +429,7 @@ func (s *Service) processKnowledgeDocumentRetiredIndex(ctx context.Context, repo
 		*progress = persistence.KnowledgeDocumentProgress{Event: "retired_delete_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
 		return
 	}
-	state, err := source.InspectKnowledgeDocument(ctx, retired, r.Actor)
+	state, err := inspectKnowledgeDocument(ctx, source, retired, knowledgeDocumentProjectionPermissionIDs(r, false), r.Actor)
 	if err != nil || state.DocumentID != retired {
 		progress.ErrorCode = "document_inspect_failed"
 		return

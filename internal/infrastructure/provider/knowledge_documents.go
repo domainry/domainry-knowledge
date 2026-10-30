@@ -94,7 +94,28 @@ func (k *Knowledge) KnowledgeDocumentFormats() []agentsdk.KnowledgeDocumentForma
 }
 
 func (k *Knowledge) InspectKnowledgeDocument(ctx context.Context, id string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
-	out, err := connector.Call(ctx, knowledgeGateway{knowledge: k, authority: a}, httpapi.DocumentStatus, httpapi.DocumentInput{DocID: id})
+	return k.inspectKnowledgeDocument(ctx, id, a, nil)
+}
+
+// InspectKnowledgeDocumentWithPermissions confirms a durable page projection
+// using the same server-owned ACL token that was supplied to Put. It must not be
+// used for end-user retrieval; user reads still resolve their live tokens via
+// the normal permission policy.
+func (k *Knowledge) InspectKnowledgeDocumentWithPermissions(ctx context.Context, id string, permissionIDs []string, a agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
+	normalized, err := normalizedKnowledgeQueryPermissions(permissionIDs)
+	if err != nil || len(normalized) == 0 || len(normalized) > knowledgeQueryPermissionMaximumIDs || knowledgeQueryPermissionBytes(normalized) > knowledgeQueryPermissionMaximumBytes {
+		return agentsdk.KnowledgeDocumentState{}, knowledgeFailure("request_invalid")
+	}
+	return k.inspectKnowledgeDocument(ctx, id, a, normalized)
+}
+
+func (k *Knowledge) inspectKnowledgeDocument(ctx context.Context, id string, a agentsdk.Authority, permissionIDs []string) (agentsdk.KnowledgeDocumentState, error) {
+	gateway := knowledgeGateway{knowledge: k, authority: a}
+	if len(permissionIDs) != 0 {
+		gateway.permissionIDs = slices.Clone(permissionIDs)
+		gateway.overridePermissions = true
+	}
+	out, err := connector.Call(ctx, gateway, httpapi.DocumentStatus, httpapi.DocumentInput{DocID: id})
 	if err != nil {
 		return agentsdk.KnowledgeDocumentState{}, knowledgeConnectorError(err)
 	}
@@ -125,4 +146,5 @@ func (k *Knowledge) RecoverKnowledgeDocumentDelete(ctx context.Context, id strin
 }
 
 var _ agentsdk.KnowledgeDocumentSource = (*Knowledge)(nil)
+var _ agentsdk.KnowledgeDocumentPermissionInspectionSource = (*Knowledge)(nil)
 var _ agentsdk.KnowledgeDocumentDeleteRecoverySource = (*Knowledge)(nil)
