@@ -1,7 +1,6 @@
 package provider
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -260,13 +259,7 @@ func (k *Knowledge) documentResponse(raw []byte) (any, error) {
 	if json.Unmarshal(raw, &envelope) != nil || envelope.Provider != httpapi.ProviderKey || envelope.KBID != k.config.KBID {
 		return nil, knowledgeFailure("response_invalid")
 	}
-	var data any
-	d := json.NewDecoder(bytes.NewReader(envelope.Result))
-	d.UseNumber()
-	if d.Decode(&data) != nil {
-		return nil, knowledgeFailure("response_invalid")
-	}
-	return data, nil
+	return knowledgeResultValue(envelope.Result)
 }
 
 func (k *Knowledge) documentPassagesFromValue(data any, m *KnowledgeCitationMapping, id string) ([]agentsdk.KnowledgeDocumentPassage, error) {

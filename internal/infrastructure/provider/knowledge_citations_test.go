@@ -25,7 +25,7 @@ func TestApplyKnowledgeAnchorPreservesBuilderLocations(t *testing.T) {
 }
 
 func TestKnowledgeFetchChunkCitationsUseVerifiedDocumentMetadata(t *testing.T) {
-	mapping, err := knowledgeMappingJSON(`{"fetch":{"items":"/data/chunks","many":true,"metadata_object":"/data","doc_id":"/doc_id","title":"/title","url":"/source/source_url","excerpt":"/content"}}`)
+	mapping, err := knowledgeMappingJSON(`{"fetch":{"items":"/chunks","many":true,"metadata_object":"","doc_id":"/doc_id","title":"/title","url":"/source/source_url","excerpt":"/content"}}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestKnowledgeFetchChunkCitationsUseVerifiedDocumentMetadata(t *testing.T) {
 	if err != nil || changed.Citations[0].ID == result.Citations[0].ID {
 		t.Fatal("changed document title kept old citation identity", err)
 	}
-	for _, pointer := range []string{"/missing", "/data/title", "/data/chunks"} {
+	for _, pointer := range []string{"/missing", "/title", "/chunks"} {
 		*mapping.Fetch.MetadataObject = pointer
 		if _, err := read(raw, "doc-1"); err == nil {
 			t.Fatal("invalid metadata object accepted")

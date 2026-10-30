@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 
 	"github.com/domainry/domainry-connector-sdk/providers/knowledge_base/http_api"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
@@ -37,13 +38,9 @@ func (k *Knowledge) knowledgeEvidence(raw json.RawMessage, err error, operation,
 	if json.Unmarshal(raw, &envelope) != nil || envelope.Provider != httpapi.ProviderKey || envelope.KBID != k.config.KBID || len(envelope.Result) == 0 {
 		return agentsdk.Result{}, knowledgeFailure("response_invalid")
 	}
-	// Normalize JSON once before exposing it; preserve integer precision and
-	// all source fields without guessing an undocumented response schema.
-	decoder := json.NewDecoder(bytes.NewReader(envelope.Result))
-	decoder.UseNumber()
-	var value any
-	if decoder.Decode(&value) != nil {
-		return agentsdk.Result{}, knowledgeFailure("response_invalid")
+	value, err := knowledgeResultValue(envelope.Result)
+	if err != nil {
+		return agentsdk.Result{}, err
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -59,6 +56,40 @@ func (k *Knowledge) knowledgeEvidence(raw json.RawMessage, err error, operation,
 	}
 	evidence.Citations, err = k.citations(evidence, value)
 	return evidence, err
+}
+
+// The official Search API uses a stable transport envelope while provider
+// mappings describe its business data. Direct JSON remains supported for
+// explicitly configured non-standard providers, but an err_code envelope is
+// always unwrapped before diagnostics, passages and citations are evaluated.
+func knowledgeResultValue(raw []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return nil, knowledgeFailure("response_invalid")
+	}
+	object, ok := value.(map[string]any)
+	if !ok {
+		return value, nil
+	}
+	rawCode, wrapped := object["err_code"]
+	if !wrapped {
+		return value, nil
+	}
+	code, ok := rawCode.(json.Number)
+	if !ok {
+		return nil, knowledgeFailure("response_invalid")
+	}
+	parsed, err := strconv.ParseInt(code.String(), 10, 64)
+	if err != nil || parsed != 0 {
+		return nil, knowledgeFailure("response_invalid")
+	}
+	data, present := object["data"]
+	if !present || data == nil {
+		return nil, knowledgeFailure("response_invalid")
+	}
+	return data, nil
 }
 
 func knowledgeSearchDiagnostics(value any) (string, *bool, string, error) {

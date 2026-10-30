@@ -94,18 +94,16 @@ func (p *permissionProbeTransport) RoundTripHTTP(ctx context.Context, in connect
 
 func probeSearch(e agentsdk.Result, doc, marker string, want bool) error {
 	var envelope struct {
-		Data struct {
-			Hits json.RawMessage `json:"hits"`
-		} `json:"data"`
+		Hits json.RawMessage `json:"hits"`
 	}
-	if json.Unmarshal(e.Data, &envelope) != nil || len(bytes.TrimSpace(envelope.Data.Hits)) == 0 || bytes.TrimSpace(envelope.Data.Hits)[0] != '[' {
-		return errors.New("search did not return the observed data.hits array")
+	if json.Unmarshal(e.Data, &envelope) != nil || len(bytes.TrimSpace(envelope.Hits)) == 0 || bytes.TrimSpace(envelope.Hits)[0] != '[' {
+		return errors.New("search did not return the observed hits array")
 	}
 	var hits []struct {
 		Document string `json:"doc_id"`
 		Snippet  string `json:"snippet"`
 	}
-	if json.Unmarshal(envelope.Data.Hits, &hits) != nil {
+	if json.Unmarshal(envelope.Hits, &hits) != nil {
 		return errors.New("search hits have an invalid shape")
 	}
 	found := false
@@ -122,16 +120,14 @@ func probeSearch(e agentsdk.Result, doc, marker string, want bool) error {
 }
 func probeFetch(e agentsdk.Result, marker string) error {
 	var envelope struct {
-		Data struct {
-			Chunks []struct {
-				Content string `json:"content"`
-			} `json:"chunks"`
-		} `json:"data"`
+		Chunks []struct {
+			Content string `json:"content"`
+		} `json:"chunks"`
 	}
 	if json.Unmarshal(e.Data, &envelope) != nil {
 		return errors.New("fetch did not return JSON data")
 	}
-	for _, chunk := range envelope.Data.Chunks {
+	for _, chunk := range envelope.Chunks {
 		if strings.Contains(chunk.Content, marker) {
 			return nil
 		}

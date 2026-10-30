@@ -156,6 +156,42 @@ func TestKnowledgeBusinessFailureCannotBecomeEvidence(t *testing.T) {
 	}
 }
 
+func TestKnowledgeResultValueUnwrapsSearchAPIEnvelope(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		wantJSON  string
+		wantError string
+	}{
+		{name: "direct provider data", raw: `{"hits":[],"number":9007199254740993}`, wantJSON: `{"hits":[],"number":9007199254740993}`},
+		{name: "search api success envelope", raw: `{"err_code":0,"err_msg":"","data":{"hits":[],"number":9007199254740993}}`, wantJSON: `{"hits":[],"number":9007199254740993}`},
+		{name: "business failure", raw: `{"err_code":1004,"data":{"hits":[{"snippet":"must not become evidence"}]}}`, wantError: "knowledge.knowledge_response_invalid"},
+		{name: "missing data", raw: `{"err_code":0}`, wantError: "knowledge.knowledge_response_invalid"},
+		{name: "null data", raw: `{"err_code":0,"data":null}`, wantError: "knowledge.knowledge_response_invalid"},
+		{name: "non numeric code", raw: `{"err_code":"0","data":{}}`, wantError: "knowledge.knowledge_response_invalid"},
+		{name: "invalid json", raw: `{`, wantError: "knowledge.knowledge_response_invalid"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			value, err := knowledgeResultValue([]byte(test.raw))
+			if test.wantError != "" {
+				var coded *agentsdk.Error
+				if !errors.As(err, &coded) || coded.Code != test.wantError || value != nil {
+					t.Fatalf("value=%#v error=%v", value, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(value)
+			if err != nil || string(encoded) != test.wantJSON {
+				t.Fatalf("encoded=%s error=%v", encoded, err)
+			}
+		})
+	}
+}
+
 func TestKnowledgeSearchNormalizesAndRevalidatesDiagnostics(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"hits":[],"mode_used":"dense","reranked":false,"degraded_reason":"bm25_unavailable"}`)
