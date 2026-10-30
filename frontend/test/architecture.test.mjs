@@ -238,6 +238,10 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   assert.match(client, /"X-Knowledge-Collaboration-Attempt": String\(connectionAttempt\)/);
   assert.match(client, /sessionFetch/);
   assert.doesNotMatch(client, /access_token=.*collaboration/);
+  assert.match(panel, /client\.streamKnowledgePageLiveEvents/);
+  assert.match(panel, /resolveKnowledgePageLiveRefresh/);
+  assert.match(panel, /event\.type === "changed"/);
+  assert.match(panel, /document\.addEventListener\("visibilitychange", recover\)/);
   assert.match(blockEditor, /withCollaboration/);
   assert.match(blockEditor, /editor\.onChange\([\s\S]*false\)/);
   assert.match(collaboration, /collaborationRevocationCodes/);

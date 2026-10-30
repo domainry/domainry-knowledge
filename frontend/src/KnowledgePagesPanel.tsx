@@ -33,6 +33,7 @@ import { gridAutomationExecutions } from "./gridContent.ts";
 import { parseFormContent } from "./formContent.ts";
 import { KnowledgeCreateMenu } from "./KnowledgeCreateMenu.tsx";
 import { createKnowledgeSelectionReference, type KnowledgeDocumentSelectionSnapshot, type KnowledgeHostIntegration } from "./hostIntegration.ts";
+import { resolveKnowledgePageLiveRefresh } from "./pageLiveUpdates.ts";
 
 const pageSchemaVersion = 2;
 
@@ -762,6 +763,66 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     }).catch(failure => { if (!abort.signal.aborted) { setView(null); setError(formatError(failure)); } }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
   }, [canWrite, client, formatError, initialPageID, initialPageMode, library.id, selectedID]);
+
+  useEffect(() => {
+    if (!selectedID || view?.page.id !== selectedID || !client.streamKnowledgePageLiveEvents) return;
+    let active = true, retryTimer = 0, reloadGeneration = 0, reconnectAttempt = 0;
+    const abort = new AbortController();
+    let lastRevision = view.page.revision;
+    const reload = async () => {
+      const generation = ++reloadGeneration;
+      try {
+        const refreshed = await client.getPage(library.id, selectedID, canWrite, abort.signal);
+        if (!active || abort.signal.aborted || generation !== reloadGeneration) return;
+        const next = resolveKnowledgePageLiveRefresh({
+          selectedPageID: selectedID,
+          mode,
+          dirty,
+          current: viewRef.current,
+          refreshed,
+        });
+        if (!next) return;
+        viewRef.current = next.view; setView(next.view); setTitle(next.title); setBody(next.body);
+        editRef.current = { title: next.title, body: next.body };
+        setDirty(false); setSaveState("saved"); setSaveConflict(null); setError("");
+        syncVisiblePageTitle(selectedID, next.title);
+      } catch (failure) {
+        if (active && !abort.signal.aborted) setError(formatError(failure));
+      }
+    };
+    const wait = (milliseconds: number) => new Promise<void>(resolve => {
+      retryTimer = window.setTimeout(resolve, milliseconds);
+      abort.signal.addEventListener("abort", () => {
+        window.clearTimeout(retryTimer); resolve();
+      }, { once: true });
+    });
+    void (async () => {
+      while (active && !abort.signal.aborted) {
+        try {
+          await client.streamKnowledgePageLiveEvents!(library.id, selectedID, lastRevision, event => {
+            lastRevision = Math.max(lastRevision, event.revision);
+            if (event.type === "revoked") {
+              active = false; abort.abort(); viewRef.current = null; setView(null);
+              setError(kt("knowledge.auto.897f5b45da27d8e5"));
+            } else if (event.type === "changed") void reload();
+          }, abort.signal);
+          if (!active || abort.signal.aborted) return;
+          reconnectAttempt++;
+        } catch {
+          if (!active || abort.signal.aborted) return;
+          reconnectAttempt++;
+          setNotice(kt("knowledge.auto.f5db31bf8f125912"));
+        }
+        await wait(Math.min(8_000, 500 * 2 ** Math.min(reconnectAttempt - 1, 4)));
+      }
+    })();
+    const recover = () => { if (document.visibilityState === "visible") void reload(); };
+    window.addEventListener("focus", recover); document.addEventListener("visibilitychange", recover);
+    return () => {
+      active = false; abort.abort(); if (retryTimer) window.clearTimeout(retryTimer);
+      window.removeEventListener("focus", recover); document.removeEventListener("visibilitychange", recover);
+    };
+  }, [canWrite, client, dirty, formatError, library.id, mode, selectedID, view?.page.id, view?.page.revision]);
 
   useEffect(() => {
     if (mode !== "edit") setTitleEditing(false);
