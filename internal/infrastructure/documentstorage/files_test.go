@@ -127,3 +127,42 @@ func TestLibraryOriginalChunkUploadResumesAndPublishesAtomically(t *testing.T) {
 		t.Fatalf("loaded bytes=%d err=%v", len(loaded), readErr)
 	}
 }
+
+func TestLibraryOriginalKeepsImmutableVersionsBehindStableDocumentID(t *testing.T) {
+	f, err := NewFiles(filepath.Join(t.TempDir(), "private"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	scope := agentsdk.KnowledgeDocumentStorageScope{RuntimeID: "runtime", WorkspaceID: "workspace", LibraryID: "klib_" + strings.Repeat("1", 32)}
+	id := "kdoc_" + strings.Repeat("2", 32)
+	first, second := []byte("published version one"), []byte("published version two")
+	firstRef, err := f.PutKnowledgeDocumentContent(t.Context(), scope, id, digest(first), int64(len(first)), bytes.NewReader(first))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRef, err := f.PutKnowledgeDocumentContent(t.Context(), scope, id, digest(second), int64(len(second)), bytes.NewReader(second))
+	if err != nil || firstRef == secondRef {
+		t.Fatalf("first=%q second=%q err=%v", firstRef, secondRef, err)
+	}
+	for _, version := range []struct {
+		ref  string
+		body []byte
+	}{{firstRef, first}, {secondRef, second}} {
+		reader, openErr := f.OpenKnowledgeDocumentContent(t.Context(), scope, id, version.ref, digest(version.body), int64(len(version.body)))
+		if openErr != nil {
+			t.Fatal(openErr)
+		}
+		loaded, readErr := io.ReadAll(reader)
+		_ = reader.Close()
+		if readErr != nil || !bytes.Equal(loaded, version.body) {
+			t.Fatalf("loaded=%q err=%v", loaded, readErr)
+		}
+	}
+	if err = f.DeleteKnowledgeDocumentContent(t.Context(), scope, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.OpenKnowledgeDocumentContent(t.Context(), scope, id, secondRef, digest(second), int64(len(second))); err == nil {
+		t.Fatal("deleted version remained readable")
+	}
+}

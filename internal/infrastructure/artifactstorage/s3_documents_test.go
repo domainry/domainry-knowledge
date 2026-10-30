@@ -80,6 +80,21 @@ func TestS3KnowledgeDocumentsStreamSeekAndKeepDeletionFence(t *testing.T) {
 	if closeErr := reader.Close(); err != nil || closeErr != nil || !bytes.Equal(loaded, raw) {
 		t.Fatalf("read err=%v close=%v bytes=%d", err, closeErr, len(loaded))
 	}
+	second := []byte("second immutable document version")
+	secondDigest := testContentHash(second)
+	secondReference, err := store.PutKnowledgeDocumentContent(t.Context(), scope, documentID, secondDigest, int64(len(second)), bytes.NewReader(second))
+	if err != nil || secondReference == reference {
+		t.Fatalf("second reference=%q first=%q err=%v", secondReference, reference, err)
+	}
+	secondReader, err := store.OpenKnowledgeDocumentContent(t.Context(), scope, documentID, secondReference, secondDigest, int64(len(second)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLoaded, secondReadErr := io.ReadAll(secondReader)
+	_ = secondReader.Close()
+	if secondReadErr != nil || !bytes.Equal(secondLoaded, second) {
+		t.Fatalf("second read err=%v bytes=%q", secondReadErr, secondLoaded)
+	}
 
 	if err = store.DeleteKnowledgeDocumentContent(t.Context(), scope, documentID); err != nil {
 		t.Fatal(err)
@@ -89,6 +104,18 @@ func TestS3KnowledgeDocumentsStreamSeekAndKeepDeletionFence(t *testing.T) {
 	}
 	if _, err = store.PutKnowledgeDocumentContent(t.Context(), scope, documentID, digest, int64(len(raw)), bytes.NewReader(raw)); err == nil {
 		t.Fatal("late upload crossed the durable deletion fence")
+	}
+	contentKey, deletedKey, keyErr := store.knowledgeDocumentKeys(scope, documentID)
+	if keyErr != nil {
+		t.Fatal(keyErr)
+	}
+	prefix := strings.TrimSuffix(contentKey, ".bin") + "."
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	for key := range backend.objects {
+		if strings.HasPrefix(key, prefix) && key != deletedKey {
+			t.Fatalf("deleted document retained version object %q", key)
+		}
 	}
 }
 
@@ -109,6 +136,7 @@ func TestS3KnowledgeDocumentRejectsBodyMismatchWithoutLeavingContent(t *testing.
 	if keyErr != nil {
 		t.Fatal(keyErr)
 	}
+	contentKey = knowledgeDocumentVersionKey(contentKey, digest)
 	backend.mu.Lock()
 	_, found := backend.objects[contentKey]
 	backend.mu.Unlock()
@@ -156,6 +184,7 @@ func TestS3KnowledgeDocumentUsesMultipartAndPublishesOnlyVerifiedContent(t *test
 	if keyErr != nil {
 		t.Fatal(keyErr)
 	}
+	badKey = knowledgeDocumentVersionKey(badKey, strings.Repeat("a", 64))
 	backend.mu.Lock()
 	_, published := backend.objects[badKey]
 	remainingUploads, aborted := len(backend.multipart), backend.abortedUploads
@@ -213,6 +242,7 @@ func TestS3KnowledgeDocumentChunkUploadResumesAndRemovesStagingObjects(t *testin
 	if keyErr != nil {
 		t.Fatal(keyErr)
 	}
+	contentKey = knowledgeDocumentVersionKey(contentKey, digest)
 	backend.mu.Lock()
 	_, firstStaged := backend.objects[knowledgeDocumentChunkKey(contentKey, 0)]
 	_, secondStaged := backend.objects[knowledgeDocumentChunkKey(contentKey, int64(len(first)))]
@@ -239,6 +269,7 @@ func TestS3KnowledgeDocumentChunkUploadRemovesPartWhenDeleteRacesWrite(t *testin
 	}
 	backend.deletedKey = deletedKey
 	raw := bytes.Repeat([]byte("x"), int(agentsdk.KnowledgeDocumentUploadChunkBytes+1))
+	contentKey = knowledgeDocumentVersionKey(contentKey, testContentHash(raw))
 	first := raw[:agentsdk.KnowledgeDocumentUploadChunkBytes]
 	_, _, err = store.PutKnowledgeDocumentContentChunk(t.Context(), scope, documentID, testContentHash(raw), int64(len(raw)), 0, testContentHash(first), int64(len(first)), bytes.NewReader(first))
 	var coded *agentsdk.Error

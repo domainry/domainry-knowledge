@@ -51,6 +51,10 @@ func (store *S3) knowledgeDocumentKeys(scope agentsdk.KnowledgeDocumentStorageSc
 	return base + ".bin", base + ".deleted", nil
 }
 
+func knowledgeDocumentVersionKey(contentKey, contentSHA256 string) string {
+	return strings.TrimSuffix(contentKey, ".bin") + "." + contentSHA256 + ".bin"
+}
+
 func (store *S3) knowledgeDocumentDeleted(ctx context.Context, key string) (bool, error) {
 	_, err := store.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(store.bucket), Key: aws.String(key)})
 	if missingS3(err) {
@@ -174,6 +178,7 @@ func (store *S3) PutKnowledgeDocumentContent(ctx context.Context, scope agentsdk
 	if err != nil {
 		return "", err
 	}
+	contentKey = knowledgeDocumentVersionKey(contentKey, expectedSHA256)
 	if deleted, checkErr := store.knowledgeDocumentDeleted(ctx, deletedKey); checkErr != nil {
 		return "", checkErr
 	} else if deleted {
@@ -328,6 +333,7 @@ func (store *S3) PutKnowledgeDocumentContentChunk(ctx context.Context, scope age
 	if err != nil {
 		return 0, "", err
 	}
+	contentKey = knowledgeDocumentVersionKey(contentKey, expectedSHA256)
 	if deleted, checkErr := store.knowledgeDocumentDeleted(ctx, deletedKey); checkErr != nil {
 		return 0, "", checkErr
 	} else if deleted {
@@ -447,6 +453,7 @@ func (store *S3) OpenKnowledgeDocumentContent(ctx context.Context, scope agentsd
 	if err != nil {
 		return nil, err
 	}
+	contentKey = knowledgeDocumentVersionKey(contentKey, expectedSHA256)
 	if deleted, checkErr := store.knowledgeDocumentDeleted(ctx, deletedKey); checkErr != nil {
 		return nil, checkErr
 	} else if deleted {
@@ -472,19 +479,34 @@ func (store *S3) DeleteKnowledgeDocumentContent(ctx context.Context, scope agent
 	if err != nil {
 		return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
 	}
-	if err = store.deleteKnowledgeDocumentObject(ctx, contentKey); err != nil {
-		return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
-	}
-	for offset := int64(0); offset < agentsdk.KnowledgeDocumentMaximumBytes; offset += agentsdk.KnowledgeDocumentUploadChunkBytes {
-		key := knowledgeDocumentChunkKey(contentKey, offset)
-		_, headErr := store.client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(store.bucket), Key: aws.String(key)})
-		if missingS3(headErr) {
-			break
+	prefix := strings.TrimSuffix(contentKey, ".bin") + "."
+	continuation := ""
+	for {
+		input := &s3.ListObjectsV2Input{Bucket: aws.String(store.bucket), Prefix: aws.String(prefix)}
+		if continuation != "" {
+			input.ContinuationToken = aws.String(continuation)
 		}
-		if headErr != nil {
+		listed, listErr := store.client.ListObjectsV2(ctx, input)
+		if listErr != nil {
 			return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
 		}
-		if err = store.deleteKnowledgeDocumentObject(ctx, key); err != nil {
+		for _, object := range listed.Contents {
+			key := aws.ToString(object.Key)
+			if key == deletedKey {
+				continue
+			}
+			if !strings.HasPrefix(key, prefix) {
+				return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
+			}
+			if err = store.deleteKnowledgeDocumentObject(ctx, key); err != nil {
+				return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
+			}
+		}
+		if !aws.ToBool(listed.IsTruncated) {
+			break
+		}
+		continuation = strings.TrimSpace(aws.ToString(listed.NextContinuationToken))
+		if continuation == "" {
 			return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
 		}
 	}

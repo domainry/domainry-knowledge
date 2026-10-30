@@ -44,7 +44,7 @@ func (f *Files) PutKnowledgeDocumentContent(ctx context.Context, s agentsdk.Know
 	if e != nil {
 		return "", e
 	}
-	ref, e := f.files.PutAttachmentContentStream(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, content, a)
+	ref, e := f.files.PutVersionedAttachmentContentStream(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, content, a)
 	return ref, documentError(e)
 }
 
@@ -53,7 +53,7 @@ func (f *Files) PutKnowledgeDocumentContentChunk(ctx context.Context, s agentsdk
 	if e != nil {
 		return 0, "", e
 	}
-	next, ref, e := f.files.PutAttachmentContentChunk(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, offset, chunkHash, chunkBytes, content, a)
+	next, ref, e := f.files.PutVersionedAttachmentContentChunk(ctx, key, hash, expectedBytes, agentsdk.KnowledgeDocumentMaximumBytes, offset, chunkHash, chunkBytes, content, a)
 	return next, ref, documentError(e)
 }
 
@@ -65,7 +65,7 @@ func (f *Files) OpenKnowledgeDocumentContent(ctx context.Context, s agentsdk.Kno
 	if ref != key+":"+expectedSHA256 {
 		return nil, documentError(&agentsdk.Error{Class: "unavailable", Code: "knowledge.attachment_content_mismatch"})
 	}
-	content, e := f.files.OpenAttachmentContent(ctx, key, ref, expectedBytes, expectedBytes, a)
+	content, e := f.files.OpenVersionedAttachmentContent(ctx, key, ref, expectedBytes, expectedBytes, a)
 	return content, documentError(e)
 }
 func (f *Files) DeleteKnowledgeDocumentContent(ctx context.Context, s agentsdk.KnowledgeDocumentStorageScope, id string) error {
@@ -73,7 +73,7 @@ func (f *Files) DeleteKnowledgeDocumentContent(ctx context.Context, s agentsdk.K
 	if e != nil {
 		return e
 	}
-	return documentError(f.files.DeleteAttachmentContent(ctx, key, a))
+	return documentError(f.files.DeleteVersionedAttachmentContent(ctx, key, a))
 }
 
 var _ agentsdk.KnowledgeDocumentStorage = (*Files)(nil)

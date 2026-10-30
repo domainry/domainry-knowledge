@@ -67,6 +67,18 @@ func (client diagnosticS3Client) HeadObject(ctx context.Context, input *s3.HeadO
 	return client.client.HeadObject(ctx, input, options...)
 }
 
+func (client diagnosticS3Client) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, options ...func(*s3.Options)) (output *s3.ListObjectsV2Output, returnErr error) {
+	ctx, finish := startS3Call(ctx, "list_objects_v2", s3ObjectInput(aws.ToString(input.Bucket), aws.ToString(input.Prefix), 0))
+	defer func() {
+		count := 0
+		if output != nil {
+			count = len(output.Contents)
+		}
+		finish(map[string]any{"object_count": count}, returnErr)
+	}()
+	return client.client.ListObjectsV2(ctx, input, options...)
+}
+
 func (client diagnosticS3Client) DeleteObject(ctx context.Context, input *s3.DeleteObjectInput, options ...func(*s3.Options)) (output *s3.DeleteObjectOutput, returnErr error) {
 	ctx, finish := startS3Call(ctx, "delete_object", s3ObjectInput(aws.ToString(input.Bucket), aws.ToString(input.Key), 0))
 	defer func() { finish(nil, returnErr) }()

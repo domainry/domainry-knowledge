@@ -163,6 +163,24 @@ func (value *fakeS3) HeadObject(_ context.Context, input *s3.HeadObjectInput, _ 
 	return &s3.HeadObjectOutput{ContentLength: aws.Int64(int64(len(object.content))), Metadata: object.metadata}, nil
 }
 
+func (value *fakeS3) ListObjectsV2(_ context.Context, input *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	prefix := aws.ToString(input.Prefix)
+	keys := make([]string, 0)
+	for key := range value.objects {
+		if strings.HasPrefix(key, prefix) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	contents := make([]types.Object, 0, len(keys))
+	for _, key := range keys {
+		contents = append(contents, types.Object{Key: aws.String(key)})
+	}
+	return &s3.ListObjectsV2Output{Contents: contents}, nil
+}
+
 func (value *fakeS3) DeleteObject(_ context.Context, input *s3.DeleteObjectInput, _ ...func(*s3.Options)) (*s3.DeleteObjectOutput, error) {
 	value.mu.Lock()
 	defer value.mu.Unlock()
