@@ -12,6 +12,7 @@ export declare function documentCanWrite(library: KnowledgeLibrary): boolean;
 export declare function documentCanDownload(document: KnowledgeDocument): boolean;
 export declare function documentCanRetry(document: KnowledgeDocument): boolean;
 export declare function documentCanReindex(document: KnowledgeDocument): boolean;
+export declare function documentNeedsStatusRefresh(document: Pick<KnowledgeDocument, "state" | "reindexing">): boolean;
 export declare function documentLabel(document: Pick<KnowledgeDocument, "state" | "index_status" | "error_code" | "reindexing">): string;
 export declare function documentStatusDetail(document: KnowledgeDocument): string;
 export declare function documentErrorDetail(code?: string): string;

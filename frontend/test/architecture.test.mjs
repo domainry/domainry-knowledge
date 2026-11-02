@@ -94,6 +94,9 @@ test("library settings separate everyday configuration from manager-only ingesti
   assert.match(workspace, /import \{ KnowledgeDocumentsPanel \} from "\.\/KnowledgeDocumentsPanel\.tsx"/);
   assert.match(workspace, /<KnowledgeDocumentsPanel client=\{client\} initialLibrary=\{selected\}/);
   assert.match(workspace, /showUploader=\{false\} managementMode/);
+  assert.match(documents, /page\.items\.some\(documentNeedsStatusRefresh\)/);
+  assert.match(documents, /if \(!hasTransientDocuments\) return/);
+  assert.match(documents, /if \(!loadedOnce\.current\) setLoading\(true\)/);
   assert.match(workspace, /onBusyChange=\{setDocumentBusy\}/);
   assert.match(workspace, /const blocked = busy \|\| sourceBusy \|\| documentBusy/);
   assert.match(workspace, /settingsSection === "general"/);

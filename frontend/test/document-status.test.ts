@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { documentCanReindex, documentErrorDetail, documentLabel, documentPipelineState, documentStatusDetail } from "../src/document.ts";
+import { documentCanReindex, documentErrorDetail, documentLabel, documentNeedsStatusRefresh, documentPipelineState, documentStatusDetail } from "../src/document.ts";
 import type { KnowledgeDocument } from "../src/types.ts";
 import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
 
@@ -24,4 +24,12 @@ test("storage-only originals stay downloadable without pretending to be indexed"
   assert.doesNotMatch(documentStatusDetail(stored), /未配置远端索引/);
   assert.deepEqual([0, 1, 2, 3, 4, 5].map(index => documentPipelineState(stored, index)), ["done", "done", "skipped", "skipped", "skipped", "active"]);
   assert.equal(documentCanReindex({ ...stored, index_status: "INDEXED" }), true);
+});
+
+test("document status polling stops for stable and actionable terminal states", () => {
+  assert.equal(documentNeedsStatusRefresh({ state: "indexing" }), true);
+  assert.equal(documentNeedsStatusRefresh({ state: "ready", reindexing: true }), true);
+  assert.equal(documentNeedsStatusRefresh({ state: "ready" }), false);
+  assert.equal(documentNeedsStatusRefresh({ state: "failed" }), false);
+  assert.equal(documentNeedsStatusRefresh({ state: "needs_reconcile" }), false);
 });

@@ -2,7 +2,7 @@ import { kt, ktf, useClearTransientKnowledgeNotice } from "./i18n/runtime.ts";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Eye, FileText, RefreshCw, RotateCcw, Trash2, Upload } from "lucide-react";
 import { Button, defaultErrorMessage } from "./components.tsx";
-import { documentCanDownload, documentCanReindex, documentCanRetry, documentCanWrite, documentIndexMaxBytes, documentIndexMaxBytesForFilename, documentLabel, documentPipelineState, documentPipelineStages, documentStatusDetail, documentUploadMaxBytes, knowledgeDocumentAccept, knowledgeDocumentSupports, sha256 } from "./document.ts";
+import { documentCanDownload, documentCanReindex, documentCanRetry, documentCanWrite, documentIndexMaxBytes, documentIndexMaxBytesForFilename, documentLabel, documentNeedsStatusRefresh, documentPipelineState, documentPipelineStages, documentStatusDetail, documentUploadMaxBytes, knowledgeDocumentAccept, knowledgeDocumentSupports, sha256 } from "./document.ts";
 import { FilePreviewDialog } from "./FilePreviewDialog.tsx";
 import { KnowledgeDocumentTransferDialog, loadPendingTransfer } from "./KnowledgeDocumentTransferDialog.tsx";
 import { canPreviewFilename, downloadDocument, knowledgeDocumentPreviewSource } from "./file-preview.ts";
@@ -44,13 +44,15 @@ export function KnowledgeDocumentsPanel({ client, initialLibrary, formatError = 
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   useClearTransientKnowledgeNotice(setNotice);
   const input = useRef<HTMLInputElement>(null);
+  const loadedOnce = useRef(false);
   const cursor = cursors.at(-1) || "";
   const setOperationBusy = useCallback((value: boolean) => { setBusy(value); onBusyChange?.(value); }, [onBusyChange]);
 
   useEffect(() => setLibrary(initialLibrary), [initialLibrary]);
   useEffect(() => {
     const abort = new AbortController();
-    setLoading(true); setError("");
+    if (!loadedOnce.current) setLoading(true);
+    setError("");
     void Promise.all([
       client.getLibrary(libraryID, abort.signal),
       client.listDocuments(libraryID, cursor, 50, abort.signal),
@@ -58,13 +60,15 @@ export function KnowledgeDocumentsPanel({ client, initialLibrary, formatError = 
       if (abort.signal.aborted) return;
       setLibrary(current); setPage(documents); onDocumentsChange?.(documents.items);
       setSelected(value => { const id = selectedDocumentID === undefined ? value?.id : selectedDocumentID; return id ? documents.items.find(item => item.id === id) || null : null; });
-    }).catch(failure => { if (!abort.signal.aborted) { setPage({ items: [], complete: true }); setSelected(null); setError(formatError(failure)); } }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
+    }).catch(failure => { if (!abort.signal.aborted) { setPage({ items: [], complete: true }); setSelected(null); setError(formatError(failure)); } }).finally(() => { if (!abort.signal.aborted) { loadedOnce.current = true; setLoading(false); } });
     return () => abort.abort();
   }, [client, cursor, formatError, libraryID, onDocumentsChange, refresh, selectedDocumentID]);
+  const hasTransientDocuments = page.items.some(documentNeedsStatusRefresh);
   useEffect(() => {
+    if (!hasTransientDocuments) return;
     const timer = window.setInterval(() => { if (!busy && document.visibilityState !== "hidden") setRefresh(value => value + 1); }, 5000);
     return () => window.clearInterval(timer);
-  }, [busy]);
+  }, [busy, hasTransientDocuments]);
 
   const writable = documentCanWrite(library);
   const uploadEnabled = writable && !!library.documents_configured && !library.archived;

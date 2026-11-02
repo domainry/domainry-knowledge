@@ -77,6 +77,10 @@ export function documentCanReindex(document: KnowledgeDocument) {
   return document.state === "ready" && document.security_status === "clean" && document.index_status === "INDEXED" && !document.reindexing && !document.error_code;
 }
 
+export function documentNeedsStatusRefresh(document: Pick<KnowledgeDocument, "state" | "reindexing">) {
+  return !!document.reindexing || ["uploading", "quarantined", "scanning", "queued", "indexing", "deleting"].includes(document.state);
+}
+
 export function documentLabel(document: Pick<KnowledgeDocument, "state" | "index_status" | "error_code" | "reindexing">) {
   if (document.reindexing) return kt("knowledge.auto.1a09da7a3bca1eb3");
   if (document.state === "indexing" && document.error_code === "document_index_failed") return kt("knowledge.auto.d052f725817f1917");
