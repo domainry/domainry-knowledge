@@ -226,6 +226,22 @@ func TestKnowledgeFilePageUsesTreeLifecycleAndAuthorizedDocumentReference(t *tes
 	if published.Published == nil || published.Published.ContentType != knowledgePageTypeFile {
 		t.Fatalf("file page did not publish through normal page lifecycle: %+v", published)
 	}
+	fileSearch := knowledgesdk.KnowledgePageSearchInput{Query: "FILE_BODY_619", Limit: 20}
+	for _, body := range []map[string]string{nil, {"another-document": "FILE_BODY_619"}} {
+		result, searchErr := store.SearchKnowledgePagesWithFileContent(t.Context(), library.ID, fileSearch, body, authority)
+		if searchErr != nil || len(result.Items) != 0 {
+			t.Fatalf("file search used missing or unrelated document content: %+v %v", result, searchErr)
+		}
+	}
+	result, searchErr := store.SearchKnowledgePagesWithFileContent(t.Context(), library.ID, fileSearch, map[string]string{document.Document.ID: "样品保存要求 FILE_BODY_619"}, authority)
+	if searchErr != nil || len(result.Items) != 1 || result.Items[0].PageID != created.Page.ID || result.Items[0].Kind != knowledgesdk.KnowledgePageSearchKindFile || !strings.Contains(result.Items[0].Excerpt, "FILE_BODY_619") {
+		t.Fatalf("file body search lost its published page identity: %+v %v", result, searchErr)
+	}
+	fileSearch.Tags = []string{"missing-tag"}
+	filtered, searchErr := store.SearchKnowledgePagesWithFileContent(t.Context(), library.ID, fileSearch, map[string]string{document.Document.ID: "FILE_BODY_619"}, authority)
+	if searchErr != nil || len(filtered.Items) != 0 {
+		t.Fatalf("file body search bypassed structured filters: %+v %v", filtered, searchErr)
+	}
 	children, err := store.KnowledgePages(t.Context(), library.ID, parent.Page.ID, "", 10, false, authority)
 	if err != nil || len(children.Items) != 1 || children.Items[0].ID != created.Page.ID {
 		t.Fatalf("file page is not in the unified child tree: page=%+v err=%v", children, err)

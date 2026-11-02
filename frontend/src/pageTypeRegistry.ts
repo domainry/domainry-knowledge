@@ -108,7 +108,9 @@ export function emptySpreadsheet() {
 const commonCapabilities = pageTypeCapability.create | pageTypeCapability.edit | pageTypeCapability.read | pageTypeCapability.preview | pageTypeCapability.search | pageTypeCapability.comment | pageTypeCapability.version;
 
 function nativeDefinition(input: Omit<PageTypeDefinition, "capabilities" | "createAction" | "readonlyRenderer" | "previewRenderer" | "importer" | "trusted"> & { capabilities?: number }): PageTypeDefinition {
-  return Object.freeze({ ...input, capabilities: input.capabilities ?? commonCapabilities, createAction: { kind: "native" } as const, readonlyRenderer: input.editor, previewRenderer: input.editor, importer: null, trusted: true });
+  // Keep the locale-dependent accessors; spreading input evaluates them during
+  // module loading, before the host has selected its locale.
+  return Object.freeze(Object.assign(input, { capabilities: input.capabilities ?? commonCapabilities, createAction: { kind: "native" } as const, readonlyRenderer: input.editor, previewRenderer: input.editor, importer: null, trusted: true as const }));
 }
 
 const definitions: PageTypeDefinition[] = [
@@ -144,7 +146,11 @@ export const pageTypeDefinitions = Object.freeze([...definitions]);
 export const pageTypeRegistry = Object.freeze(Object.fromEntries(pageTypeDefinitions.map(definition => [definition.id, definition])) as Record<KnowledgePageContentType, PageTypeDefinition>);
 export const nativePageTypes = Object.freeze(pageTypeDefinitions.filter(definition => definition.createAction?.kind === "native").map(definition => definition.id));
 export const importPageTypes = Object.freeze(pageTypeDefinitions.filter(definition => definition.capabilities & pageTypeCapability.import));
-export const pageTypeMeta = Object.freeze(Object.fromEntries(pageTypeDefinitions.map(definition => [definition.id, { label: definition.label, description: definition.description, title: definition.defaultTitle }])) as Record<KnowledgePageContentType, { label: string; description: string; title: string }>);
+export const pageTypeMeta = Object.freeze(Object.fromEntries(pageTypeDefinitions.map(definition => [definition.id, {
+  get label() { return definition.label; },
+  get description() { return definition.description; },
+  get title() { return definition.defaultTitle; },
+}])) as Record<KnowledgePageContentType, { label: string; description: string; title: string }>);
 
 export function getPageTypeDefinition(type: KnowledgePageContentType) {
   const definition = pageTypeRegistry[type];

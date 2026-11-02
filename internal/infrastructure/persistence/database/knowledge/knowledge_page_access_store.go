@@ -446,11 +446,21 @@ func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID str
 			return queryErr
 		}
 		defer rows.Close()
+		var pageIDs []string
 		for rows.Next() {
 			var pageID string
 			if queryErr = rows.Scan(&pageID); queryErr != nil {
 				return queryErr
 			}
+			pageIDs = append(pageIDs, pageID)
+		}
+		if queryErr = rows.Err(); queryErr != nil {
+			return queryErr
+		}
+		if queryErr = rows.Close(); queryErr != nil {
+			return queryErr
+		}
+		for _, pageID := range pageIDs {
 			page, pageErr := s.pageRecord(ctx, tx, libraryID, pageID, a)
 			if pageErr != nil {
 				return pageErr
@@ -465,9 +475,6 @@ func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID str
 			if effective.Allowed {
 				out = append(out, knowledgePagePermissionToken(a, pageID))
 			}
-		}
-		if queryErr = rows.Err(); queryErr != nil {
-			return queryErr
 		}
 		if len(out) > knowledgeLibraryMaximumPages {
 			return conversationError("unavailable", "page_permission_limit")

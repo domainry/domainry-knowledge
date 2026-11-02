@@ -490,6 +490,12 @@ func searchPageScore(title, path, body string, tags []string, query string) (int
 }
 
 func (s *Store) SearchKnowledgePages(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageSearchInput, a knowledgesdk.Authority) (out knowledgesdk.KnowledgePageSearchPage, err error) {
+	return s.SearchKnowledgePagesWithFileContent(ctx, libraryID, input, nil, a)
+}
+
+// Provider passages are keyed by the local original document identity. Only
+// the currently published, authorized file reference may contribute a snippet.
+func (s *Store) SearchKnowledgePagesWithFileContent(ctx context.Context, libraryID string, input knowledgesdk.KnowledgePageSearchInput, fileContent map[string]string, a knowledgesdk.Authority) (out knowledgesdk.KnowledgePageSearchPage, err error) {
 	out.Items = []knowledgesdk.KnowledgePageSearchHit{}
 	if err = conversationAuthority(a); err != nil {
 		return
@@ -596,6 +602,15 @@ func (s *Store) SearchKnowledgePages(ctx context.Context, libraryID string, inpu
 			pathText := pageSearchPathText(path)
 			if search.pathQuery != "" && !strings.Contains(strings.ToLower(pathText), strings.ToLower(search.pathQuery)) || !pageSearchPathContains(path, search.ancestorPageID) {
 				continue
+			}
+			if contentType == knowledgePageTypeFile && version > 0 && len(fileContent) > 0 {
+				reference, decodeErr := decodeFilePageContent(canonicalContent)
+				if decodeErr != nil {
+					return decodeErr
+				}
+				if text := fileContent[reference.DocumentID]; text != "" {
+					body += "\n" + text
+				}
 			}
 			score, matchedNeedle, matched := searchPageScore(title, pathText, body, metadata.Tags, normalizedQuery)
 			if !matched {

@@ -260,6 +260,11 @@ func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, libra
 		return err
 	}
 	defer rows.Close()
+	type childPage struct {
+		page     knowledgesdk.KnowledgePage
+		parentID string
+	}
+	var children []childPage
 	for rows.Next() {
 		var raw []byte
 		var parentID string
@@ -273,15 +278,24 @@ func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, libra
 		if err = unmarshalDurableJSON(raw, &child); err != nil {
 			return err
 		}
-		effective, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, library.ID, child.ID, a)
+		children = append(children, childPage{page: child, parentID: parentID})
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	for _, child := range children {
+		effective, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, library.ID, child.page.ID, a)
 		if accessErr != nil {
 			return accessErr
 		}
 		if effective.Allowed {
-			pages[pageIndexes[parentID]].HasChildren = true
+			pages[pageIndexes[child.parentID]].HasChildren = true
 		}
 	}
-	return rows.Err()
+	return nil
 }
 
 func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after string, limit int, includeArchived bool, a agentsdk.Authority) (out knowledgesdk.KnowledgePagePage, err error) {
@@ -358,6 +372,7 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 			return e
 		}
 		defer rows.Close()
+		var pages []knowledgesdk.KnowledgePage
 		for rows.Next() {
 			var raw []byte
 			var page knowledgesdk.KnowledgePage
@@ -367,6 +382,17 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 			if e = unmarshalDurableJSON(raw, &page); e != nil {
 				return e
 			}
+			pages = append(pages, page)
+		}
+		if e = rows.Err(); e != nil {
+			return e
+		}
+		if e = rows.Close(); e != nil {
+			return e
+		}
+		// PostgreSQL transactions use one connection: finish the page query
+		// before loading versions and permissions on that connection.
+		for _, page := range pages {
 			if library.Role == "reader" {
 				if page.PublishedVersion == 0 {
 					continue
@@ -385,9 +411,6 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 				continue
 			}
 			out.Items = append(out.Items, page)
-		}
-		if e = rows.Err(); e != nil {
-			return e
 		}
 		if len(out.Items) > limit {
 			out.Items = out.Items[:limit]

@@ -2,7 +2,9 @@ package application
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
 )
@@ -26,6 +28,44 @@ func (s *Service) SearchKnowledgePages(ctx context.Context, libraryID string, in
 	result, err := repository.SearchKnowledgePages(ctx, libraryID, input, a)
 	if err != nil {
 		return result, err
+	}
+	if enriched, ok := repository.(interface {
+		SearchKnowledgePagesWithFileContent(context.Context, string, knowledgesdk.KnowledgePageSearchInput, map[string]string, knowledgesdk.Authority) (knowledgesdk.KnowledgePageSearchPage, error)
+	}); ok && strings.TrimSpace(input.Query) != "" {
+		files := input
+		files.Query, files.ContentTypes, files.Limit = "", []string{knowledgesdk.KnowledgePageTypeFile}, 1
+		includeFiles := len(input.ContentTypes) == 0
+		for _, contentType := range input.ContentTypes {
+			includeFiles = includeFiles || strings.EqualFold(strings.TrimSpace(contentType), knowledgesdk.KnowledgePageTypeFile)
+		}
+		if source, available := s.options.Knowledge.(*LibraryKnowledgeSource); available && includeFiles {
+			candidates, candidateErr := repository.SearchKnowledgePages(ctx, libraryID, files, a)
+			if candidateErr != nil {
+				return result, candidateErr
+			}
+			configured, configuredErr := source.ManagedDocumentsConfigured(ctx, libraryID, a)
+			if configuredErr != nil {
+				return result, configuredErr
+			}
+			if len(candidates.Items) > 0 && configured {
+				evidence, searchErr := source.SearchLibraryKnowledge(ctx, libraryID, input.Query, a)
+				if searchErr != nil {
+					return result, searchErr
+				}
+				var documents DocumentEvidence
+				if json.Unmarshal(evidence.Data, &documents) != nil {
+					return result, conversationFailure("unavailable", "knowledge_response_invalid")
+				}
+				content := make(map[string]string)
+				for _, passage := range documents.Passages {
+					content[passage.DocumentID] += "\n" + passage.Content
+				}
+				result, err = enriched.SearchKnowledgePagesWithFileContent(ctx, libraryID, input, content, a)
+				if err != nil {
+					return result, err
+				}
+			}
+		}
 	}
 	// Search snippets are content. Re-evaluate every returned page after the
 	// query so an ACL change racing the search cannot leave a revoked hit in the
