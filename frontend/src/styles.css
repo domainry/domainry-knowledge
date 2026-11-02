@@ -490,7 +490,7 @@ body[data-knowledge-theme="dark"] .knowledge-modal-backdrop {
 .knowledge-management-sections { display: grid; align-content: start; gap: 32px; }
 .knowledge-management-sections > section { width: 100%; max-width: none; margin: 0; padding-bottom: 32px; border-bottom: 1px solid var(--knowledge-border); }
 .knowledge-management-sections > section:last-of-type { padding-bottom: 0; border-bottom: 0; }
-.knowledge-documents.is-management .knowledge-document-list { margin-top: 2px; }
+.knowledge-documents.is-management .knowledge-document-list { margin-top: 2px; border-top: 0; }
 .knowledge-danger-zone > header { border-color: var(--knowledge-danger-border); }
 .knowledge-danger-zone h3 { color: var(--knowledge-danger); }
 .knowledge-danger-action { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--knowledge-border); }

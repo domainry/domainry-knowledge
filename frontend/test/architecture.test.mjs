@@ -91,12 +91,14 @@ test("product authentication uses the shared editorial design contract", async (
 test("library settings separate everyday configuration from manager-only ingestion operations", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const documents = await readFile(path.join(root, "src", "KnowledgeDocumentsPanel.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.match(workspace, /import \{ KnowledgeDocumentsPanel \} from "\.\/KnowledgeDocumentsPanel\.tsx"/);
   assert.match(workspace, /<KnowledgeDocumentsPanel client=\{client\} initialLibrary=\{selected\}/);
   assert.match(workspace, /showUploader=\{false\} managementMode/);
   assert.match(documents, /page\.items\.some\(documentNeedsStatusRefresh\)/);
   assert.match(documents, /if \(!hasTransientDocuments\) return/);
   assert.match(documents, /if \(!loadedOnce\.current\) setLoading\(true\)/);
+  assert.match(styles, /\.knowledge-documents\.is-management \.knowledge-document-list \{[^}]*border-top: 0/);
   assert.match(workspace, /onBusyChange=\{setDocumentBusy\}/);
   assert.match(workspace, /const blocked = busy \|\| sourceBusy \|\| documentBusy/);
   assert.match(workspace, /settingsSection === "general"/);
