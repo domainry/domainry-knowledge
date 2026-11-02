@@ -94,7 +94,17 @@ export type KnowledgeHostIntegration = {
     addSelectionToConversation: boolean;
   };
   addSelection(reference: KnowledgeSelectionReference): Promise<KnowledgeAddSelectionResult>;
+  writeClipboardText(text: string): Promise<void>;
 };
+
+export async function writeKnowledgeClipboardText(hostIntegration: KnowledgeHostIntegration | undefined, text: string): Promise<void> {
+  if (hostIntegration) {
+    await hostIntegration.writeClipboardText(text);
+    return;
+  }
+  if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+  await navigator.clipboard.writeText(text);
+}
 
 export type KnowledgeSelectionReferenceInput = Omit<KnowledgeSelectionReference, "version" | "anchor" | "quote"> & {
   blockIds: readonly string[];

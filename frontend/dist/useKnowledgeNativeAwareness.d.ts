@@ -7,6 +7,7 @@ type NativeAwarenessOptions = {
     onSnapshot?(snapshot: KnowledgeCollaborationSnapshot): void;
     onError?(failure: unknown): void;
 };
+export declare function nativeAwarenessSessionShouldReconnect(failure: unknown): boolean;
 export declare function useKnowledgeNativeAwareness(options: NativeAwarenessOptions): {
     available: boolean;
     ready: boolean;

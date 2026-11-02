@@ -280,6 +280,67 @@ func (s *Store) KnowledgeLibraries(ctx context.Context, after string, limit int,
 	return
 }
 
+// KnowledgeWorkspaceLibraries returns the source catalog for a trusted host
+// operation. It intentionally exposes library metadata only and does not
+// manufacture a user membership or release page content. The caller must
+// authenticate and authorize the machine request before entering this port.
+func (s *Store) KnowledgeWorkspaceLibraries(ctx context.Context, runtimeID, workspaceID, after string, limit int) (out agentsdk.KnowledgeLibraryPage, err error) {
+	out.Items = []agentsdk.KnowledgeLibrary{}
+	out.Complete = true
+	runtimeID, workspaceID = strings.TrimSpace(runtimeID), strings.TrimSpace(workspaceID)
+	if runtimeID == "" || workspaceID == "" || len(runtimeID) > 255 || len(workspaceID) > 255 {
+		return out, conversationError("forbidden", "principal_required")
+	}
+	var afterID int64
+	if afterID, limit, err = libraryEntityPageLimit(after, limit); err != nil {
+		return out, err
+	}
+	scope := libraryScope(agentsdk.Authority{RuntimeID: runtimeID, WorkspaceID: workspaceID})
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryTable).
+			Columns("id", "payload_json").
+			Where(query.And(query.Equal("scope_key", scope), query.GreaterThan("id", afterID))).
+			OrderBy(query.Ascending("id")).Limit(limit + 1).Build()
+		if buildErr != nil {
+			return buildErr
+		}
+		rows, queryErr := tx.QueryContext(ctx, q, args...)
+		if queryErr != nil {
+			return queryErr
+		}
+		defer rows.Close()
+		physicalIDs := make([]int64, 0, limit+1)
+		items := make([]agentsdk.KnowledgeLibrary, 0, limit+1)
+		for rows.Next() {
+			var physicalID int64
+			var raw []byte
+			if scanErr := rows.Scan(&physicalID, &raw); scanErr != nil {
+				return scanErr
+			}
+			var item agentsdk.KnowledgeLibrary
+			if decodeErr := unmarshalDurableJSON(raw, &item); decodeErr != nil {
+				return decodeErr
+			}
+			// Role is a live caller-membership projection. A Workspace catalog
+			// must never imply that the machine caller can read the content.
+			item.Role = ""
+			physicalIDs = append(physicalIDs, physicalID)
+			items = append(items, item)
+		}
+		if rowsErr := rows.Err(); rowsErr != nil {
+			return rowsErr
+		}
+		if len(items) > limit {
+			out.Complete = false
+			out.NextAfter = physicalAfterValue(physicalIDs[limit-1])
+			items = items[:limit]
+		}
+		out.Items = items
+		return nil
+	})
+	return out, err
+}
+
 func (s *Store) saveLibraryRecord(ctx context.Context, tx *sql.Tx, item *agentsdk.KnowledgeLibrary, expected int64, a agentsdk.Authority) error {
 	if expected < 1 || item.Revision != expected {
 		return conversationError("conflict", "revision_conflict")

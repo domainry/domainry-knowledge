@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,34 @@ func (*sourceUploadProvider) KnowledgeDocumentSourceIdentity() string { return "
 func (*sourceUploadProvider) KnowledgeDocumentManagementReady() error { return nil }
 func (*sourceUploadProvider) KnowledgeDocumentFormats() []sdk.KnowledgeDocumentFormat {
 	return []sdk.KnowledgeDocumentFormat{{Extension: ".txt", ContentType: "text/plain", ParserRoute: "text"}}
+}
+
+type limitedUploadProvider struct{ sourceUploadProvider }
+
+func (*limitedUploadProvider) KnowledgeDocumentIndexMaximumBytes() int64 { return 16 }
+
+func TestUploadReservesIndexOnlyWithinProviderSizeLimit(t *testing.T) {
+	actor := sdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "owner"}
+	library := sdk.KnowledgeLibrary{ID: "library-a", Kind: "shared", Role: "editor"}
+	for _, size := range []int{15, 16, 17} {
+		t.Run(strconv.Itoa(size), func(t *testing.T) {
+			repo := &sourceUploadRepo{library: library}
+			service := NewService(repo, actor.RuntimeID, Options{
+				DocumentStorage: &sourceUploadStorage{}, LibraryAuthorizer: &sourceUploadLibraryPolicy{},
+				LibraryKnowledge: []LibraryKnowledgeBinding{{WorkspaceID: actor.WorkspaceID, LibraryID: library.ID, Source: &limitedUploadProvider{}, ManageDocuments: true}},
+			}, nil)
+			content := bytes.Repeat([]byte("x"), size)
+			_, err := service.UploadKnowledgeDocument(t.Context(), library.ID, sdk.KnowledgeDocumentUpload{
+				ClientID: "boundary", Filename: "boundary.txt", Bytes: int64(size), SHA256: testContentHash(content), Content: bytes.NewReader(content),
+			}, actor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := repo.reserved.SourceID != ""; got != (size <= 16) {
+				t.Fatalf("size=%d indexed_source=%v", size, got)
+			}
+		})
+	}
 }
 
 func TestSourceBackedDocumentUploadPersistsAndRechecksRecordAccess(t *testing.T) {

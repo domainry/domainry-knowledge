@@ -1143,13 +1143,23 @@ export const knowledgeCodeLanguages = {
 export const knowledgeCodeLanguageIDs = Object.freeze(Object.keys(knowledgeCodeLanguages));
 
 const knowledgeContentActionByEditor = new WeakMap<object, NonNullable<KnowledgeEditorProps["authorizeContentAction"]>>();
+const knowledgeClipboardWriterByEditor = new WeakMap<object, NonNullable<KnowledgeEditorProps["writeClipboardText"]>>();
 
 export function registerKnowledgeContentAction(editor: object, authorize: KnowledgeEditorProps["authorizeContentAction"]) {
   if (authorize) knowledgeContentActionByEditor.set(editor, authorize);
   else knowledgeContentActionByEditor.delete(editor);
 }
 
-async function copyCodeText(value: string) {
+export function registerKnowledgeClipboardWriter(editor: object, writer: KnowledgeEditorProps["writeClipboardText"]) {
+  if (writer) knowledgeClipboardWriterByEditor.set(editor, writer);
+  else knowledgeClipboardWriterByEditor.delete(editor);
+}
+
+async function copyCodeText(value: string, writer?: KnowledgeEditorProps["writeClipboardText"]) {
+  if (writer) {
+    await writer(value);
+    return;
+  }
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
@@ -1229,7 +1239,7 @@ const knowledgeCodeBlockSpec = () => {
             const authorize = knowledgeContentActionByEditor.get(editor);
             if (!authorize) throw new Error("copy denied");
             await authorize("copy");
-            await copyCodeText(rendered.contentDOM?.textContent || "");
+            await copyCodeText(rendered.contentDOM?.textContent || "", knowledgeClipboardWriterByEditor.get(editor));
             copyButton.textContent = kt("knowledge.auto.8f6f8d979c981ced");
           } catch {
             copyButton.textContent = kt("knowledge.auto.753d8bb0da9913ce");

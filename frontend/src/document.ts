@@ -80,6 +80,7 @@ export function documentCanReindex(document: KnowledgeDocument) {
 export function documentLabel(document: Pick<KnowledgeDocument, "state" | "index_status" | "error_code" | "reindexing">) {
   if (document.reindexing) return kt("knowledge.auto.1a09da7a3bca1eb3");
   if (document.state === "indexing" && document.error_code === "document_index_failed") return kt("knowledge.auto.d052f725817f1917");
+  if (document.state === "ready" && document.index_status === "STORED") return kt("knowledge.document.stored_only");
   return ({
     uploading: kt("knowledge.auto.19e1f44297bda5a3"),
     quarantined: kt("knowledge.auto.10a23f5c70b1a46a"),
@@ -107,7 +108,7 @@ export function documentStatusDetail(document: KnowledgeDocument) {
   if (document.state === "indexing") return document.index_status === "CHUNKED" ? kt("knowledge.auto.9aacb43060ad3bec") : kt("knowledge.auto.c14ea4992ebb8474");
   if (document.state === "queued") return kt("knowledge.auto.5fe4e9c0f11ef7e4");
   if (document.state === "uploading") return kt("knowledge.auto.20550a88888c751f");
-  if (document.state === "ready") return document.index_status === "STORED" ? kt("knowledge.auto.522984fa5539c3fc") : kt("knowledge.auto.1e4122f49e70af69");
+  if (document.state === "ready") return document.index_status === "STORED" ? kt("knowledge.document.stored_only_detail") : kt("knowledge.auto.1e4122f49e70af69");
   return kt("knowledge.auto.b523f14f9b7fbe2a");
 }
 
@@ -168,6 +169,20 @@ export function documentPipelinePosition(document: KnowledgeDocument) {
   }
   const position = documentPipelineStages.findIndex(stage => stage.key === document.processing_stage);
   return position < 0 ? 0 : position;
+}
+
+export type DocumentPipelineState = "done" | "active" | "pending" | "failed" | "skipped";
+
+export function documentPipelineState(document: KnowledgeDocument, index: number): DocumentPipelineState {
+  if (document.state === "ready" && document.index_status === "STORED") {
+    if (index < 2) return "done";
+    if (index < 5) return "skipped";
+    return "active";
+  }
+  const position = documentPipelinePosition(document);
+  if (index < position) return "done";
+  if (index === position) return document.processing_stage === "failed" ? "failed" : "active";
+  return "pending";
 }
 
 export async function sha256(file: Blob, signal?: AbortSignal, onProgress?: (ratio: number) => void) {

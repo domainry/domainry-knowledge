@@ -375,6 +375,7 @@ func (s *Service) SetKnowledgePageArchived(ctx context.Context, libraryID, pageI
 		err = s.recheckPageItemAction(ctx, libraryID, pageID, action, a)
 	}
 	if err == nil {
+		s.WakeKnowledgeDocuments()
 		eventType := "knowledge.page.archived"
 		if !archived {
 			eventType = "knowledge.page.restored"

@@ -108,6 +108,53 @@ func TestKnowledgeDocumentReindexCutsOverOnlyAfterShadowIndexIsReady(t *testing.
 	}
 }
 
+func TestKnowledgeDocumentManualRetryReopensOnlyConfirmedAbsentShadowPut(t *testing.T) {
+	store, db := openSubjectKnowledgeStore(t)
+	storage, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "manual-reindex-retry", Kind: "personal", Name: "Manual retry"}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := reserveSubjectDocument(t, store, storage, library, "manual-reindex-retry", authority)
+	record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+	record.PutStarted, record.PutAcknowledged, record.IndexObserved = true, true, true
+	record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+	record.Document.SecurityStatus, record.Document.IndexStatus = "clean", "INDEXED"
+	saveRetryFixture(t, db, record, authority)
+
+	_, err = store.RequestKnowledgeDocumentReindex(t.Context(), record.Document.ID, record.Document.Revision, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := claimReindexWork(t, store, authority.RuntimeID, "manual-reindex-worker")
+	started, ok, err := store.StartKnowledgeDocumentReindexPut(t.Context(), lease)
+	if err != nil || !ok || started.Reindex == nil {
+		t.Fatalf("start shadow put: record=%+v started=%t err=%v", started, ok, err)
+	}
+	started.Reindex.PutRecoveryAttempts = knowledgeDocumentMaximumAutomaticPutRecoveries
+	started.Document.ErrorCode = "document_reindex_put_unconfirmed"
+	saveRetryFixture(t, db, started, authority)
+
+	retried, err := store.RequestKnowledgeDocumentRetry(t.Context(), started.Document.ID, started.Document.Revision, authority)
+	if err != nil || retried.Reindex == nil || retried.Reindex.PutRecoveryAttempts != 0 || retried.Document.ErrorCode != "" {
+		t.Fatalf("confirmed absent shadow did not reopen one replay: record=%+v err=%v", retried, err)
+	}
+
+	// An uncertain response has not established remote absence and must retain
+	// the replay fence when the operator asks for another status check.
+	retried.Reindex.PutRecoveryAttempts = knowledgeDocumentMaximumAutomaticPutRecoveries
+	retried.Document.ErrorCode = "document_reindex_put_recovery_uncertain"
+	saveRetryFixture(t, db, retried, authority)
+	fenced, err := store.RequestKnowledgeDocumentRetry(t.Context(), retried.Document.ID, retried.Document.Revision, authority)
+	if err != nil || fenced.Reindex == nil || fenced.Reindex.PutRecoveryAttempts != knowledgeDocumentMaximumAutomaticPutRecoveries {
+		t.Fatalf("uncertain shadow replay fence was reset: record=%+v err=%v", fenced, err)
+	}
+}
+
 func TestKnowledgeDocumentReindexRejectsConcurrentDelete(t *testing.T) {
 	store, db := openSubjectKnowledgeStore(t)
 	storage, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))

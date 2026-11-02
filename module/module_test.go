@@ -266,13 +266,64 @@ func TestKnowledgeSourcesUseOneTypedRegistry(t *testing.T) {
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"document": documentSource, "datasource": datasourceSource}
-	if len(got) != len(want) {
+	if len(got) != 3 || got["document"] != documentSource || len(got["datasource"]) != 64 || len(got["physical_guard"]) != 64 || got["datasource"] == got["physical_guard"] {
 		t.Fatalf("source registry rows=%v", got)
 	}
-	for kind, source := range want {
-		if got[kind] != source {
-			t.Fatalf("source registry kind=%s source=%q want=%q", kind, got[kind], source)
+	if source, readErr := store.KnowledgeDocumentLibrarySource(t.Context(), datasourceLibrary.ID, authority); readErr != nil || source != datasourceSource {
+		t.Fatalf("datasource identity=%q err=%v", source, readErr)
+	}
+	if managed, readErr := store.KnowledgeSourceManaged(t.Context(), datasourceSource); readErr != nil || !managed {
+		t.Fatalf("physical source guard=%v err=%v", managed, readErr)
+	}
+}
+
+func TestKnowledgeDatasourceBindingsSharePhysicalSourceWithoutSharingLibraryAccess(t *testing.T) {
+	database, dialect := openDatabase(t, "knowledge-shared-datasource")
+	backend := SQLBackend{DB: database, Dialect: dialect}
+	if err := EnsureSchema(t.Context(), backend, &registrar{database: database}); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(backend)
+	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
+	source := strings.Repeat("e", 64)
+	libraries := []agentsdk.KnowledgeLibrary{}
+	for index, policy := range []string{strings.Repeat("a", 64), strings.Repeat("b", 64)} {
+		library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: fmt.Sprintf("shared-%d", index), Kind: "shared", Name: fmt.Sprintf("Library %d", index)}, authority)
+		if err != nil {
+			t.Fatal(err)
 		}
+		assignment := persistence.KnowledgeDatasourceAssignment{DatasourceKey: "enterprise", SourceID: source, AccessPolicySHA256: policy, ExpectedRevision: library.Revision}
+		bound, err := store.BindKnowledgeDatasource(t.Context(), library.ID, assignment, authority)
+		if err != nil || bound.Revision != library.Revision+1 {
+			t.Fatalf("bind library %d: revision=%d err=%v", index, bound.Revision, err)
+		}
+		if replay, replayErr := store.BindKnowledgeDatasource(t.Context(), library.ID, assignment, authority); replayErr != nil || replay.Revision != bound.Revision {
+			t.Fatalf("binding replay changed revision: %+v err=%v", replay, replayErr)
+		}
+		assignment.AccessPolicySHA256 = strings.Repeat("c", 64)
+		if _, err = store.BindKnowledgeDatasource(t.Context(), library.ID, assignment, authority); err == nil {
+			t.Fatal("an existing library binding silently changed policy")
+		}
+		libraries = append(libraries, bound)
+	}
+	// Reopen the owner boundary over the same store to prove durable identities.
+	reopened := NewStore(backend)
+	for _, library := range libraries {
+		if resolved, err := reopened.KnowledgeDocumentLibrarySource(t.Context(), library.ID, authority); err != nil || resolved != source {
+			t.Fatalf("library source=%q err=%v", resolved, err)
+		}
+		stranger := authority
+		stranger.UserID = "bob"
+		if _, err := reopened.KnowledgeDocumentLibrarySource(t.Context(), library.ID, stranger); err == nil {
+			t.Fatal("sharing a physical source exposed another library to a nonmember")
+		}
+		stranger = authority
+		stranger.WorkspaceID = "other-workspace"
+		if _, err := reopened.KnowledgeDocumentLibrarySource(t.Context(), library.ID, stranger); err == nil {
+			t.Fatal("sharing a physical source exposed another workspace")
+		}
+	}
+	if managed, err := reopened.KnowledgeSourceManaged(t.Context(), source); err != nil || !managed {
+		t.Fatalf("physical source must remain guarded: managed=%v err=%v", managed, err)
 	}
 }

@@ -1,4 +1,8 @@
 export declare const knowledgeEnglishMessages: {
+    readonly "knowledge.file.upload_new_version": "Upload new version";
+    readonly "knowledge.file.reupload": "Re-upload";
+    readonly "knowledge.file.uploading_version": "Uploading new version…";
+    readonly "knowledge.file.version_saved_draft": "The new file version has been uploaded and saved as a draft.";
     readonly "knowledge.host.add_selection": "Add to Verdent conversation";
     readonly "knowledge.host.adding_selection": "Adding to Verdent conversation…";
     readonly "knowledge.host.selection_added": "Selection added to the Verdent conversation.";
@@ -12,6 +16,8 @@ export declare const knowledgeEnglishMessages: {
     readonly "knowledge.common.draft_only": "Draft only";
     readonly "knowledge.common.unavailable_page": "Unavailable page";
     readonly "knowledge.common.published_at": "Published at";
+    readonly "knowledge.document.stored_only": "Original stored only";
+    readonly "knowledge.document.stored_only_detail": "The original file has been safely stored and can be previewed and downloaded; it was not added to full-text search.";
     readonly "knowledge.auto.0006d696d8e1ec28": "New";
     readonly "knowledge.auto.002d03871a8d3477": "Contains up to 200 editable subpages under the current page.";
     readonly "knowledge.auto.004239c86dc8eec2": "Set fields";
@@ -2175,6 +2181,10 @@ export declare const knowledgeEnglishMessages: {
     readonly "knowledge.auto.fffb153d67c5c0cb": "Access to the document has stopped, and the original files and indexes are being cleaned in the background.";
 };
 export declare const knowledgeChineseMessages: {
+    readonly "knowledge.file.upload_new_version": "上传新版本";
+    readonly "knowledge.file.reupload": "重新上传";
+    readonly "knowledge.file.uploading_version": "正在上传新版本…";
+    readonly "knowledge.file.version_saved_draft": "新文件版本已上传并保存为草稿。";
     readonly "knowledge.host.add_selection": "添加到 Verdent 会话";
     readonly "knowledge.host.adding_selection": "正在添加到 Verdent 会话…";
     readonly "knowledge.host.selection_added": "已将选中内容添加到 Verdent 会话。";
@@ -2188,6 +2198,8 @@ export declare const knowledgeChineseMessages: {
     readonly "knowledge.common.draft_only": "仅草稿";
     readonly "knowledge.common.unavailable_page": "不可用页面";
     readonly "knowledge.common.published_at": "发布于";
+    readonly "knowledge.document.stored_only": "仅保存原件";
+    readonly "knowledge.document.stored_only_detail": "原文件已安全保存，可以预览和下载；该文件未进入全文检索。";
     readonly "knowledge.auto.0006d696d8e1ec28": "新增";
     readonly "knowledge.auto.002d03871a8d3477": "包含当前页面下最多 200 个可编辑子页面。";
     readonly "knowledge.auto.004239c86dc8eec2": "设置字段";

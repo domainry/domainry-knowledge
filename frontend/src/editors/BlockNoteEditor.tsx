@@ -16,7 +16,7 @@ import { renderSafeLatex } from "../latex.ts";
 import { documentBlockCommentQuote, parseDocumentBlocks, serializeDocumentBlocks } from "../documentContent.ts";
 import { canonicalMindNoteContent, documentBlocksToMindNote } from "../mindNoteContent.ts";
 import type { KnowledgeEditorProps } from "./types.ts";
-import { getKnowledgeMentionMenuItems, getKnowledgeSlashMenuItems, knowledgeCodeLanguageIDs, knowledgeDocumentSchema, knowledgeImageCropAspects, notifyKnowledgeDynamicBlockRuntime, notifyKnowledgeMentionRuntime, notifyKnowledgePollRuntime, notifyKnowledgeTaskRuntime, registerKnowledgeContentAction, registerKnowledgeDynamicBlockRuntime, registerKnowledgeMentionRuntime, registerKnowledgePollRuntime, registerKnowledgeTaskRuntime } from "./documentBlocks.tsx";
+import { getKnowledgeMentionMenuItems, getKnowledgeSlashMenuItems, knowledgeCodeLanguageIDs, knowledgeDocumentSchema, knowledgeImageCropAspects, notifyKnowledgeDynamicBlockRuntime, notifyKnowledgeMentionRuntime, notifyKnowledgePollRuntime, notifyKnowledgeTaskRuntime, registerKnowledgeClipboardWriter, registerKnowledgeContentAction, registerKnowledgeDynamicBlockRuntime, registerKnowledgeMentionRuntime, registerKnowledgePollRuntime, registerKnowledgeTaskRuntime } from "./documentBlocks.tsx";
 import { exportKnowledgeDocument, handleKnowledgeDocumentPaste, type KnowledgeDocumentExportFormat } from "./documentTransfer.ts";
 import { KnowledgeSlashMenu } from "./KnowledgeSlashMenu.tsx";
 import { recordKnowledgeSlashRecentID } from "./slashMenu.ts";
@@ -258,6 +258,7 @@ function KnowledgeImagePropertiesButton() {
 type KnowledgeBlockActionProps = {
   blockLink?: (blockID: string) => string;
   authorizeContentAction?: KnowledgeEditorProps["authorizeContentAction"];
+  writeClipboardText?: KnowledgeEditorProps["writeClipboardText"];
   onFeedback?: (message: string) => void;
 };
 
@@ -300,10 +301,14 @@ function outermostBlocks(editor: BlockNoteEditor<any, any, any>, blocks: Block<a
   });
 }
 
-async function writeBlocksToClipboard(editor: BlockNoteEditor<any, any, any>, blocks: Block<any, any, any>[]) {
+async function writeBlocksToClipboard(editor: BlockNoteEditor<any, any, any>, blocks: Block<any, any, any>[], writeClipboardText?: KnowledgeEditorProps["writeClipboardText"]) {
   const roots = outermostBlocks(editor, blocks);
   const html = editor.blocksToFullHTML(roots);
   const text = editor.blocksToMarkdownLossy(roots);
+  if (writeClipboardText) {
+    await writeClipboardText(text);
+    return;
+  }
   if (navigator.clipboard?.write && typeof ClipboardItem !== "undefined") {
     try {
       await navigator.clipboard.write([new ClipboardItem({
@@ -330,7 +335,11 @@ async function writeBlocksToClipboard(editor: BlockNoteEditor<any, any, any>, bl
   if (!copied) throw new Error("clipboard unavailable");
 }
 
-async function writeTextToClipboard(value: string) {
+async function writeTextToClipboard(value: string, writeClipboardText?: KnowledgeEditorProps["writeClipboardText"]) {
+  if (writeClipboardText) {
+    await writeClipboardText(value);
+    return;
+  }
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
@@ -346,7 +355,7 @@ async function writeTextToClipboard(value: string) {
   if (!copied) throw new Error("clipboard unavailable");
 }
 
-function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, onFeedback }: KnowledgeBlockActionProps) {
+function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, writeClipboardText, onFeedback }: KnowledgeBlockActionProps) {
   const Components = useComponentsContext()!;
   const portalElement = usePortalElement();
   const editor = useBlockNoteEditor<any, any, any>();
@@ -361,7 +370,7 @@ function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, onFeedba
     try {
       if (!authorizeContentAction) throw new Error(kt("knowledge.auto.c91475ac5cf19ca4"));
       await authorizeContentAction("copy");
-      await writeBlocksToClipboard(editor, blocks);
+      await writeBlocksToClipboard(editor, blocks, writeClipboardText);
       if (cut) editor.removeBlocks(blocks);
       onFeedback?.(ktf("knowledge.auto.8a2df9946e7801f3", { value0: blocks.length, value1: cut ? kt("knowledge.auto.410a8e8a6bf253ac") : kt("knowledge.auto.63d90d977348ab1f") }));
     } catch (failure) {
@@ -371,7 +380,7 @@ function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, onFeedba
   const copyLinks = async () => {
     if (!blockLink) return;
     try {
-      await writeTextToClipboard(blocks.map(block => blockLink(block.id)).join("\n"));
+      await writeTextToClipboard(blocks.map(block => blockLink(block.id)).join("\n"), writeClipboardText);
       onFeedback?.(ktf("knowledge.auto.1eb0928c719f9a0e", { value0: blocks.length }));
     } catch {
       onFeedback?.(kt("knowledge.auto.082dc0c483c7f3e0"));
@@ -405,12 +414,12 @@ function KnowledgeBlockActionItems({ blockLink, authorizeContentAction, onFeedba
   </Components.Generic.Menu.Dropdown>;
 }
 
-function KnowledgeSideMenu({ blockLink, authorizeContentAction, onFeedback, ...props }: SideMenuProps & KnowledgeBlockActionProps) {
-  const DragMenu = useCallback(() => <KnowledgeBlockActionItems blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onFeedback} />, [authorizeContentAction, blockLink, onFeedback]);
+function KnowledgeSideMenu({ blockLink, authorizeContentAction, writeClipboardText, onFeedback, ...props }: SideMenuProps & KnowledgeBlockActionProps) {
+  const DragMenu = useCallback(() => <KnowledgeBlockActionItems blockLink={blockLink} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} onFeedback={onFeedback} />, [authorizeContentAction, blockLink, onFeedback, writeClipboardText]);
   return <SideMenu {...props} dragHandleMenu={DragMenu}><DragHandleButton dragHandleMenu={DragMenu} /></SideMenu>;
 }
 
-function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedback, filePickerBusy, onFilePick, ...props }: FormattingToolbarProps & KnowledgeBlockActionProps & { filePickerBusy: boolean; onFilePick(request: KnowledgeFilePickerRequest): void }) {
+function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, writeClipboardText, onFeedback, filePickerBusy, onFilePick, ...props }: FormattingToolbarProps & KnowledgeBlockActionProps & { filePickerBusy: boolean; onFilePick(request: KnowledgeFilePickerRequest): void }) {
   const editor = useBlockNoteEditor<any, any, any>();
   const selectedBlocks = useEditorState({ editor, selector: ({ editor }) => editor.getSelection()?.blocks || [] });
   const copySelection = async (cut: boolean) => {
@@ -418,7 +427,7 @@ function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedb
     try {
       if (!authorizeContentAction) throw new Error(kt("knowledge.auto.c91475ac5cf19ca4"));
       await authorizeContentAction("copy");
-      await writeBlocksToClipboard(editor, selectedBlocks);
+      await writeBlocksToClipboard(editor, selectedBlocks, writeClipboardText);
       if (cut) editor.removeBlocks(selectedBlocks);
       onFeedback?.(ktf("knowledge.auto.8a2df9946e7801f3", { value0: selectedBlocks.length, value1: cut ? kt("knowledge.auto.410a8e8a6bf253ac") : kt("knowledge.auto.63d90d977348ab1f") }));
     } catch (failure) {
@@ -433,7 +442,7 @@ function KnowledgeFormattingToolbar({ blockLink, authorizeContentAction, onFeedb
       <span className="knowledge-block-selection-count">{kt("knowledge.auto.7ecf1cde648680d2")}{selectedBlocks.length} {kt("knowledge.auto.b69dbc5c8c49b07e")}</span>
       {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.c6e01bb56ae196c3")} aria-label={kt("knowledge.auto.c6e01bb56ae196c3")} onClick={() => void copySelection(false)}><Clipboard size={15} /></button>}
       {authorizeContentAction && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.0352fee8ae0cbdec")} aria-label={kt("knowledge.auto.0352fee8ae0cbdec")} onClick={() => void copySelection(true)}><Scissors size={15} /></button>}
-      {blockLink && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.bab98daa53f53de2")} aria-label={kt("knowledge.auto.bab98daa53f53de2")} onClick={() => void writeTextToClipboard(selectedBlocks.map(block => blockLink(block.id)).join("\n")).then(() => onFeedback?.(ktf("knowledge.auto.1eb0928c719f9a0e", { value0: selectedBlocks.length })), () => onFeedback?.(kt("knowledge.auto.082dc0c483c7f3e0")))}><Link2 size={15} /></button>}
+      {blockLink && <button type="button" className="knowledge-block-selection-action" title={kt("knowledge.auto.bab98daa53f53de2")} aria-label={kt("knowledge.auto.bab98daa53f53de2")} onClick={() => void writeTextToClipboard(selectedBlocks.map(block => blockLink(block.id)).join("\n"), writeClipboardText).then(() => onFeedback?.(ktf("knowledge.auto.1eb0928c719f9a0e", { value0: selectedBlocks.length })), () => onFeedback?.(kt("knowledge.auto.082dc0c483c7f3e0")))}><Link2 size={15} /></button>}
       <button type="button" className="knowledge-block-selection-action is-danger" title={kt("knowledge.auto.a8617dfb917ca595")} aria-label={kt("knowledge.auto.a8617dfb917ca595")} onClick={() => { editor.removeBlocks(selectedBlocks); onFeedback?.(ktf("knowledge.auto.2d83b348f844d8d8", { value0: selectedBlocks.length })); }}><Trash2 size={15} /></button>
     </>}
   </FormattingToolbar>;
@@ -493,7 +502,7 @@ function changedDocumentBlockIDs(before: string, after: string) {
   return [...changed].slice(0, 2048);
 }
 
-function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.auto.fba1208c267ba57c"), collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, commentMarkers = [], onCommentMarkerOpen, blockLink, insertMarkdownRequest, pageActionHost, authorizeContentAction, onActionFeedback, uploadFile, fileUploadsEnabled, fileUploadAccept, readFile, convertPage, addDocumentSelection, addDocumentSelectionBusy = false, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
+function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.auto.fba1208c267ba57c"), collaboration, mentions, tasks, polls, dynamicBlocks, initialBlockID, blockHighlightRevision = 0, commentMarkers = [], onCommentMarkerOpen, blockLink, insertMarkdownRequest, insertFileRequest, pageActionHost, authorizeContentAction, writeClipboardText, onActionFeedback, uploadFile, fileUploadsEnabled, fileUploadAccept, readFile, convertPage, addDocumentSelection, addDocumentSelectionBusy = false, onChange, onPresence, onCommentAnchor }: KnowledgeEditorProps) {
   const locale = useKnowledgeLocale();
   const applying = useRef(false), emitted = useRef(body), seeded = useRef(false);
   const revealedBlockID = useRef("");
@@ -512,6 +521,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
   const dynamicBlockRuntimeRef = useRef(dynamicBlocks);
   const actionFeedbackRef = useRef(onActionFeedback);
   const insertedMarkdownRequestRef = useRef("");
+  const insertedFileRequestRef = useRef("");
   const resolvedFileURLs = useRef(new Map<string, Promise<string>>());
   uploadFileRef.current = uploadFile;
   readFileRef.current = readFile;
@@ -595,6 +605,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
   }, [collaborationSyncGate, editor]);
   registerKnowledgeMentionRuntime(editor, mentionRuntimeRef);
   registerKnowledgeContentAction(editor, authorizeContentAction);
+  registerKnowledgeClipboardWriter(editor, writeClipboardText);
   registerKnowledgeTaskRuntime(editor, taskRuntimeRef);
   registerKnowledgePollRuntime(editor, pollRuntimeRef);
   registerKnowledgeDynamicBlockRuntime(editor, dynamicBlockRuntimeRef);
@@ -636,6 +647,10 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
         insertOrUpdateBlockForSlashMenu(editor, { type: request.blockType, ...update } as never);
         if (request.recentID) recordKnowledgeSlashRecentID(request.recentID);
       }
+		// BlockNote's upload callback can finish before its generic change event is
+		// observed by the Yjs bridge. Emit the authoritative document immediately
+		// so a user can publish right after the upload without losing the block.
+		emitDocument();
     } catch (failure) {
       if (failure instanceof Error && failure.message === kt("knowledge.auto.1df46e53c6a68264")) actionFeedbackRef.current?.(failure.message);
     } finally {
@@ -684,8 +699,8 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
       actionFeedbackRef.current?.(kt("knowledge.auto.2a628cf75fa57b4e"));
     }
   }, [editor, formulaInput, formulaResult.error, formulaSource]);
-  const formattingToolbar = useCallback((props: FormattingToolbarProps) => <KnowledgeFormattingToolbar {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} filePickerBusy={filePickerBusy} onFilePick={requestFilePick} />, [authorizeContentAction, blockLink, filePickerBusy, onActionFeedback, requestFilePick]);
-  const sideMenu = useCallback((props: SideMenuProps) => <KnowledgeSideMenu {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} onFeedback={onActionFeedback} />, [authorizeContentAction, blockLink, onActionFeedback]);
+  const formattingToolbar = useCallback((props: FormattingToolbarProps) => <KnowledgeFormattingToolbar {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} onFeedback={onActionFeedback} filePickerBusy={filePickerBusy} onFilePick={requestFilePick} />, [authorizeContentAction, blockLink, filePickerBusy, onActionFeedback, requestFilePick, writeClipboardText]);
+  const sideMenu = useCallback((props: SideMenuProps) => <KnowledgeSideMenu {...props} blockLink={blockLink} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} onFeedback={onActionFeedback} />, [authorizeContentAction, blockLink, onActionFeedback, writeClipboardText]);
 
   const currentPresence = () => {
     let cursorBlockID = "";
@@ -719,6 +734,24 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
     const presence = currentPresence();
     onPresence?.(presence.cursorBlockID, presence.selectionBlockID);
   };
+
+  useEffect(() => {
+    if (readOnly || !insertFileRequest || insertedFileRequestRef.current === insertFileRequest.id) return;
+    insertedFileRequestRef.current = insertFileRequest.id;
+    try {
+      const reference = editor.document[editor.document.length - 1];
+      const block = {
+        id: insertFileRequest.blockID,
+        type: insertFileRequest.blockType,
+        props: insertFileRequest.props,
+      };
+      if (reference) editor.insertBlocks([block] as never, reference, "after");
+      else editor.insertBlocks([block] as never, undefined as never, "after");
+      emitDocument();
+    } catch (failure) {
+      actionFeedbackRef.current?.(failure instanceof Error ? failure.message : kt("knowledge.auto.b5e011251299e2df"));
+    }
+  }, [editor, insertFileRequest, readOnly]);
 
   useEffect(() => {
     if (readOnly || !insertMarkdownRequest || insertedMarkdownRequestRef.current === insertMarkdownRequest.id) return;

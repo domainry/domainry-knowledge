@@ -12,6 +12,7 @@ import (
 )
 
 const knowledgeDocumentMaximumLease = 2 * time.Hour
+const knowledgeDocumentMaximumAutomaticPutRecoveries = 1
 
 var knowledgeErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,127}$`)
 
@@ -163,6 +164,36 @@ func (s *Store) StartKnowledgeDocumentPut(ctx context.Context, l persistence.Kno
 	return
 }
 
+// StartKnowledgeDocumentPutRecovery durably fences the single automatic replay
+// allowed for one immutable Put. The external call happens only after this
+// marker commits, so a lost recovery response cannot create a replay loop.
+func (s *Store) StartKnowledgeDocumentPutRecovery(ctx context.Context, l persistence.KnowledgeDocumentLease) (out persistence.KnowledgeDocumentRecord, started bool, err error) {
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		started = false
+		var e error
+		out, e = s.documentWork(ctx, tx, l)
+		if e != nil {
+			return e
+		}
+		if !out.PutStarted || out.PutRecoveryAttempts >= knowledgeDocumentMaximumAutomaticPutRecoveries || out.IndexObserved || out.Reindex != nil || out.RetiredRemoteID != "" || out.DeleteStarted || out.Document.State == "deleting" || out.Document.State == "deleted" {
+			return nil
+		}
+		if out.BodyRef == "" || !out.SecurityScanCompleted || out.Document.SecurityStatus != "clean" || !executionText(out.RemoteID, 96, true) || !personalMemoryKey(out.PutRequestID) {
+			return conversationError("conflict", "document_state_conflict")
+		}
+		out.PutRecoveryAttempts++
+		out.Document.State = "indexing"
+		out.Document.ProcessingStage = "parse"
+		out.Document.ErrorCode = ""
+		if e = s.saveDocumentRecord(ctx, tx, &out, out.Document.Revision); e != nil {
+			return e
+		}
+		started = true
+		return nil
+	})
+	return
+}
+
 func (s *Store) StartKnowledgeDocumentReindexPut(ctx context.Context, l persistence.KnowledgeDocumentLease) (out persistence.KnowledgeDocumentRecord, started bool, err error) {
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		started = false
@@ -176,6 +207,32 @@ func (s *Store) StartKnowledgeDocumentReindexPut(ctx context.Context, l persiste
 		}
 		out.Reindex.PutStarted = true
 		out.Document.Reindexing = true
+		out.Document.ProcessingStage = "index"
+		out.Document.ErrorCode = ""
+		if e = s.saveDocumentRecord(ctx, tx, &out, out.Document.Revision); e != nil {
+			return e
+		}
+		started = true
+		return nil
+	})
+	return
+}
+
+func (s *Store) StartKnowledgeDocumentReindexPutRecovery(ctx context.Context, l persistence.KnowledgeDocumentLease) (out persistence.KnowledgeDocumentRecord, started bool, err error) {
+	err = s.transaction(ctx, func(tx *sql.Tx) error {
+		started = false
+		var e error
+		out, e = s.documentWork(ctx, tx, l)
+		if e != nil {
+			return e
+		}
+		if out.Reindex == nil || !out.Reindex.PutStarted || out.Reindex.PutRecoveryAttempts >= knowledgeDocumentMaximumAutomaticPutRecoveries || out.Reindex.Generation != out.Document.IndexGeneration+1 || out.RetiredRemoteID != "" || out.DeleteStarted || out.Document.State != "ready" || !out.Document.Reindexing {
+			return nil
+		}
+		if out.BodyRef == "" || !out.SecurityScanCompleted || out.Document.SecurityStatus != "clean" || !executionText(out.Reindex.RemoteID, 96, true) || !personalMemoryKey(out.Reindex.PutRequestID) {
+			return conversationError("conflict", "document_state_conflict")
+		}
+		out.Reindex.PutRecoveryAttempts++
 		out.Document.ProcessingStage = "index"
 		out.Document.ErrorCode = ""
 		if e = s.saveDocumentRecord(ctx, tx, &out, out.Document.Revision); e != nil {
@@ -223,6 +280,25 @@ func (s *Store) StartKnowledgeDocumentDelete(ctx context.Context, l persistence.
 		return s.saveDocumentRecord(ctx, tx, &r, r.Document.Revision)
 	})
 }
+
+// StartKnowledgeDocumentUnconfirmedDelete durably records cleanup for an
+// uncertain Put before the application invokes the source's explicit
+// idempotent-delete recovery contract.  Unlike StartKnowledgeDocumentDelete,
+// this path deliberately does not require IndexObserved; it requires a started
+// Put that is already being deleted and has no competing lifecycle operation.
+func (s *Store) StartKnowledgeDocumentUnconfirmedDelete(ctx context.Context, l persistence.KnowledgeDocumentLease) error {
+	return s.transaction(ctx, func(tx *sql.Tx) error {
+		r, e := s.documentWork(ctx, tx, l)
+		if e != nil {
+			return e
+		}
+		if r.Document.State != "deleting" || !r.PutStarted || r.IndexObserved || r.DeleteStarted || r.Reindex != nil || r.RetiredRemoteID != "" || !executionText(r.RemoteID, 96, true) {
+			return conversationError("conflict", "document_cleanup_unconfirmed")
+		}
+		r.DeleteStarted = true
+		return s.saveDocumentRecord(ctx, tx, &r, r.Document.Revision)
+	})
+}
 func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistence.KnowledgeDocumentLease, in persistence.KnowledgeDocumentProgress) error {
 	if in.ErrorCode != "" && !knowledgeErrorCodePattern.MatchString(in.ErrorCode) || !executionText(in.IndexStatus, 64, false) || !executionText(in.SecurityScanner, 128, false) || in.SecurityReportSHA256 != "" && !validArtifactSHA(in.SecurityReportSHA256) {
 		return conversationError("bad_request", "document_progress_invalid")
@@ -236,7 +312,7 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 		done := false
 		switch in.Event {
 		case "stored":
-			if r.SourceID != "" || r.PutStarted || !r.SecurityScanCompleted || r.Document.SecurityStatus != "clean" || in.IndexStatus != "STORED" {
+			if r.PageProjection != nil || r.PutStarted || !r.SecurityScanCompleted || r.Document.SecurityStatus != "clean" || in.IndexStatus != "STORED" {
 				return conversationError("conflict", "document_state_conflict")
 			}
 			r.Document.State = "ready"
@@ -374,14 +450,28 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 				}
 			}
 		case "deleted":
-			if r.Document.State != "deleting" || r.Reindex != nil || r.RetiredRemoteID != "" || r.PutStarted && (!r.IndexObserved || !r.DeleteStarted || r.AccessPolicySHA256 != "" && !r.DeleteAcknowledged) {
+			// A positive idempotent-delete acknowledgement is sufficient to
+			// close an uncertain Put that was never observed in the index.  We
+			// still require a durable delete intent, and ACL-scoped documents
+			// always require the explicit acknowledgement because an invisible
+			// fetch cannot prove remote absence.
+			if r.Document.State != "deleting" || r.Reindex != nil || r.RetiredRemoteID != "" || r.PutStarted && (!r.DeleteStarted || !r.IndexObserved && !r.DeleteAcknowledged || r.AccessPolicySHA256 != "" && !r.DeleteAcknowledged) {
 				return conversationError("conflict", "document_cleanup_unconfirmed")
 			}
-			r.Document.State = "deleted"
-			r.Document.ProcessingStage = "delete"
-			r.Document.ErrorCode = ""
-			r.BodyRef = ""
-			done = true
+			if r.PageLifecycleManaged && r.ResumeAfterDelete {
+				if e = reopenPageLifecycleDocument(&r); e != nil {
+					return e
+				}
+				done = false
+			} else {
+				r.Document.State = "deleted"
+				r.Document.ProcessingStage = "delete"
+				r.Document.ErrorCode = ""
+				if !r.PageLifecycleManaged {
+					r.BodyRef = ""
+				}
+				done = true
+			}
 		default:
 			return conversationError("bad_request", "document_progress_invalid")
 		}

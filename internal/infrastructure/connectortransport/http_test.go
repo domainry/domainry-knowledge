@@ -50,6 +50,10 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(target, data)); err != nil {
 		t.Fatal(err)
 	}
+	managedTarget := target + "&source=verdent_knowledge"
+	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(managedTarget, data)); err != nil {
+		t.Fatal("managed Knowledge file was rejected", err)
+	}
 	remove := put
 	remove.Method = http.MethodDelete
 	remove.Content, remove.ContentLength, remove.ContentSHA256 = nil, 0, ""
@@ -63,6 +67,9 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 		},
 		func(r *connector.HTTPRequest) {
 			r.URL = server.URL + "/v1/kb/kbs/one/documents?doc_id=d&filename=f.md&permission_ids=public"
+		},
+		func(r *connector.HTTPRequest) {
+			r.URL = server.URL + "/v1/kb/kbs/one/documents?doc_id=d&filename=f.md&source=verdent_knowledge&page_id=partial"
 		},
 		func(r *connector.HTTPRequest) {
 			r.URL = server.URL + "/v1/kb/kbs/one/documents?doc_id=d&doc_id=other&filename=f.md"
@@ -89,7 +96,7 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 			t.Fatal("ungranted document request accepted")
 		}
 	}
-	if calls.Load() != 2 {
+	if calls.Load() != 3 {
 		t.Fatal("rejected request reached network")
 	}
 	if _, err := NewKnowledgeDocumentHTTP(server.URL, "../other", server.Client()); err == nil {

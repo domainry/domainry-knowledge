@@ -1,27 +1,33 @@
-import { kt } from "../i18n/runtime.ts";
 import { Unzip, UnzipInflate } from "fflate";
 import ExcelJS from "exceljs";
 import { format } from "numfmt";
 import type { DisplayCell, DisplaySheet } from "./office-types.ts";
+import { officeWorkerErrors, type OfficeWorkerErrorCode } from "./office-worker-errors.ts";
 import { readPresentation } from "./presentation.ts";
+
+class OfficeWorkerError extends Error {
+  constructor(readonly code: OfficeWorkerErrorCode) {
+    super(code);
+  }
+}
 
 function checkArchive(data: Uint8Array, kind: string) {
   const names = new Set<string>();
   let expanded = 0;
   const unzip = new Unzip(entry => {
-    if (names.size >= 4096 || names.has(entry.name) || entry.name.split("/").includes("..") || /vbaProject|externalLinks/i.test(entry.name)) throw Error(kt("knowledge.auto.30654fbcef2bfa6d"));
+    if (names.size >= 4096 || names.has(entry.name) || entry.name.split("/").includes("..") || /vbaProject|externalLinks/i.test(entry.name)) throw new OfficeWorkerError(officeWorkerErrors.archiveUnsafe);
     names.add(entry.name);
     entry.ondata = (error, chunk) => {
       if (error) throw error;
       expanded += chunk.length;
-      if (expanded > 32 * 1024 * 1024) throw Error(kt("knowledge.auto.0b9cdfc01f22c494"));
+      if (expanded > 32 * 1024 * 1024) throw new OfficeWorkerError(officeWorkerErrors.archiveExpandedTooLarge);
     };
     entry.start();
   });
   unzip.register(UnzipInflate);
   for (let offset = 0; offset < data.length; offset += 16_384) unzip.push(data.subarray(offset, offset + 16_384), offset + 16_384 >= data.length);
   const required = kind === "xlsx" ? "xl/workbook.xml" : kind === "pptx" ? "ppt/presentation.xml" : "word/document.xml";
-  if (!names.has("[Content_Types].xml") || !names.has(required)) throw Error(kt("knowledge.auto.552c7361d3d8c8cd"));
+  if (!names.has("[Content_Types].xml") || !names.has(required)) throw new OfficeWorkerError(officeWorkerErrors.archiveInvalid);
 }
 
 function color(value?: Partial<ExcelJS.Color>) {
@@ -38,11 +44,11 @@ function displayCell(cell: ExcelJS.Cell): DisplayCell {
     formula = cell.formula;
     value = value.result ?? null;
   }
-  const text = value === null ? (formula ? kt("knowledge.auto.42913db3d3b5eff0") : "")
+  const text = value === null ? (formula ? officeWorkerErrors.formulaResultMissing : "")
     : value instanceof Date ? format(cell.numFmt || "yyyy-mm-dd", value)
     : typeof value === "object" ? ("richText" in value ? value.richText.map(part => part.text).join("") : "text" in value ? value.text : "error" in value ? value.error : "")
     : typeof value === "number" ? format(cell.numFmt || "General", value) : String(value);
-  if (text.length > 32_768) throw Error(kt("knowledge.auto.fedae91efd350957"));
+  if (text.length > 32_768) throw new OfficeWorkerError(officeWorkerErrors.cellTooLong);
   const font = cell.font, alignment = cell.alignment, fill = cell.fill;
   return { row: Number(cell.row), col: Number(cell.col), text, formula, style: {
     fontWeight: font?.bold ? "bold" : undefined,
@@ -60,16 +66,16 @@ function displayCell(cell: ExcelJS.Cell): DisplayCell {
 async function readWorkbook(data: ArrayBuffer): Promise<DisplaySheet[]> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(data);
-  if (workbook.worksheets.length > 64) throw Error(kt("knowledge.auto.ee6efc1447299260"));
+  if (workbook.worksheets.length > 64) throw new OfficeWorkerError(officeWorkerErrors.worksheetsTooMany);
   let count = 0;
   return workbook.worksheets.filter(sheet => sheet.state === "visible").map(sheet => {
-    if (sheet.rowCount > 100_000 || sheet.columnCount > 4096) throw Error(kt("knowledge.auto.55c85d93fc5e34ac"));
+    if (sheet.rowCount > 100_000 || sheet.columnCount > 4096) throw new OfficeWorkerError(officeWorkerErrors.worksheetTooLarge);
     const result: DisplaySheet = { name: sheet.name, rows: sheet.rowCount, cols: sheet.columnCount, cells: [], merges: [], widths: {}, heights: {}, hiddenRows: [], hiddenCols: [] };
     sheet.eachRow(row => {
       if (row.hidden) result.hiddenRows.push(row.number);
       if (row.height) result.heights[row.number] = Math.min(400, row.height * 4 / 3);
       row.eachCell(cell => {
-        if (++count > 250_000) throw Error(kt("knowledge.auto.5bee4cdb427cff1d"));
+        if (++count > 250_000) throw new OfficeWorkerError(officeWorkerErrors.cellsTooMany);
         if (!cell.isMerged || cell.address === cell.master.address) result.cells.push(displayCell(cell));
       });
     });
@@ -79,7 +85,7 @@ async function readWorkbook(data: ArrayBuffer): Promise<DisplaySheet[]> {
     });
     const parseAddress = (address: string) => {
       const match = /^([A-Z]+)([1-9][0-9]*)$/.exec(address);
-      if (!match) throw Error(kt("knowledge.auto.709a2e4b711558dc"));
+      if (!match) throw new OfficeWorkerError(officeWorkerErrors.cellAddressInvalid);
       return { row: Number(match[2]), col: [...match[1]].reduce((value, character) => value * 26 + character.charCodeAt(0) - 64, 0) };
     };
     for (const merged of sheet.model.merges) {
@@ -96,6 +102,8 @@ self.onmessage = async event => {
     checkArchive(new Uint8Array(data), kind);
     self.postMessage(kind === "xlsx" ? { sheets: await readWorkbook(data) } : kind === "pptx" ? { slides: readPresentation(data) } : {});
   } catch (error) {
-    self.postMessage({ error: error instanceof Error ? error.message : kt("knowledge.auto.9412956e890013f9") });
+		const message = error instanceof Error ? error.message : "";
+		const presentationError = message === officeWorkerErrors.presentationCountInvalid || message === officeWorkerErrors.presentationTooLarge ? message : "";
+    self.postMessage({ error_code: error instanceof OfficeWorkerError ? error.code : presentationError || officeWorkerErrors.unknown });
   }
 };

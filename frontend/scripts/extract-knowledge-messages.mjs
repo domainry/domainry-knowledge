@@ -27,8 +27,12 @@ const messagesSource = await readFile(path.join(root, "i18n", "messages.generate
 const catalogsSource = await readFile(path.join(root, "i18n", "catalogs.generated.ts"), "utf8");
 const english = readObject(messagesSource, "knowledgeEnglishMessages");
 const chinese = readObject(messagesSource, "knowledgeChineseMessages");
-const translated = readObject(catalogsSource, "knowledgeTranslatedCatalogs");
-const catalogs = { en: english, "zh-CN": chinese, ...translated };
+const translated = readObject(catalogsSource, "knowledgeTranslatedCatalogsRaw");
+const catalogs = {
+  en: english,
+  "zh-CN": chinese,
+  ...Object.fromEntries(Object.entries(translated).map(([locale, messages]) => [locale, { ...english, ...messages }])),
+};
 
 function compileSafeMessage(value) {
   return String(value).replace(/\{([^{}]*)\}/g, (match, inner) => /^value\d+$/.test(inner) ? match : `(${inner})`);

@@ -4,6 +4,7 @@ export type PageToolbarProps = {
     mode: PageWorkspaceMode;
     pageActive: boolean;
     canWrite: boolean;
+    canEdit: boolean;
     isDocument: boolean;
     pageFindOpen: boolean;
     personalState: KnowledgePagePersonalState | null;

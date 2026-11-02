@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	knowledgeDocumentUploadExpiryBatchSize = 100
-	knowledgeDocumentUploadExpiryInterval  = time.Minute
+	knowledgeDocumentUploadExpiryBatchSize         = 100
+	knowledgeDocumentUploadExpiryInterval          = time.Minute
+	knowledgeDocumentMaximumAutomaticPutRecoveries = 1
 )
 
 func knowledgeDocumentProjectionPermissionIDs(r persistence.KnowledgeDocumentRecord, replacement bool) []string {
@@ -27,6 +28,20 @@ func knowledgeDocumentProjectionPermissionIDs(r persistence.KnowledgeDocumentRec
 	return []string{projection.PermissionID}
 }
 
+func knowledgeDocumentIndexSource(r persistence.KnowledgeDocumentRecord, replacement bool) *agentsdk.KnowledgeDocumentIndexSource {
+	projection := r.PageProjection
+	if replacement && r.Replacement != nil {
+		projection = &r.Replacement.PageProjection
+	}
+	if projection == nil {
+		return nil
+	}
+	return &agentsdk.KnowledgeDocumentIndexSource{
+		Title: projection.Title, PageID: projection.PageID, PageVersion: projection.Version,
+		LibraryKind: projection.LibraryKind, ContentType: projection.ContentType,
+	}
+}
+
 func inspectKnowledgeDocument(ctx context.Context, source agentsdk.KnowledgeDocumentSource, id string, permissionIDs []string, actor agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
 	if len(permissionIDs) != 0 {
 		if scoped, ok := source.(agentsdk.KnowledgeDocumentPermissionInspectionSource); ok {
@@ -36,9 +51,123 @@ func inspectKnowledgeDocument(ctx context.Context, source agentsdk.KnowledgeDocu
 	return source.InspectKnowledgeDocument(ctx, id, actor)
 }
 
+func (s *Service) deleteKnowledgeDocumentStoredContent(ctx context.Context, r persistence.KnowledgeDocumentRecord) error {
+	// A page archive is reversible for the configured retention window. Its
+	// search projection must be removed from the provider immediately, but the
+	// private projection body must remain available so restoring the page can
+	// rebuild the same deterministic document identity. The storage deletion
+	// contract is an irreversible tombstone and therefore belongs only to
+	// permanently deleted uploaded documents, not to a reversible page archive.
+	if r.PageProjection != nil || r.PageLifecycleManaged {
+		return nil
+	}
+	return s.options.DocumentStorage.DeleteKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID)
+}
+
+func (s *Service) recoverKnowledgeDocumentPut(ctx context.Context, repo persistence.KnowledgeDocumentRepository, lease persistence.KnowledgeDocumentLease, r persistence.KnowledgeDocumentRecord, source agentsdk.ManagedKnowledgeDocumentSource, progress *persistence.KnowledgeDocumentProgress) bool {
+	if _, ok := source.(agentsdk.KnowledgeDocumentPutRecoverySource); !ok || r.PutRecoveryAttempts >= knowledgeDocumentMaximumAutomaticPutRecoveries {
+		return false
+	}
+	action := knowledgesdk.ActionDocumentsUpload
+	if r.PageProjection != nil {
+		action = knowledgesdk.ActionPagesPublish
+	}
+	if _, err := s.DocumentAccess(ctx, r.Document.LibraryID, action, r.Actor); err != nil {
+		progress.ErrorCode = "document_upload_access_denied"
+		return true
+	}
+	if s.authorizeDocumentSource(ctx, r.SourceAccess, r.Actor) != nil {
+		progress.ErrorCode = "document_source_access_denied"
+		return true
+	}
+	if maximum := DocumentIndexMaximumBytesForFilename(source, r.Document.Filename); maximum < 1 || r.Document.Bytes > maximum {
+		progress.ErrorCode = "document_index_size_unsupported"
+		return true
+	}
+	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, r.BodyRef, r.Document.SHA256, r.Document.Bytes)
+	if err != nil {
+		progress.ErrorCode = "document_content_mismatch"
+		return true
+	}
+	defer content.Close()
+	write, cancel, err := CommittedKnowledgeWriteContext(ctx, lease.ExpiresAt)
+	if err != nil {
+		return true
+	}
+	startedRecord, started, err := repo.StartKnowledgeDocumentPutRecovery(write, lease)
+	cancel()
+	if err != nil || !started {
+		return true
+	}
+	input := agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, Source: knowledgeDocumentIndexSource(startedRecord, false), RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: knowledgeDocumentProjectionPermissionIDs(startedRecord, false)}
+	if !RecoverKnowledgeDocumentPut(ctx, source, input, startedRecord.Actor, lease.ExpiresAt) {
+		progress.ErrorCode = "document_put_recovery_uncertain"
+		return true
+	}
+	*progress = persistence.KnowledgeDocumentProgress{Event: "put_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
+	return true
+}
+
+func (s *Service) recoverKnowledgeDocumentReindexPut(ctx context.Context, repo persistence.KnowledgeDocumentRepository, lease persistence.KnowledgeDocumentLease, r persistence.KnowledgeDocumentRecord, source agentsdk.ManagedKnowledgeDocumentSource, progress *persistence.KnowledgeDocumentProgress) bool {
+	if _, ok := source.(agentsdk.KnowledgeDocumentPutRecoverySource); !ok || r.Reindex == nil || r.Reindex.PutRecoveryAttempts >= knowledgeDocumentMaximumAutomaticPutRecoveries {
+		return false
+	}
+	action := knowledgesdk.ActionDocumentsReindex
+	if r.PageProjection != nil {
+		action = knowledgesdk.ActionPagesPublish
+	}
+	if _, err := s.DocumentAccess(ctx, r.Document.LibraryID, action, r.Actor); err != nil {
+		progress.ErrorCode = "document_upload_access_denied"
+		return true
+	}
+	if s.authorizeDocumentSource(ctx, r.SourceAccess, r.Actor) != nil {
+		progress.ErrorCode = "document_source_access_denied"
+		return true
+	}
+	filename, contentBytes, contentSHA256, bodyRef := r.Document.Filename, r.Document.Bytes, r.Document.SHA256, r.BodyRef
+	if r.Replacement != nil {
+		filename, contentBytes, contentSHA256, bodyRef = r.Replacement.Filename, r.Replacement.Bytes, r.Replacement.SHA256, r.Replacement.BodyRef
+	}
+	if maximum := DocumentIndexMaximumBytesForFilename(source, filename); maximum < 1 || contentBytes > maximum {
+		progress.ErrorCode = "document_index_size_unsupported"
+		return true
+	}
+	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, bodyRef, contentSHA256, contentBytes)
+	if err != nil {
+		progress.ErrorCode = "document_content_mismatch"
+		return true
+	}
+	defer content.Close()
+	write, cancel, err := CommittedKnowledgeWriteContext(ctx, lease.ExpiresAt)
+	if err != nil {
+		return true
+	}
+	startedRecord, started, err := repo.StartKnowledgeDocumentReindexPutRecovery(write, lease)
+	cancel()
+	if err != nil || !started || startedRecord.Reindex == nil {
+		return true
+	}
+	input := agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, Source: knowledgeDocumentIndexSource(startedRecord, true), RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: knowledgeDocumentProjectionPermissionIDs(startedRecord, true)}
+	if !RecoverKnowledgeDocumentPut(ctx, source, input, startedRecord.Actor, lease.ExpiresAt) {
+		progress.ErrorCode = "document_reindex_put_recovery_uncertain"
+		return true
+	}
+	*progress = persistence.KnowledgeDocumentProgress{Event: "reindex_put_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
+	return true
+}
+
 type knowledgeDocumentUploadRepository interface {
 	TouchKnowledgeDocumentUpload(context.Context, string, agentsdk.Authority) (persistence.KnowledgeDocumentRecord, error)
 	ExpireKnowledgeDocumentUploads(context.Context, string, time.Time, int) (int, error)
+}
+
+// knowledgeDocumentUnconfirmedDeleteRepository records a cleanup intent for a
+// Put whose outcome could not be confirmed.  The application may use this path
+// only when the bound source exposes KnowledgeDocumentDeleteRecoverySource:
+// that contract turns a same-ID delete into a positive, idempotent upstream
+// acknowledgement instead of inferring absence from an ACL-filtered Inspect.
+type knowledgeDocumentUnconfirmedDeleteRepository interface {
+	StartKnowledgeDocumentUnconfirmedDelete(context.Context, persistence.KnowledgeDocumentLease) error
 }
 
 type WorkerTickResult struct {
@@ -124,11 +253,13 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 	webhookRecord = &r
 	deleting := r.Document.State == "deleting"
 	if deleting && !r.PutStarted {
-		if s.options.DocumentStorage.DeleteKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID) != nil {
+		if s.deleteKnowledgeDocumentStoredContent(ctx, r) != nil {
 			progress.ErrorCode = "document_cleanup_failed"
 			return
 		}
 		progress.Event = "deleted"
+		progress.ErrorCode = ""
+		progress.RetryAt = time.Time{}
 		return
 	}
 	if !r.SecurityScanCompleted {
@@ -170,6 +301,21 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		progress.RetryAt = time.Time{}
 		return
 	}
+	// An unobserved Put can reach this state only through the explicit
+	// idempotent-delete recovery contract: ordinary deletion cannot start until
+	// IndexObserved is true.  Once that recovery has a positive acknowledgement,
+	// remote cleanup is established and local finalization must not depend on a
+	// datasource binding that may already have been removed.
+	if deleting && r.PutStarted && !r.IndexObserved && r.DeleteStarted && r.DeleteAcknowledged {
+		if s.deleteKnowledgeDocumentStoredContent(ctx, r) != nil {
+			progress.ErrorCode = "document_cleanup_failed"
+			return
+		}
+		progress.Event = "deleted"
+		progress.ErrorCode = ""
+		progress.RetryAt = time.Time{}
+		return
+	}
 	source, err := s.DocumentBinding(ctx, r.Document.LibraryID, r.Actor)
 	if err != nil || source.KnowledgeDocumentSourceIdentity() != r.SourceID {
 		progress.ErrorCode = "document_management_unavailable"
@@ -187,6 +333,26 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		s.processKnowledgeDocumentRetiredIndex(ctx, repo, lease, r, source, &progress)
 		return
 	}
+	if deleting && r.PutStarted && !r.IndexObserved && !r.DeleteStarted {
+		recoveryRepo, persisted := repo.(knowledgeDocumentUnconfirmedDeleteRepository)
+		_, supported := source.(agentsdk.KnowledgeDocumentDeleteRecoverySource)
+		if persisted && supported {
+			write, cancel, commitErr := CommittedKnowledgeWriteContext(ctx, lease.ExpiresAt)
+			if commitErr != nil {
+				return
+			}
+			commitErr = recoveryRepo.StartKnowledgeDocumentUnconfirmedDelete(write, lease)
+			cancel()
+			if commitErr != nil {
+				return commitErr
+			}
+			progress.ErrorCode = "document_delete_uncertain"
+			if RecoverKnowledgeDocumentDelete(ctx, source, r.RemoteID, r.Actor, lease.ExpiresAt) {
+				progress = persistence.KnowledgeDocumentProgress{Event: "delete_acknowledged", RetryAt: time.Now().UTC().Add(s.options.DocumentPoll)}
+			}
+			return
+		}
+	}
 	if _, supported := source.(agentsdk.KnowledgeDocumentDeleteRecoverySource); supported && deleting && r.DeleteStarted && !r.DeleteAcknowledged {
 		progress.ErrorCode = "document_delete_uncertain"
 		if RecoverKnowledgeDocumentDelete(ctx, source, r.RemoteID, r.Actor, lease.ExpiresAt) {
@@ -200,6 +366,14 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 			return
 		}
 		if maximum := DocumentIndexMaximumBytesForFilename(source, r.Document.Filename); maximum < 1 || r.Document.Bytes > maximum {
+			// The immutable original is still a valid uploaded file when the
+			// provider cannot index its size. This also applies when a provider's
+			// limit changes while an unstarted upload is queued. Published page
+			// projections must retain their explicit indexing failure instead.
+			if r.PageProjection == nil {
+				progress = persistence.KnowledgeDocumentProgress{Event: "stored", IndexStatus: "STORED"}
+				return
+			}
 			progress.ErrorCode = "document_index_size_unsupported"
 			return
 		}
@@ -246,7 +420,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 			return
 		}
 		permissionIDs := knowledgeDocumentProjectionPermissionIDs(startedRecord, false)
-		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
+		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.RemoteID, Filename: startedRecord.Document.Filename, Bytes: startedRecord.Document.Bytes, SHA256: startedRecord.Document.SHA256, Content: content, Source: knowledgeDocumentIndexSource(startedRecord, false), RequestID: startedRecord.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_put_uncertain"
 			return
 		}
@@ -261,6 +435,9 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 	progress.IndexStatus = state.IndexStatus
 	progress.RetryAt = time.Now().UTC().Add(s.options.DocumentPoll)
 	progress.ErrorCode = ""
+	if (state.IndexStatus == "FAILED" || state.IndexStatus == "ERROR" || !state.Exists && (r.Document.ErrorCode == "document_put_uncertain" || r.Document.ErrorCode == "document_put_unconfirmed")) && s.recoverKnowledgeDocumentPut(ctx, repo, lease, r, source, &progress) {
+		return
+	}
 	if deleting && r.DeleteStarted {
 		// A private fetch returning 1004 can mean ACL denial. Do not turn an
 		// unacknowledged DELETE into confirmed cleanup based on visibility alone.
@@ -274,7 +451,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 			progress.RetryAt = time.Now().UTC().Add(30 * time.Second)
 			return
 		}
-		if s.options.DocumentStorage.DeleteKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID) != nil {
+		if s.deleteKnowledgeDocumentStoredContent(ctx, r) != nil {
 			progress.ErrorCode = "document_cleanup_failed"
 			return
 		}
@@ -364,7 +541,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 			return
 		}
 		permissionIDs := knowledgeDocumentProjectionPermissionIDs(startedRecord, true)
-		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
+		if err = source.PutKnowledgeDocument(write, agentsdk.KnowledgeDocumentIndexContent{DocumentID: startedRecord.Reindex.RemoteID, Filename: filename, Bytes: contentBytes, SHA256: contentSHA256, Content: content, Source: knowledgeDocumentIndexSource(startedRecord, true), RequestID: startedRecord.Reindex.PutRequestID, AccessPolicySHA256: startedRecord.AccessPolicySHA256, PermissionIDs: permissionIDs}, r.Actor); err != nil {
 			progress.ErrorCode = "document_reindex_put_uncertain"
 			return
 		}
@@ -378,6 +555,9 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 	}
 	progress.IndexStatus = state.IndexStatus
 	progress.RetryAt = time.Now().UTC().Add(s.options.DocumentPoll)
+	if (state.IndexStatus == "FAILED" || state.IndexStatus == "ERROR" || !state.Exists && (r.Document.ErrorCode == "document_reindex_put_uncertain" || r.Document.ErrorCode == "document_reindex_put_unconfirmed")) && s.recoverKnowledgeDocumentReindexPut(ctx, repo, lease, r, source, progress) {
+		return
+	}
 	if !state.Exists {
 		progress.ErrorCode = "document_reindex_put_unconfirmed"
 		return

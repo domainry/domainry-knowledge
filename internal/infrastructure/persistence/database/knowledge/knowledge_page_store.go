@@ -685,6 +685,9 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 		if e = s.resetKnowledgeCollaborationState(ctx, tx, pageID, a); e != nil {
 			return out, e
 		}
+		if e = s.reconcileFilePageAttachments(ctx, tx, page, a); e != nil {
+			return out, e
+		}
 		out, e = s.pageView(ctx, tx, library, page, true, a)
 		return out, e
 	}, &out)
@@ -953,6 +956,9 @@ func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string,
 		if e = s.copyKnowledgePageAttachments(ctx, tx, pageID, id, now, a); e != nil {
 			return out, e
 		}
+		if e = s.reconcileFilePageAttachments(ctx, tx, page, a); e != nil {
+			return out, e
+		}
 		if _, e = s.touchKnowledgePagePersonalState(ctx, tx, libraryID, id, "edited", now, a); e != nil {
 			return out, e
 		}
@@ -1075,6 +1081,9 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 				return out, e
 			}
 		}
+		if e = s.reconcileFilePageAttachments(ctx, tx, out, a); e != nil {
+			return out, e
+		}
 		return out, nil
 	}, &out)
 	if err == nil {
@@ -1176,6 +1185,9 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 		}
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Columns("scope_key", "page_id", "library_id", "runtime_id", "version", "not_before", "lease_until", "fence", "payload_json").Values(libraryScope(a), pageID, libraryID, a.RuntimeID, versionNumber, page.UpdatedAt.UnixMilli(), 0, 0, conversationJSON(job)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
+			return out, e
+		}
+		if e = s.reconcileFilePageAttachments(ctx, tx, page, a); e != nil {
 			return out, e
 		}
 		out, e = s.pageView(ctx, tx, library, page, true, a)

@@ -26,3 +26,16 @@ export function resolveKnowledgePageLiveRefresh(input: {
     body: source?.body.content || "",
   };
 }
+
+export function resolveKnowledgePageProjectionRefresh(input: {
+  selectedPageID: string;
+  current: KnowledgePageView | null;
+  refreshed: KnowledgePageView;
+}): KnowledgePageView | null {
+  if (
+    !input.selectedPageID
+    || input.current?.page.id !== input.selectedPageID
+    || input.refreshed.page.id !== input.selectedPageID
+  ) return null;
+  return { ...input.current, page: input.refreshed.page };
+}

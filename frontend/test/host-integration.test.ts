@@ -13,6 +13,7 @@ import {
   parseKnowledgeHostPreferences,
   parseKnowledgeHostToGuestMessage,
   parseKnowledgeSelectionReference,
+  writeKnowledgeClipboardText,
 } from "../src/hostIntegration.ts";
 
 const reference = {
@@ -140,4 +141,15 @@ test("bridge envelope parsers reject wrong channels and preserve bounded acknowl
     type: "add-selection-result",
     result: { version: 1, requestId: "selection:1", ok: false, message: "x".repeat(1_025) },
   }), null);
+});
+
+test("embedded clipboard writes use the host integration instead of browser focus state", async () => {
+  const written: string[] = [];
+  const integration = {
+    capabilities: { addSelectionToConversation: true },
+    async addSelection() { return { version: 1 as const, requestId: "unused", ok: true }; },
+    async writeClipboardText(text: string) { written.push(text); },
+  };
+  await writeKnowledgeClipboardText(integration, "copied from the embedded page");
+  assert.deepEqual(written, ["copied from the embedded page"]);
 });

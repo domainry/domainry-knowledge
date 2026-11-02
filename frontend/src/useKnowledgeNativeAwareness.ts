@@ -12,6 +12,19 @@ type NativeAwarenessOptions = {
   onError?(failure: unknown): void;
 };
 
+const recoverableNativeAwarenessSessionCodes = new Set([
+  "knowledge.collaboration_session_revoked",
+  "knowledge.collaboration_session_not_found",
+  "knowledge.collaboration_session_expired",
+]);
+
+export function nativeAwarenessSessionShouldReconnect(failure: unknown) {
+  const code = typeof failure === "object" && failure !== null && "code" in failure && typeof failure.code === "string"
+    ? failure.code
+    : failure instanceof Error ? failure.message : "";
+  return recoverableNativeAwarenessSessionCodes.has(code);
+}
+
 export function useKnowledgeNativeAwareness(options: NativeAwarenessOptions) {
   const transport = useMemo(() => createKnowledgeCollaborationTransport(options.client, options.libraryID, options.pageID), [options.client, options.libraryID, options.pageID]);
   const callbacksRef = useRef({ onSnapshot: options.onSnapshot, onError: options.onError });
@@ -24,6 +37,7 @@ export function useKnowledgeNativeAwareness(options: NativeAwarenessOptions) {
   const [presence, setPresence] = useState<KnowledgeCollaborationPresence[]>([]);
   const [state, setState] = useState<"unavailable" | "connecting" | "connected" | "reconnecting" | "error">("unavailable");
   const [ready, setReady] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   const applyEvent = useCallback((event: KnowledgeCollaborationServerEvent) => {
     clockRef.current = Math.max(clockRef.current, event.clock);
@@ -90,6 +104,20 @@ export function useKnowledgeNativeAwareness(options: NativeAwarenessOptions) {
             throw new Error("knowledge.collaboration_stream_closed");
           } catch (failure) {
             if (abort.signal.aborted || generationRef.current !== generation) return;
+            if (nativeAwarenessSessionShouldReconnect(failure)) {
+              // Native canvas editors persist through the page draft/native
+              // operation APIs. Those writes deliberately revoke the old
+              // collaboration snapshot so it cannot outlive the new draft.
+              // The awareness session is therefore a disposable presence
+              // lease: reconnect with a fresh session instead of retrying the
+              // revoked ID and surfacing an expected rollover as an error.
+              sessionRef.current = null;
+              setReady(false);
+              setPresence([]);
+              setState("reconnecting");
+              setRetryNonce(value => value + 1);
+              return;
+            }
             failures++;
             setState("reconnecting");
             if (failures >= 5) {
@@ -119,7 +147,7 @@ export function useKnowledgeNativeAwareness(options: NativeAwarenessOptions) {
       sessionRef.current = null;
       if (session) void transport.close(session.id, AbortSignal.timeout(10_000)).catch(() => undefined);
     };
-  }, [applyEvent, options.active, options.libraryID, options.pageID, syncPresence, transport]);
+  }, [applyEvent, options.active, options.libraryID, options.pageID, retryNonce, syncPresence, transport]);
 
   const updatePresence = useCallback((cursorTargetID?: string, selectionTargetID?: string) => {
     if (!collaborationPositionChanged(positionRef.current, cursorTargetID, selectionTargetID)) return;

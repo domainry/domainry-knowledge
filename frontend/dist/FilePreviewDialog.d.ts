@@ -5,3 +5,8 @@ export declare function FilePreviewDialog({ source, downloadSource, formatError,
     formatError?: (error: unknown) => string;
     onClose(): void;
 }): import("react").ReactPortal;
+export declare function FilePreview({ source, formatError, refresh }: {
+    source: FilePreviewSource;
+    formatError?: (error: unknown) => string;
+    refresh?: number;
+}): import("react").JSX.Element;

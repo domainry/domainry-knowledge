@@ -1,7 +1,7 @@
 import { setupI18n, type Messages } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
-import { createContext, createElement, useContext, useEffect, useRef } from "react";
-import type { ReactNode } from "react";
+import { createContext, createElement, useContext, useEffect, useLayoutEffect, useRef } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type { KnowledgeHostLocale } from "../hostIntegration.ts";
 import { knowledgeCompiledCatalogs } from "./compiledCatalogs.ts";
 import { knowledgeEnglishMessages, type KnowledgeMessageID } from "./messages.generated.ts";
@@ -89,6 +89,12 @@ export function KnowledgeI18nProvider({ locale, children }: { locale: KnowledgeH
 
 export function useKnowledgeLocale() {
   return useContext(KnowledgeLocaleContext);
+}
+
+export function useClearTransientKnowledgeNotice(setNotice: Dispatch<SetStateAction<string>>, resolvedLocale?: KnowledgeHostLocale) {
+  const contextLocale = useKnowledgeLocale();
+  const locale = resolvedLocale || contextLocale;
+  useLayoutEffect(() => setNotice(""), [locale, setNotice]);
 }
 
 export function kt(id: KnowledgeMessageID): string {

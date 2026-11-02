@@ -37,6 +37,21 @@ func TestDocumentIndexMaximumBytesSeparatesTransportAndBuilderLimits(t *testing.
 
 func TestStoredDocumentFormatsCoverFilesMediaAndKeepConnectorMetadata(t *testing.T) {
 	stored := StoredKnowledgeDocumentFormats()
+	expected := map[string]string{
+		".txt": "text/plain", ".md": "text/markdown", ".rst": "text/plain", ".html": "text/html", ".htm": "text/html",
+		".csv": "text/csv", ".json": "application/json", ".jsonl": "application/x-ndjson", ".py": "text/x-python",
+		".js": "text/javascript", ".ts": "text/plain", ".tsx": "text/plain", ".jsx": "text/javascript", ".java": "text/x-java-source",
+		".go": "text/x-go", ".rs": "text/plain", ".c": "text/x-c", ".h": "text/x-c", ".cpp": "text/x-c++", ".hpp": "text/x-c++",
+		".cs": "text/plain", ".rb": "text/x-ruby", ".php": "text/x-php", ".kt": "text/plain", ".swift": "text/plain", ".scala": "text/plain", ".sh": "text/x-shellscript",
+		".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp",
+		".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac",
+		".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm", ".avi": "video/x-msvideo",
+	}
+	if len(stored) != len(expected) || len(expected) != 48 {
+		t.Fatalf("stored format count=%d expected=%d", len(stored), len(expected))
+	}
 	byExtension := make(map[string]agentsdk.KnowledgeDocumentFormat, len(stored))
 	for _, format := range stored {
 		if byExtension[format.Extension].Extension != "" {
@@ -44,8 +59,8 @@ func TestStoredDocumentFormatsCoverFilesMediaAndKeepConnectorMetadata(t *testing
 		}
 		byExtension[format.Extension] = format
 	}
-	for _, extension := range []string{".txt", ".pdf", ".png", ".mp3", ".mp4"} {
-		if format := byExtension[extension]; format.ContentType == "" || format.ParserRoute != "storage" {
+	for extension, contentType := range expected {
+		if format := byExtension[extension]; format.ContentType != contentType || format.ParserRoute != "storage" {
 			t.Fatalf("stored format %s=%+v", extension, format)
 		}
 	}

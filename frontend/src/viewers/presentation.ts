@@ -1,6 +1,6 @@
-import { kt, ktf } from "../i18n/runtime.ts";
 import { strFromU8, unzipSync } from "fflate";
 import type { DisplaySlide } from "./office-types.ts";
+import { officeWorkerErrors } from "./office-worker-errors.ts";
 
 function decodeXMLText(value: string) {
   return value.replace(/&(?:lt|gt|amp|quot|apos);|&#(?:x[0-9a-f]+|[0-9]+);/gi, entity => {
@@ -18,7 +18,7 @@ export function readPresentation(data: ArrayBuffer): DisplaySlide[] {
     const match = /^ppt\/slides\/slide([1-9][0-9]*)\.xml$/.exec(name);
     return match ? [{ number: Number(match[1]), content }] : [];
   }).sort((left, right) => left.number - right.number);
-  if (slides.length === 0 || slides.length > 500) throw Error(kt("knowledge.auto.6a2a8bf8083cdf60"));
+  if (slides.length === 0 || slides.length > 500) throw Error(officeWorkerErrors.presentationCountInvalid);
   let totalCharacters = 0;
   return slides.map(slide => {
     const xml = strFromU8(slide.content);
@@ -26,7 +26,7 @@ export function readPresentation(data: ArrayBuffer): DisplaySlide[] {
       .map(match => decodeXMLText(match[1]).trim()).filter(Boolean);
     const characters = lines.reduce((sum, line) => sum + line.length, 0);
     totalCharacters += characters;
-    if (lines.length > 10_000 || characters > 1_000_000 || totalCharacters > 8_000_000) throw Error(kt("knowledge.auto.989c40af9fa37547"));
-    return { number: slide.number, title: lines[0] || ktf("knowledge.auto.48df1e72ddb395f6", { value0: slide.number }), lines: lines.slice(1) };
+    if (lines.length > 10_000 || characters > 1_000_000 || totalCharacters > 8_000_000) throw Error(officeWorkerErrors.presentationTooLarge);
+    return { number: slide.number, title: lines[0] || "", lines: lines.slice(1) };
   });
 }

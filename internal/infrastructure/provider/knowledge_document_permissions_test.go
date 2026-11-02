@@ -107,6 +107,9 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 				if !knowledgeWireFilename.MatchString(r.URL.Query().Get("filename")) || !strings.HasSuffix(r.URL.Query().Get("filename"), ".xlsx") {
 					t.Error("non-ASCII filename or lost parser extension")
 				}
+				if r.URL.Query().Get("source") != "verdent_knowledge" || r.URL.Query().Has("page_id") {
+					t.Error("managed Knowledge file lost its source identity")
+				}
 			} else if r.Header.Get("X-KB-Permission-Ids") != "" {
 				t.Error("delete mutated ACL")
 			}
@@ -123,7 +126,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	}))
 	defer upstream.Close()
 	ids := []string{"z:read", "a:read", "z:read"}
-	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentPermissionIDs: ids}
+	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentSourceProvider: "verdent_knowledge", DocumentPermissionIDs: ids}
 	k, err := newKnowledgeWithOfficialAdapter(c)
 	if err != nil {
 		t.Fatal(err)
@@ -149,6 +152,11 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	if err := k.PutKnowledgeDocument(t.Context(), in, a); err != nil {
 		t.Fatal(err)
 	}
+	recovery := in
+	recovery.Content = bytes.NewReader(raw)
+	if err := k.RecoverKnowledgeDocumentPut(t.Context(), recovery, a); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := k.Search(t.Context(), "query", a); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +169,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	if err := k.DeleteKnowledgeDocument(t.Context(), in.DocumentID, a); err != nil {
 		t.Fatal(err)
 	}
-	if calls.Load() != 5 {
+	if calls.Load() != 6 {
 		t.Fatal("unexpected calls")
 	}
 	for _, tc := range []struct {

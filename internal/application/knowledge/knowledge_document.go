@@ -258,7 +258,7 @@ func (s *Service) reserveDocumentContent(ctx context.Context, library, clientID,
 	sourceID, accessPolicy := "", ""
 	source, bindingErr := s.DocumentBinding(ctx, library, a)
 	if bindingErr == nil {
-		if indexedFormat, indexed := KnowledgeDocumentFormat(source, filename); indexed {
+		if indexedFormat, indexed := KnowledgeDocumentFormat(source, filename); indexed && bytes <= DocumentIndexMaximumBytesForFilename(source, filename) {
 			format = indexedFormat
 			sourceID = source.KnowledgeDocumentSourceIdentity()
 			accessPolicy = DocumentAccessPolicy(source)

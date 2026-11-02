@@ -53,6 +53,24 @@ func TestWhiteboardCanonicalSchemaAndSearchProjection(t *testing.T) {
 	}
 }
 
+func TestWhiteboardSearchProjectionUsesUserAuthoredTextInsteadOfSoftWraps(t *testing.T) {
+	content := whiteboardFixture(t, func(root map[string]any) {
+		text := root["elements"].([]any)[0].(map[string]any)
+		text["text"] = "QA_BOARD_TEX\nT_20261031_1354"
+		text["original_text"] = "QA_BOARD_TEXT_20261031_1354\n用户手工换行"
+	})
+	normalized, err := normalizedTypedPageContent(knowledgesdk.KnowledgePageTypeWhiteboard, knowledgesdk.PageContentSchemaVersion, content, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.PlainText != "QA_BOARD_TEXT_20261031_1354 用户手工换行 发布区域" {
+		t.Fatalf("user-authored text was not preserved: %q", normalized.PlainText)
+	}
+	if strings.Contains(normalized.PlainText, "QA_BOARD_TEX T_") {
+		t.Fatalf("render-only soft wrap leaked into search projection: %q", normalized.PlainText)
+	}
+}
+
 func TestWhiteboardRejectsEditorPrivateFieldsAndDanglingReferences(t *testing.T) {
 	cases := map[string]string{
 		"private seed": whiteboardFixture(t, func(root map[string]any) {

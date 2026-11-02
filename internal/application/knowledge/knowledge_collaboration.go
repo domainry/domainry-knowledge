@@ -190,6 +190,7 @@ func (s *Service) SetKnowledgePageAttachment(ctx context.Context, libraryID, pag
 		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageAttachmentsSet, a)
 	}
 	if err == nil {
+		s.WakeKnowledgeDocuments()
 		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageAttachmentsSet, "knowledge.page_attachment.set", libraryID, pageID, documentID, input.ClientID, 0, nil, map[string]string{
 			"document_id": result.DocumentID, "rank": result.Rank,
 		}, a)
@@ -208,6 +209,7 @@ func (s *Service) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, 
 	if err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPageAttachmentsRemove, a); err != nil {
 		return err
 	}
+	s.WakeKnowledgeDocuments()
 	s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPageAttachmentsRemove, "knowledge.page_attachment.removed", libraryID, pageID, documentID, input.ClientID, 0, map[string]string{"document_id": documentID}, nil, a)
 	return nil
 }

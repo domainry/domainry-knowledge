@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveKnowledgePageLiveRefresh } from "../src/pageLiveUpdates.ts";
+import { resolveKnowledgePageLiveRefresh, resolveKnowledgePageProjectionRefresh } from "../src/pageLiveUpdates.ts";
 import type { KnowledgePageView } from "../src/types.ts";
 
 function view(id: string, revision: number, draft?: string, published?: string): KnowledgePageView {
@@ -93,4 +93,16 @@ test("live refresh never overwrites an unsaved editor or another selected page",
     current: view("page-1", 2, "before"),
     refreshed: view("page-1", 3, "after"),
   }), null);
+});
+
+test("projection refresh updates only status-bearing page metadata", () => {
+  const current = view("page-1", 2, "local unsaved editor", "published");
+  current.page.projection_status = "queued";
+  const refreshed = view("page-1", 2, "remote draft", "published");
+  refreshed.page.projection_status = "failed";
+  const result = resolveKnowledgePageProjectionRefresh({ selectedPageID: "page-1", current, refreshed });
+  assert.equal(result?.page.projection_status, "failed");
+  assert.equal(result?.draft, current.draft);
+  assert.equal(result?.published, current.published);
+  assert.equal(resolveKnowledgePageProjectionRefresh({ selectedPageID: "page-2", current, refreshed }), null);
 });

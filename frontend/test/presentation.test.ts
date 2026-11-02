@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { strToU8, zipSync } from "fflate";
 import { readPresentation } from "../src/viewers/presentation.ts";
-import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
-
-activateKnowledgeLocale("zh-CN");
+import { officeWorkerErrors } from "../src/viewers/office-worker-errors.ts";
 
 function buffer(value: Uint8Array) {
   return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
@@ -25,5 +23,5 @@ test("PPTX text preview preserves slide order and decodes XML text", () => {
 
 test("PPTX text preview rejects archives without slides", () => {
   const archive = zipSync({ "ppt/presentation.xml": strToU8("<p:presentation/>") });
-  assert.throws(() => readPresentation(buffer(archive)), /幻灯片数量/);
+  assert.throws(() => readPresentation(buffer(archive)), error => error instanceof Error && error.message === officeWorkerErrors.presentationCountInvalid);
 });

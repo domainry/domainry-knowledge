@@ -43,7 +43,9 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 			if prior.DatasourceKey != in.DatasourceKey || prior.SourceID != in.SourceID || prior.AccessPolicySHA256 != in.AccessPolicySHA256 {
 				return conversationError("conflict", "datasource_already_bound")
 			}
-			return nil // Lost response recovery; never repeat the binding mutation.
+			// Reconcile missing projections without changing the binding or
+			// replacing any in-flight work after a lost response.
+			return s.queueUnindexedLibraryPages(ctx, tx, id, a)
 		}
 		if out.Revision != in.ExpectedRevision {
 			return conversationError("conflict", "revision_conflict")
@@ -55,22 +57,75 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 		if registered != "" {
 			return conversationError("conflict", "datasource_already_bound")
 		}
-		claimed, e := s.knowledgeSourceClaimed(ctx, tx, in.SourceID)
-		if e != nil {
+		if e = s.registerKnowledgePhysicalSource(ctx, tx, in.SourceID); e != nil {
 			return e
 		}
-		if claimed {
-			return conversationError("conflict", "document_source_already_bound")
-		}
 		binding := persistence.KnowledgeDatasourceBinding{LibraryID: id, DatasourceKey: in.DatasourceKey, SourceID: in.SourceID, AccessPolicySHA256: in.AccessPolicySHA256, CreatedBy: a.UserID, CreatedAt: time.Now().UTC().Truncate(time.Millisecond)}
-		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(libraryScope(a), id, knowledgeDatasourceSourceKind, in.SourceID, conversationJSON(binding)).Build()
+		bindingKey := conversationHash([]string{"knowledge_datasource_binding", libraryScope(a), id, in.SourceID})
+		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").Values(libraryScope(a), id, knowledgeDatasourceSourceKind, bindingKey, conversationJSON(binding)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return e
 		}
-		return s.saveLibraryRecord(ctx, tx, &out, in.ExpectedRevision, a)
+		if e = s.saveLibraryRecord(ctx, tx, &out, in.ExpectedRevision, a); e != nil {
+			return e
+		}
+		return s.queueUnindexedLibraryPages(ctx, tx, id, a)
 	})
 	return
 }
+
+// Binding a source must include pages published while the library was local.
+// Keep their published snapshots and ACL revisions; drafts never enter this queue.
+func (s *Store) queueUnindexedLibraryPages(ctx context.Context, tx *sql.Tx, id string, a agentsdk.Authority) error {
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Columns("payload_json").
+		Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", id), query.Equal("state", "active"), query.GreaterThan("published_version", 0))).Build()
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	var pages []agentsdk.KnowledgePage
+	for rows.Next() {
+		var raw []byte
+		var page agentsdk.KnowledgePage
+		if err = rows.Scan(&raw); err == nil {
+			err = unmarshalDurableJSON(raw, &page)
+		}
+		if err != nil {
+			break
+		}
+		if page.ProjectionStatus == "none" {
+			pages = append(pages, page)
+		}
+	}
+	iterationErr := rows.Err()
+	closeErr := rows.Close()
+	if err != nil {
+		return err
+	}
+	if iterationErr != nil {
+		return iterationErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	for _, page := range pages {
+		access, err := s.knowledgePageAccessPolicy(ctx, tx, id, page.ID, a)
+		if err != nil {
+			return err
+		}
+		if err = s.queueCurrentPageProjection(ctx, tx, &page, access.Revision, a); err != nil {
+			return err
+		}
+		if err = s.setPageProjectionStatus(ctx, tx, page, "queued", access.Revision, a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func documentScopeForLibrary(id string, a agentsdk.Authority) agentsdk.KnowledgeDocumentStorageScope {
 	return agentsdk.KnowledgeDocumentStorageScope{RuntimeID: a.RuntimeID, WorkspaceID: a.WorkspaceID, LibraryID: id}
 }

@@ -116,7 +116,17 @@ func (server *Server) putSourceDocument(writer http.ResponseWriter, request *htt
 	}
 	limited := &io.LimitedReader{R: content, N: metadata.Input.Bytes + 1}
 	metadata.Input.Content = limited
-	if err = source.PutKnowledgeDocument(request.Context(), metadata.Input, metadata.Authority); err != nil {
+	if metadata.Recovery {
+		recovery, ok := source.(agentsdk.KnowledgeDocumentPutRecoverySource)
+		if !ok {
+			writeStatus(writer, http.StatusServiceUnavailable, "unavailable", "knowledge.put_recovery_unavailable")
+			return
+		}
+		err = recovery.RecoverKnowledgeDocumentPut(request.Context(), metadata.Input, metadata.Authority)
+	} else {
+		err = source.PutKnowledgeDocument(request.Context(), metadata.Input, metadata.Authority)
+	}
+	if err != nil {
 		writeTransferError(writer, err)
 		return
 	}

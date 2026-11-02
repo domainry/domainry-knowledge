@@ -140,7 +140,7 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 			return out, conversationError("conflict", "page_archived")
 		}
 		document, e := s.documentRecord(ctx, tx, documentID, a)
-		if e != nil || document.Document.LibraryID != libraryID || document.Document.ProjectionKind != "file" || document.Document.State == "deleted" || document.Document.State == "deleting" {
+		if e != nil || document.Document.LibraryID != libraryID || document.Document.ProjectionKind != "file" || document.BodyRef == "" || document.Document.State == "deleted" || document.Document.State == "deleting" {
 			return out, conversationError("not_found", "document_not_found")
 		}
 		predicate := pageAttachmentScope(a, pageID, documentID)
@@ -155,6 +155,11 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
 				return out, e
 			}
+			if page.ContentType == knowledgePageTypeFile {
+				if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
+					return out, e
+				}
+			}
 			out = prior
 			return out, nil
 		}
@@ -163,6 +168,11 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgePageAttachmentTable).Columns("scope_key", "page_id", "document_id", "library_id", "rank", "payload_json").Values(libraryScope(a), pageID, documentID, libraryID, in.Rank, conversationJSON(out)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e
+		}
+		if page.ContentType == knowledgePageTypeFile {
+			if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
+				return out, e
+			}
 		}
 		return out, nil
 	}, &out)
@@ -205,6 +215,11 @@ func (s *Store) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pa
 		}
 		if rows != 1 {
 			return receipt, conversationError("not_found", "page_attachment_not_found")
+		}
+		if page.ContentType == knowledgePageTypeFile {
+			if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
+				return receipt, e
+			}
 		}
 		receipt.Removed = true
 		return receipt, nil

@@ -79,6 +79,37 @@ func TestKnowledgeLibrariesUsePhysicalIDCursor(t *testing.T) {
 	}
 }
 
+func TestKnowledgeWorkspaceLibrariesListsMetadataWithoutInventingMembership(t *testing.T) {
+	store, _ := openSubjectKnowledgeStore(t)
+	alice := agentsdk.Authority{Known: true, RuntimeID: "catalog-runtime", WorkspaceID: "catalog-workspace", UserID: "alice"}
+	bob := agentsdk.Authority{Known: true, RuntimeID: "catalog-runtime", WorkspaceID: "catalog-workspace", UserID: "bob"}
+	first, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-alice", Kind: "personal", Name: "Alice personal"}, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-bob", Kind: "shared", Name: "Bob shared"}, bob)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	visible, err := store.KnowledgeLibraries(t.Context(), "", 50, alice)
+	if err != nil || len(visible.Items) != 1 || visible.Items[0].ID != first.ID {
+		t.Fatalf("alice-visible=%+v err=%v", visible, err)
+	}
+	page, err := store.KnowledgeWorkspaceLibraries(t.Context(), alice.RuntimeID, alice.WorkspaceID, "", 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != first.ID || page.Items[0].Role != "" || page.Complete {
+		t.Fatalf("first catalog page=%+v err=%v", page, err)
+	}
+	requirePhysicalCursor(t, page.NextAfter, first.ID)
+	page, err = store.KnowledgeWorkspaceLibraries(t.Context(), alice.RuntimeID, alice.WorkspaceID, page.NextAfter, 1)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != second.ID || page.Items[0].Role != "" || !page.Complete {
+		t.Fatalf("second catalog page=%+v err=%v", page, err)
+	}
+	if other, listErr := store.KnowledgeWorkspaceLibraries(t.Context(), alice.RuntimeID, "other-workspace", "", 50); listErr != nil || len(other.Items) != 0 {
+		t.Fatalf("cross-workspace catalog=%+v err=%v", other, listErr)
+	}
+}
+
 func TestKnowledgePageSharesUsePhysicalIDCursor(t *testing.T) {
 	store, manager, library, page := publishedPageShareFixture(t)
 	first, err := store.CreateKnowledgePageShare(t.Context(), library.ID, page.Page.ID, pageShareCreate(

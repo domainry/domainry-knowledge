@@ -27,6 +27,37 @@ type HTTP struct {
 	documentPath string
 }
 
+func validDocumentWriteQuery(query url.Values, streamed bool) bool {
+	if len(query["doc_id"]) != 1 || strings.TrimSpace(query.Get("doc_id")) == "" || len(query.Get("doc_id")) > 4096 {
+		return false
+	}
+	if !streamed {
+		return len(query) == 1
+	}
+	if len(query["filename"]) != 1 || query.Get("filename") == "" || len(query.Get("filename")) > 255 {
+		return false
+	}
+	if len(query) == 2 {
+		return true
+	}
+	if len(query) == 3 {
+		return len(query["source"]) == 1 && query.Get("source") == "verdent_knowledge"
+	}
+	want := map[string]int{
+		"doc_id": 4096, "filename": 255, "source": 64, "title": 2048,
+		"page_id": 128, "page_version": 20, "library_kind": 16, "content_type": 64,
+	}
+	if len(query) != len(want) || query.Get("source") != "verdent_knowledge" {
+		return false
+	}
+	for key, maximum := range want {
+		if len(query[key]) != 1 || query.Get(key) == "" || len(query.Get(key)) > maximum {
+			return false
+		}
+	}
+	return true
+}
+
 // NewKnowledgeDocumentHTTP explicitly adds bounded document management for one
 // dedicated KB. The ordinary retrieval transport does not gain write access.
 func NewKnowledgeDocumentHTTP(origin, kb string, client *http.Client) (*HTTP, error) {
@@ -77,8 +108,8 @@ func (t *HTTP) RoundTripHTTP(ctx context.Context, in connector.HTTPRequest) (con
 	write := false
 	if t.documentPath != "" && u.EscapedPath() == t.documentPath {
 		q, queryErr := url.ParseQuery(u.RawQuery)
-		if queryErr == nil && len(q["doc_id"]) == 1 && strings.TrimSpace(q.Get("doc_id")) != "" && len(q.Get("doc_id")) <= 4096 {
-			write = in.Method == http.MethodDelete && !streamed && len(q) == 1 && len(in.Body) == 0 || in.Method == http.MethodPost && streamed && len(q) == 2 && len(q["filename"]) == 1 && q.Get("filename") != "" && len(q.Get("filename")) <= 255
+		if queryErr == nil && validDocumentWriteQuery(q, streamed) {
+			write = in.Method == http.MethodDelete && !streamed && len(in.Body) == 0 || in.Method == http.MethodPost && streamed
 		}
 	}
 	if streamed {

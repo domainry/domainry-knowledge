@@ -89,6 +89,7 @@ export declare const knowledgeCodeLanguages: {
 };
 export declare const knowledgeCodeLanguageIDs: readonly string[];
 export declare function registerKnowledgeContentAction(editor: object, authorize: KnowledgeEditorProps["authorizeContentAction"]): void;
+export declare function registerKnowledgeClipboardWriter(editor: object, writer: KnowledgeEditorProps["writeClipboardText"]): void;
 type BlockSlashDefinition = {
     id?: string;
     title: string;

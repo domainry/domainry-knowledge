@@ -88,6 +88,14 @@ test("product authentication uses the shared editorial design contract", async (
   assert.match(design, /Authentication uses a two-region editorial entry shell/);
 });
 
+test("library management exposes the existing document lifecycle panel", async () => {
+  const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
+  assert.match(workspace, /import \{ KnowledgeDocumentsPanel \} from "\.\/KnowledgeDocumentsPanel\.tsx"/);
+  assert.match(workspace, /<KnowledgeDocumentsPanel client=\{client\} initialLibrary=\{selected\}/);
+  assert.match(workspace, /onBusyChange=\{setDocumentBusy\}/);
+  assert.match(workspace, /const blocked = busy \|\| sourceBusy \|\| documentBusy/);
+});
+
 test("page collaboration and ACL UI expose bounded responsive states without browser-owned authority", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const commentDrawer = await readFile(path.join(root, "src", "page-workspace", "CommentDrawer.tsx"), "utf8");
@@ -242,6 +250,8 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   assert.match(panel, /resolveKnowledgePageLiveRefresh/);
   assert.match(panel, /event\.type === "changed"/);
   assert.match(panel, /document\.addEventListener\("visibilitychange", recover\)/);
+	assert.match(panel, /passiveRefreshErrorRef/);
+	assert.match(panel, /current === recoveredError \? "" : current/, "passive reload must not erase an unrelated file-validation error");
   assert.match(blockEditor, /withCollaboration/);
   assert.match(blockEditor, /editor\.onChange\([\s\S]*false\)/);
   assert.match(collaboration, /collaborationRevocationCodes/);
@@ -323,7 +333,7 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(pages, /readDocumentContent\(library\.id, match\[1\]/);
   assert.match(pages, /knowledge-document:\$\{document\.id\}/);
   assert.doesNotMatch(pages, /documentEntries|entryKind|listDocuments/);
-  assert.doesNotMatch(workspace, /KnowledgeDocumentsPanel|documents=\{/);
+  assert.doesNotMatch(workspace, /setLibraryDialog\("documents"\)|libraryView === "documents"/);
   for (const type of ["multidimensional_table", "spreadsheet", "presentation", "form", "mind_note", "whiteboard", "mind_map", "flowchart"]) assert.match(registry, new RegExp(type));
   for (const editor of ["GridEditor", "SpreadsheetEditor", "PresentationEditor", "FormEditor", "MindNoteEditor", "WhiteboardEditor", "MindMapEditor", "FlowchartEditor"]) assert.match(registry, new RegExp(editor));
   await assert.rejects(readFile(path.join(root, "src", "TypedPageContent.tsx"), "utf8"));
@@ -346,6 +356,36 @@ test("file-page export is a one-click browser download without a second save-pic
   assert.match(preview, /link\.click\(\)/);
   assertLocalized(filePage, "正在下载…");
   assertLocalized(filePage, "导出");
+});
+
+test("file pages render the authorized original inline immediately without a card or preview dialog gate", async () => {
+  const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
+  const previewDialog = await readFile(path.join(root, "src", "FilePreviewDialog.tsx"), "utf8");
+  assert.match(filePage, /<FilePreview source=\{knowledgeDocumentPreviewSource\(client, document\)\}/);
+  assert.doesNotMatch(filePage, /<FilePreviewDialog|setPreview|knowledge-file-page-icon|knowledge-file-page-details/);
+  assert.match(previewDialog, /export function FilePreview\(/);
+  for (const [kind, viewer] of [["pdf", "PDFViewer"], ["audio", "MediaViewer"], ["video", "MediaViewer"], ["text", "TextViewer"], ["word", "WordViewer"], ["presentation", "PresentationViewer"], ["spreadsheet", "SpreadsheetViewer"], ["image", "ImageViewer"]]) {
+    assert.match(previewDialog, new RegExp(`kind === "${kind}"[\\s\\S]{0,80}<${viewer}`));
+  }
+  assert.match(filePage, /knowledgeDocumentPreviewSource\(client, document\)/);
+  assert.match(filePage, /knowledgePageDocumentDownloadSource\(client, pageID, document\)/);
+});
+
+test("file pages replace immutable originals through version upload instead of generic page editing", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
+  const toolbar = await readFile(path.join(root, "src", "page-workspace", "PageToolbar.tsx"), "utf8");
+  assert.match(panel, /canEdit=\{canWrite && view\.page\.content_type !== "file"\}/);
+  assert.match(panel, /async function replaceFilePage\(file: File\)/);
+  assert.match(panel, /await client\.uploadDocument[\s\S]*?await client\.setPageAttachment[\s\S]*?await client\.savePageDraft/);
+  assert.match(panel, /visibleFileContent = canWrite \? view\?\.draft\?\.body\.content/);
+  assert.doesNotMatch(panel, /content_type === "file" && <div className="knowledge-editor-shell"/);
+  assert.match(toolbar, /props\.canEdit && props\.pageActive/);
+  assert.match(filePage, /knowledge\.file\.upload_new_version/);
+  assert.match(filePage, /knowledge\.file\.reupload/);
+  assert.match(filePage, /type="file"[\s\S]*?onReplace\(file\)/);
+  assertLocalized(filePage, "上传新版本");
+  assertLocalized(filePage, "重新上传");
 });
 
 test("page search uses the authorized structured endpoint and opens canonical hit locations", async () => {
@@ -900,7 +940,7 @@ test("page workspace keeps focused surfaces and mention composition outside the 
   assert.doesNotMatch(panel, /mode === "activity" \? " has-side-panel"/);
 });
 
-test("host selection integration is opt-in, bounded, and does not invoke content authorization", async () => {
+test("host selection integration is opt-in, bounded, and authorizes outbound content", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const editor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
@@ -912,13 +952,40 @@ test("host selection integration is opt-in, bounded, and does not invoke content
   assert.match(panel, /hostIntegration\.addSelection\(reference\)/);
   assert.ok((panel.match(/addDocumentSelection=\{addDocumentSelectionAction\}/g) || []).length >= 3, "read, suggestion, and edit document surfaces must expose the host action");
   const selectionHandler = panel.slice(panel.indexOf("async function addDocumentSelection"), panel.indexOf("async function controlledPageCopy"));
-  assert.doesNotMatch(selectionHandler, /authorizeContentAction|authorizePageContentOperation|agent_context/);
+	const authorization = selectionHandler.indexOf('await authorizeContentAction("copy")');
+	const dispatch = selectionHandler.indexOf("hostIntegration.addSelection(reference)");
+	assert.ok(authorization >= 0 && dispatch > authorization, "selection must pass the server copy policy before reaching the host");
   assert.match(editor, /editor\.getSelection\(\)/);
   assert.match(editor, /editor\.getSelectedText\(\)/);
   assert.match(editor, /boundKnowledgeDocumentSelection/);
   assert.match(editor, /addDocumentSelection && documentSelection/);
   assert.match(host, /slice\(0, KNOWLEDGE_SELECTION_MAX_BLOCKS\)/);
   assert.match(host, /slice\(0, KNOWLEDGE_SELECTION_MAX_QUOTE_LENGTH\)/);
+});
+
+test("page attachment and editor file uploads enter the collaboration document before immediate publish", async () => {
+	const editor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
+	const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+	const handler = editor.slice(editor.indexOf("const uploadPickedFile"), editor.indexOf("const insertSlashItem"));
+	assert.match(handler, /emitDocument\(\)/, "file insertion must explicitly reach the collaboration document");
+	const attachmentHandler = panel.slice(panel.indexOf("async function attachFile"), panel.indexOf("async function uploadEditorFile"));
+	assert.match(attachmentHandler, /setAttachmentInsertRequest\(/, "the page attachment toolbar must ask the editor to mutate its Yjs-bound document");
+	assert.doesNotMatch(attachmentHandler, /setBody\(|editRef\.current\.body\s*=/, "the attachment toolbar must not create a React-only body that collaboration publish cannot see");
+	assert.match(panel, /insertFileRequest=\{attachmentInsertRequest\}/);
+	const insertion = editor.slice(editor.indexOf("if (readOnly || !insertFileRequest"), editor.indexOf("if (readOnly || !insertMarkdownRequest"));
+	assert.match(insertion, /editor\.insertBlocks\(/);
+	assert.match(insertion, /emitDocument\(\)/);
+});
+
+test("Office worker stays independent from the React and Lingui runtime", async () => {
+	const worker = await readFile(path.join(root, "src", "viewers", "office-worker.ts"), "utf8");
+	const errors = await readFile(path.join(root, "src", "viewers", "office-worker-errors.ts"), "utf8");
+	const presentation = await readFile(path.join(root, "src", "viewers", "presentation.ts"), "utf8");
+	const executableErrors = errors.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+	assert.doesNotMatch(worker, /i18n\/runtime|\bkt\(/);
+	assert.doesNotMatch(presentation, /i18n\/runtime|\bktf?\(/);
+	assert.doesNotMatch(executableErrors, /@lingui|react|process\.env/);
+	assert.match(worker, /error_code/);
 });
 
 test("suggestion UI recognizes replace and sends explicit non-Agent provenance", async () => {

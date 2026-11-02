@@ -102,6 +102,22 @@ test("workspace activates its locale before rendering any translated controls", 
   assert.doesNotMatch(wrapper, /\bktf?\(/, "translated controls rendered before locale activation");
 });
 
+test("transient localized notices are cleared when the host locale changes", async () => {
+  const runtime = await readFile(path.join(sourceRoot, "i18n/runtime.ts"), "utf8");
+  const noticeOwners = await Promise.all([
+    "KnowledgeWorkspace.tsx",
+    "KnowledgePagesPanel.tsx",
+    "KnowledgeDocumentsPanel.tsx",
+  ].map(filename => readFile(path.join(sourceRoot, filename), "utf8")));
+  assert.match(runtime, /function useClearTransientKnowledgeNotice[\s\S]*useKnowledgeLocale\(\)[\s\S]*resolvedLocale \|\| contextLocale[\s\S]*useLayoutEffect\(\(\) => setNotice\(""\), \[locale, setNotice\]\)/);
+  for (const source of noticeOwners) {
+    assert.match(source, /const \[[^\n]*notice, setNotice\] = useState\(""\);[\s\S]*useClearTransientKnowledgeNotice\(setNotice/);
+  }
+  const workspace = noticeOwners[0];
+  assert.match(workspace, /<KnowledgeLibraryManager [^>]*locale=\{resolvedLocale\}/);
+  assert.match(workspace, /<KnowledgePagesPanel [^>]*locale=\{locale\}/);
+});
+
 test("number formatting follows the active locale", () => {
   activateKnowledgeLocale("en");
   const english = formatKnowledgeNumber(1234.5);

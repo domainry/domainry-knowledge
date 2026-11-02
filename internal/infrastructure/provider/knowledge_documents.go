@@ -34,6 +34,19 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 	if err != nil {
 		return err
 	}
+	var documentSource *httpapi.PutDocumentSource
+	provider := strings.TrimSpace(k.config.DocumentSourceProvider)
+	if provider != "" {
+		documentSource = &httpapi.PutDocumentSource{Provider: provider}
+	}
+	if in.Source != nil {
+		if documentSource == nil {
+			return knowledgeFailure("request_invalid")
+		}
+		documentSource.Title, documentSource.PageID = in.Source.Title, in.Source.PageID
+		documentSource.PageVersion, documentSource.LibraryKind = in.Source.PageVersion, in.Source.LibraryKind
+		documentSource.ContentType = in.Source.ContentType
+	}
 	maximum := httpapi.MaximumInlineDocumentBytesForFilename(filename)
 	if in.Content == nil || in.Bytes < 1 || maximum < 1 || in.Bytes > maximum || !connector.ValidSHA256(in.SHA256) {
 		return knowledgeFailure("request_invalid")
@@ -42,11 +55,19 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 	if len(in.PermissionIDs) != 0 {
 		base.permissionIDs, base.overridePermissions = slices.Clone(in.PermissionIDs), true
 	}
-	_, err = connector.CallWithContent(ctx, knowledgeDocumentWriteGateway{base, in.RequestID}, httpapi.PutDocument, httpapi.PutDocumentInput{DocID: in.DocumentID, Filename: filename, Bytes: in.Bytes, SHA256: in.SHA256}, in.Content, in.Bytes, in.SHA256, "application/octet-stream")
+	_, err = connector.CallWithContent(ctx, knowledgeDocumentWriteGateway{base, in.RequestID}, httpapi.PutDocument, httpapi.PutDocumentInput{DocID: in.DocumentID, Filename: filename, Bytes: in.Bytes, SHA256: in.SHA256, Source: documentSource}, in.Content, in.Bytes, in.SHA256, "application/octet-stream")
 	if err != nil {
 		return knowledgeConnectorError(err)
 	}
 	return nil
+}
+
+// RecoverKnowledgeDocumentPut replays the same immutable API-push command.
+// The official Search API/Builder contract fences permission acceptance by
+// X-KB-Request-ID and indexes equal doc_id/content hashes as the same version;
+// it may create a new execution only when the previous one needs recovery.
+func (k *Knowledge) RecoverKnowledgeDocumentPut(ctx context.Context, in agentsdk.KnowledgeDocumentIndexContent, a agentsdk.Authority) error {
+	return k.PutKnowledgeDocument(ctx, in, a)
 }
 
 type knowledgeDocumentWriteGateway struct {
@@ -147,4 +168,5 @@ func (k *Knowledge) RecoverKnowledgeDocumentDelete(ctx context.Context, id strin
 
 var _ agentsdk.KnowledgeDocumentSource = (*Knowledge)(nil)
 var _ agentsdk.KnowledgeDocumentPermissionInspectionSource = (*Knowledge)(nil)
+var _ agentsdk.KnowledgeDocumentPutRecoverySource = (*Knowledge)(nil)
 var _ agentsdk.KnowledgeDocumentDeleteRecoverySource = (*Knowledge)(nil)

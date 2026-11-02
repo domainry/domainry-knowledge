@@ -12,6 +12,7 @@ const knowledgeSourceTable = "_knowledge_sources"
 const (
 	knowledgeDocumentSourceKind   = "document"
 	knowledgeDatasourceSourceKind = "datasource"
+	knowledgePhysicalSourceKind   = "physical_guard"
 )
 
 func knowledgeDocumentSchema(d modulehost.Dialect) ([]string, error) {

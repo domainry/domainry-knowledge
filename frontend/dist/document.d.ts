@@ -35,4 +35,6 @@ export declare const documentPipelineStages: readonly [{
     readonly label: string;
 }];
 export declare function documentPipelinePosition(document: KnowledgeDocument): number;
+export type DocumentPipelineState = "done" | "active" | "pending" | "failed" | "skipped";
+export declare function documentPipelineState(document: KnowledgeDocument, index: number): DocumentPipelineState;
 export declare function sha256(file: Blob, signal?: AbortSignal, onProgress?: (ratio: number) => void): Promise<string>;

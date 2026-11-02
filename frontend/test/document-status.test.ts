@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { documentCanReindex, documentErrorDetail, documentStatusDetail } from "../src/document.ts";
+import { documentCanReindex, documentErrorDetail, documentLabel, documentPipelineState, documentStatusDetail } from "../src/document.ts";
 import type { KnowledgeDocument } from "../src/types.ts";
 import { activateKnowledgeLocale } from "../src/i18n/runtime.ts";
 
@@ -18,7 +18,10 @@ test("storage-only originals stay downloadable without pretending to be indexed"
     state: "ready", security_status: "clean", index_status: "STORED", reindexing: false,
   } as KnowledgeDocument;
   assert.equal(documentCanReindex(stored), false);
+  assert.equal(documentLabel(stored), "仅保存原件");
   assert.match(documentStatusDetail(stored), /预览和下载/);
-  assert.match(documentStatusDetail(stored), /未配置远端索引/);
+  assert.match(documentStatusDetail(stored), /未进入全文检索/);
+  assert.doesNotMatch(documentStatusDetail(stored), /未配置远端索引/);
+  assert.deepEqual([0, 1, 2, 3, 4, 5].map(index => documentPipelineState(stored, index)), ["done", "done", "skipped", "skipped", "skipped", "active"]);
   assert.equal(documentCanReindex({ ...stored, index_status: "INDEXED" }), true);
 });

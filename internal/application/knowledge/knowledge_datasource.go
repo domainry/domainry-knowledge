@@ -114,7 +114,7 @@ func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string,
 	if err != nil {
 		return zero, err
 	}
-	documents, ok := s.repo.(persistence.KnowledgeDocumentRepository)
+	_, ok = s.repo.(persistence.KnowledgeDocumentRepository)
 	if !ok {
 		return zero, conversationFailure("unavailable", "datasources_unavailable")
 	}
@@ -127,11 +127,7 @@ func (s *Service) KnowledgeLibrarySources(ctx context.Context, id, after string,
 			out.NextAfter = out.Items[len(out.Items)-1].Key
 			break
 		}
-		used, e := documents.KnowledgeSourceManaged(ctx, definition.SourceID)
-		if e != nil {
-			return zero, e
-		}
-		out.Items = append(out.Items, agentsdk.KnowledgeDatasourceChoice{Key: definition.Key, Name: definition.Name, Description: definition.Description, Available: !found && !static && !used && out.CanBind})
+		out.Items = append(out.Items, agentsdk.KnowledgeDatasourceChoice{Key: definition.Key, Name: definition.Name, Description: definition.Description, Available: !found && !static && out.CanBind})
 	}
 	currentLibrary, err := s.DatasourceAccess(ctx, id, knowledgesdk.ActionSourcesList, a)
 	if err != nil {

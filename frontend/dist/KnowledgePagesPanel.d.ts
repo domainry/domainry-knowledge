@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import type { KnowledgeClient, KnowledgeLibrary, KnowledgePageSearchLocation } from "./types.ts";
-import { type KnowledgeHostIntegration } from "./hostIntegration.ts";
+import { type KnowledgeHostIntegration, type KnowledgeHostLocale } from "./hostIntegration.ts";
 export declare function pageContentSHA256(content: string): Promise<string>;
-export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: {
+export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, locale, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage, onLibraryAccessRevoked }: {
     client: KnowledgeClient;
     library: KnowledgeLibrary;
     currentUserID?: string;
@@ -13,6 +13,7 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
     initialBlockID?: string;
     initialSearchLocation?: KnowledgePageSearchLocation;
     initialPageMode?: "read" | "edit";
+    locale?: KnowledgeHostLocale;
     scopeTabs?: ReactNode;
     teamLibraries?: KnowledgeLibrary[];
     hostIntegration?: KnowledgeHostIntegration;
@@ -24,4 +25,5 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
         mode: "read" | "edit";
     } | null) => void;
     onManage?: () => void;
+    onLibraryAccessRevoked?: (code: string) => void;
 }): import("react").JSX.Element;

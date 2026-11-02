@@ -11,3 +11,8 @@ export declare function resolveKnowledgePageLiveRefresh(input: {
     current: KnowledgePageView | null;
     refreshed: KnowledgePageView;
 }): KnowledgePageLiveRefreshState | null;
+export declare function resolveKnowledgePageProjectionRefresh(input: {
+    selectedPageID: string;
+    current: KnowledgePageView | null;
+    refreshed: KnowledgePageView;
+}): KnowledgePageView | null;

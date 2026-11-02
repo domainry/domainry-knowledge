@@ -25,13 +25,28 @@ func knowledgeSourcePredicate(a agentsdk.Authority, binding string) query.Predic
 	return query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("binding_key", binding))
 }
 func (s *Store) knowledgeSourceClaimed(ctx context.Context, db conversationDB, source string) (bool, error) {
-	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgeSourceTable).Projections(query.Project(query.CountAll())).Where(query.Equal("source_key", source)).Build()
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgeSourceTable).Projections(query.Project(query.CountAll())).Where(query.Or(query.Equal("source_key", source), query.Equal("source_key", knowledgePhysicalSourceKey(source)))).Build()
 	if err != nil {
 		return false, err
 	}
 	var count int
 	err = db.QueryRowContext(ctx, q, args...).Scan(&count)
 	return count > 0, err
+}
+
+func knowledgePhysicalSourceKey(source string) string {
+	return conversationHash([]string{"knowledge_physical_source", source})
+}
+
+// Keep the physical source managed independently of individual library
+// bindings, so raw/default retrieval cannot bypass the document allowlist.
+func (s *Store) registerKnowledgePhysicalSource(ctx context.Context, tx *sql.Tx, source string) error {
+	key := knowledgePhysicalSourceKey(source)
+	q, args, err := query.NewInsertBuilder(s.store.Renderer(), knowledgeSourceTable).
+		Columns("scope_key", "binding_key", "source_kind", "source_key", "payload_json").
+		Values(key, "physical", knowledgePhysicalSourceKind, key, "{}").
+		OnConflictDoNothing("source_key").Build()
+	return conversationExec(ctx, tx, q, args, err)
 }
 func validKnowledgeDocumentID(id string) bool {
 	return entityid.Validate("kdoc", id) == nil
@@ -85,16 +100,26 @@ func (s *Store) activateDocumentSource(ctx context.Context, tx *sql.Tx, scope ag
 	return conversationExec(ctx, tx, q, args, e)
 }
 func (s *Store) documentLibrarySource(ctx context.Context, db conversationDB, id string, a agentsdk.Authority) (string, error) {
-	q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("source_key").Where(knowledgeSourcePredicate(a, id)).Build()
+	q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeSourceTable).Columns("source_kind", "source_key", "payload_json").Where(knowledgeSourcePredicate(a, id)).Build()
 	if e != nil {
 		return "", e
 	}
-	var out string
-	e = db.QueryRowContext(ctx, q, args...).Scan(&out)
+	var kind, out, payload string
+	e = db.QueryRowContext(ctx, q, args...).Scan(&kind, &out, &payload)
 	if errors.Is(e, sql.ErrNoRows) {
 		return "", nil
 	}
-	return out, e
+	if e != nil || kind != knowledgeDatasourceSourceKind {
+		return out, e
+	}
+	var binding persistence.KnowledgeDatasourceBinding
+	if e = unmarshalDurableJSON([]byte(payload), &binding); e != nil {
+		return "", e
+	}
+	if binding.LibraryID != id || !validArtifactSHA(binding.SourceID) {
+		return "", conversationError("unavailable", "document_source_invalid")
+	}
+	return binding.SourceID, nil
 }
 func (s *Store) KnowledgeDocumentLibrarySource(ctx context.Context, id string, a agentsdk.Authority) (string, error) {
 	if _, e := s.KnowledgeLibrary(ctx, id, a); e != nil {
@@ -408,6 +433,12 @@ func (s *Store) RequestKnowledgeDocumentRetry(ctx context.Context, id string, ex
 		}
 		switch {
 		case out.Reindex != nil:
+			// An operator retry may reopen one idempotent replay only after the
+			// worker inspected the shadow remote and confirmed it is absent.
+			// Uncertain writes keep their durable fence and are never blindly reset.
+			if out.Document.ErrorCode == "document_reindex_put_unconfirmed" {
+				out.Reindex.PutRecoveryAttempts = 0
+			}
 			out.Document.State = "ready"
 			out.Document.Reindexing = true
 			out.Document.ProcessingStage = "index"

@@ -31,5 +31,4 @@ export type DisplaySlide = {
 export type OfficeResult = {
     sheets?: DisplaySheet[];
     slides?: DisplaySlide[];
-    error?: string;
 };

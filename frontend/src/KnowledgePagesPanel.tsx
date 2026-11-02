@@ -1,6 +1,6 @@
-import { formatKnowledgeDate, kt, ktf } from "./i18n/runtime.ts";
+import { formatKnowledgeDate, kt, ktf, useClearTransientKnowledgeNotice } from "./i18n/runtime.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Bell, BookOpen, CalendarClock, Check, ChevronDown, ChevronRight, Clock3, Cloud, FilePlus2, GitMerge, GitPullRequest, LayoutTemplate, Link2, LoaderCircle, Paperclip, Pencil, Pin, Plus, RefreshCw, Save, ScanSearch, Search, Send, Settings, Share2, ShieldCheck, Sparkles, Star, Tags, Trash2, Upload, UserRoundCog, Users, Wifi, X } from "lucide-react";
 import { Button, EmptyState, Select } from "./components.tsx";
@@ -10,10 +10,11 @@ import { useKnowledgeCollaboration } from "./useKnowledgeCollaboration.ts";
 import { useKnowledgeNativeAwareness } from "./useKnowledgeNativeAwareness.ts";
 import { collaborationPresenceUserIDs } from "./collaboration.ts";
 import { pageTypeMeta, PageTypeIcon } from "./pageTypeRegistry.ts";
+import { clampPageTreeWidth, pageTreeDefaultWidth, pageTreeIndent, pageTreeLoadMoreIndent, pageTreeMaximumWidth, pageTreeMinimumWidth } from "./pageTreeLayout.ts";
 import { KnowledgeEditor } from "./editors/KnowledgeEditor.tsx";
 import type { KnowledgeCommentAnchorSelection, KnowledgeCommentMarker, KnowledgeDynamicBlockRuntime, KnowledgeEditorChange, KnowledgeFormRuntime, KnowledgeMentionRuntime, KnowledgePollRuntime, KnowledgeTaskRuntime } from "./editors/types.ts";
 import type { KnowledgePageContentType } from "./types.ts";
-import { appendDocumentImage, documentOutline, documentStats } from "./documentContent.ts";
+import { documentOutline, documentStats } from "./documentContent.ts";
 import { KnowledgeFilePage } from "./KnowledgeFilePage.tsx";
 import { KnowledgePageShareManager } from "./KnowledgePageShareManager.tsx";
 import { KnowledgePageContentPolicyManager } from "./KnowledgePageContentPolicyManager.tsx";
@@ -32,8 +33,8 @@ import { nativePageOperations } from "./nativeOperations.ts";
 import { gridAutomationExecutions } from "./gridContent.ts";
 import { parseFormContent } from "./formContent.ts";
 import { KnowledgeCreateMenu } from "./KnowledgeCreateMenu.tsx";
-import { createKnowledgeSelectionReference, type KnowledgeDocumentSelectionSnapshot, type KnowledgeHostIntegration } from "./hostIntegration.ts";
-import { resolveKnowledgePageLiveRefresh } from "./pageLiveUpdates.ts";
+import { createKnowledgeSelectionReference, type KnowledgeDocumentSelectionSnapshot, type KnowledgeHostIntegration, type KnowledgeHostLocale, writeKnowledgeClipboardText } from "./hostIntegration.ts";
+import { resolveKnowledgePageLiveRefresh, resolveKnowledgePageProjectionRefresh } from "./pageLiveUpdates.ts";
 
 const pageSchemaVersion = 2;
 
@@ -449,12 +450,15 @@ function currentPageTextRanges(root: HTMLElement, query: string) {
 	return ranges;
 }
 
-export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; scopeTabs?: ReactNode; teamLibraries?: KnowledgeLibrary[]; hostIntegration?: KnowledgeHostIntegration; onLibrarySelect?: (libraryID: string) => void; onCreateLibrary?: () => void; onSelectionChange?: (page: { id: string; title: string; mode: "read" | "edit" } | null) => void; onManage?: () => void }) {
+export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", locale, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onManage, onLibraryAccessRevoked }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; locale?: KnowledgeHostLocale; scopeTabs?: ReactNode; teamLibraries?: KnowledgeLibrary[]; hostIntegration?: KnowledgeHostIntegration; onLibrarySelect?: (libraryID: string) => void; onCreateLibrary?: () => void; onSelectionChange?: (page: { id: string; title: string; mode: "read" | "edit" } | null) => void; onManage?: () => void; onLibraryAccessRevoked?: (code: string) => void }) {
   const canWrite = !library.archived && (library.role === "editor" || library.role === "manager");
+  const writeClipboardText = useCallback((text: string) => writeKnowledgeClipboardText(hostIntegration, text), [hostIntegration]);
   const hasTeamLibraryPicker = library.kind === "shared" && !!teamLibraries?.length && !!onLibrarySelect;
   const [children, setChildren] = useState<Record<string, KnowledgePage[]>>({}), [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [childrenCursor, setChildrenCursor] = useState<Record<string, string>>({}), [childrenComplete, setChildrenComplete] = useState<Record<string, boolean>>({});
   const [navigationSection, setNavigationSection] = useState<PageNavigationSection>("all");
+  const [pageTreeWidth, setPageTreeWidth] = useState(pageTreeDefaultWidth), [pageTreeResizing, setPageTreeResizing] = useState(false);
+  const pageTreeResizeRef = useRef<{ pointerID: number; startX: number; startWidth: number; direction: 1 | -1 } | null>(null);
   const [collectionItems, setCollectionItems] = useState<KnowledgePageCollectionItem[]>([]), [collectionAfter, setCollectionAfter] = useState(""), [collectionComplete, setCollectionComplete] = useState(true);
   const [collectionLoading, setCollectionLoading] = useState(false);
   const [personalState, setPersonalState] = useState<KnowledgePagePersonalState | null>(null), [personalStateSaving, setPersonalStateSaving] = useState(false);
@@ -472,6 +476,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const [selectedID, setSelectedID] = useState(initialPageID), [view, setView] = useState<KnowledgePageView | null>(null), [loading, setLoading] = useState(true);
   const [editorEpoch, setEditorEpoch] = useState(0);
 	const [localFilter, setLocalFilter] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
+	useClearTransientKnowledgeNotice(setNotice, locale);
+	const passiveRefreshErrorRef = useRef("");
 	const [collaborationFailure, setCollaborationFailure] = useState("");
 	const [pageFindOpen, setPageFindOpen] = useState(false), [pageFindQuery, setPageFindQuery] = useState("");
 	const [pageFindCount, setPageFindCount] = useState(0), [pageFindActive, setPageFindActive] = useState(0);
@@ -510,7 +516,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const [suggestionText, setSuggestionText] = useState(""), [suggestionComment, setSuggestionComment] = useState(""), [suggestionMentionedUserIDs, setSuggestionMentionedUserIDs] = useState<string[]>([]), [suggestionBusy, setSuggestionBusy] = useState("");
   const [suggestionPanelOpen, setSuggestionPanelOpen] = useState(false);
   const [attachments, setAttachments] = useState<KnowledgePageAttachment[]>([]), [attaching, setAttaching] = useState(false);
-  const [importingFilePage, setImportingFilePage] = useState(false);
+  const [importingFilePage, setImportingFilePage] = useState(false), [replacingFilePage, setReplacingFilePage] = useState(false);
   const [tasks, setTasks] = useState<KnowledgePageTask[]>([]), [tasksReady, setTasksReady] = useState(false);
   const [polls, setPolls] = useState<KnowledgePagePollView[]>([]), [pollsReady, setPollsReady] = useState(false);
   const [accessQuery, setAccessQuery] = useState(""), [accessPrincipals, setAccessPrincipals] = useState<KnowledgePrincipal[]>([]), [accessUserID, setAccessUserID] = useState("");
@@ -523,6 +529,12 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const [aiOpen, setAIOpen] = useState(false), [aiOperation, setAIOperation] = useState<KnowledgeAIOperation>("summarize"), [aiSourceScope, setAISourceScope] = useState<KnowledgeAISourceScope>("published");
   const [aiPrompt, setAIPrompt] = useState(""), [aiLanguage, setAILanguage] = useState(kt("knowledge.auto.9937e365aaf3a085")), [aiExecution, setAIExecution] = useState<KnowledgeAIExecution | null>(null);
   const [aiBusy, setAIBusy] = useState(false), [aiFailure, setAIFailure] = useState(""), [aiInsertRequest, setAIInsertRequest] = useState<{ id: string; markdown: string } | undefined>();
+  const [attachmentInsertRequest, setAttachmentInsertRequest] = useState<{
+    id: string;
+    blockID: string;
+    blockType: "image";
+    props: Record<string, unknown>;
+  } | undefined>();
   const [addSelectionBusy, setAddSelectionBusy] = useState(false);
   const viewRef = useRef<KnowledgePageView | null>(null), editRef = useRef({ title: "", body: "" }), saveQueue = useRef(Promise.resolve());
   const pendingSaveRef = useRef<PendingPageSave | null>(null), pendingNativeSaveRef = useRef<PendingNativePageSave | null>(null), pendingPublishRef = useRef<PendingPagePublish | null>(null);
@@ -598,7 +610,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   useEffect(() => {
     aiRequestAbortRef.current?.abort();
     aiRequestAbortRef.current = null;
-    setAIOpen(false); setAIExecution(null); setAIFailure(""); setAIInsertRequest(undefined);
+    setAIOpen(false); setAIExecution(null); setAIFailure(""); setAIInsertRequest(undefined); setAttachmentInsertRequest(undefined);
   }, [selectedID]);
 
   useEffect(() => () => aiRequestAbortRef.current?.abort(), []);
@@ -752,7 +764,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       setTitle(source?.title || value.page.title); setBody(source?.body.content || ""); editRef.current = { title: source?.title || value.page.title, body: source?.body.content || "" };
       const editAfterSelect = editAfterSelectRef.current === value.page.id;
       if (editAfterSelect) editAfterSelectRef.current = "";
-      const linkedEdit = value.page.id === initialPageID && initialPageMode === "edit" && canWrite;
+      const linkedEdit = value.page.id === initialPageID && initialPageMode === "edit" && canWrite && value.page.content_type !== "file";
       setDirty(false); setSaveState("idle"); setPublishState("idle"); setSaveConflict(null); setTitleEditing(editAfterSelect); setMode(editAfterSelect || linkedEdit ? "edit" : "read"); setDiff(null); setCompare([]); setHistoryPreview(null); setHistorySection("versions"); setRollbackVersion(null); setRollbackBusy(false);
       setVersions([]); setVersionBefore(0); setVersionsComplete(true); setEditHistory([]); setEditHistoryBefore(0); setEditHistoryComplete(true); setComments([]); setCommentAfter(""); setCommentsComplete(true); setCommentBody(""); setCommentAnchor(null); setCommentFocus({ nodeID: "", revision: 0 }); setActiveCommentThreadID(""); setReplyingTo(""); setSuggestions([]); setSuggestionText(""); setSuggestionComment(""); setSuggestionMentionedUserIDs([]); setSuggestionBusy(""); setSuggestionPanelOpen(false); setPageAccess(null); setPermissionGrants([]); setPendingMove(null);
       void resolveProfiles([value.published?.published_by_user_id || "", pageMetadata.owner_user_id || "", ...pageMetadata.content_admin_user_ids, pageMetadata.last_reviewed_by_user_id || "", pageMetadata.updated_by_user_id || "", ...pageMetadata.properties.filter(property => property.type === "person").map(property => property.value)], abort.signal);
@@ -784,10 +796,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         if (!next) return;
         viewRef.current = next.view; setView(next.view); setTitle(next.title); setBody(next.body);
         editRef.current = { title: next.title, body: next.body };
-        setDirty(false); setSaveState("saved"); setSaveConflict(null); setError("");
+		setDirty(false); setSaveState("saved"); setSaveConflict(null);
+		const recoveredError = passiveRefreshErrorRef.current;
+		passiveRefreshErrorRef.current = "";
+		if (recoveredError) setError(current => current === recoveredError ? "" : current);
         syncVisiblePageTitle(selectedID, next.title);
       } catch (failure) {
-        if (active && !abort.signal.aborted) setError(formatError(failure));
+		if (active && !abort.signal.aborted) {
+			const refreshError = formatError(failure);
+			passiveRefreshErrorRef.current = refreshError;
+			setError(refreshError);
+		}
       }
     };
     const wait = (milliseconds: number) => new Promise<void>(resolve => {
@@ -804,6 +823,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
             if (event.type === "revoked") {
               active = false; abort.abort(); viewRef.current = null; setView(null);
               setError(kt("knowledge.auto.897f5b45da27d8e5"));
+              onLibraryAccessRevoked?.(event.code || "");
             } else if (event.type === "changed") void reload();
           }, abort.signal);
           if (!active || abort.signal.aborted) return;
@@ -822,7 +842,30 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       active = false; abort.abort(); if (retryTimer) window.clearTimeout(retryTimer);
       window.removeEventListener("focus", recover); document.removeEventListener("visibilitychange", recover);
     };
-  }, [canWrite, client, dirty, formatError, library.id, mode, selectedID, view?.page.id, view?.page.revision]);
+  }, [canWrite, client, dirty, formatError, library.id, mode, onLibraryAccessRevoked, selectedID, view?.page.id, view?.page.revision]);
+
+  useEffect(() => {
+    if (!selectedID || view?.page.id !== selectedID || !["queued", "indexing", "failed"].includes(view.page.projection_status || "none")) return;
+    let active = true, timer = 0;
+    const abort = new AbortController();
+    const poll = async () => {
+      try {
+        const refreshed = await client.getPage(library.id, selectedID, canWrite, abort.signal);
+        if (!active || abort.signal.aborted) return;
+        const next = resolveKnowledgePageProjectionRefresh({ selectedPageID: selectedID, current: viewRef.current, refreshed });
+        if (!next) return;
+        viewRef.current = next;
+        setView(next);
+        if (["queued", "indexing", "failed"].includes(refreshed.page.projection_status || "none")) {
+          timer = window.setTimeout(() => void poll(), refreshed.page.projection_status === "failed" ? 5_000 : 1_000);
+        }
+      } catch {
+        if (active && !abort.signal.aborted) timer = window.setTimeout(() => void poll(), 5_000);
+      }
+    };
+    timer = window.setTimeout(() => void poll(), view.page.projection_status === "failed" ? 5_000 : 1_000);
+    return () => { active = false; abort.abort(); if (timer) window.clearTimeout(timer); };
+  }, [canWrite, client, library.id, selectedID, view?.page.id, view?.page.projection_status]);
 
   useEffect(() => {
     if (mode !== "edit") setTitleEditing(false);
@@ -1171,6 +1214,32 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   }, [client, formatError, library.id, library.role, mode, selectedID]);
 
   useEffect(() => {
+    if (mode !== "permissions" || library.role !== "manager" || !selectedID || !client.getPageAccess || !pageAccess || pageAccess.projection_status === "ready" || pageAccess.projection_status === "failed") return;
+    const abort = new AbortController();
+    let timer = 0;
+    const refresh = async () => {
+      try {
+        const value = await client.getPageAccess!(library.id, selectedID, abort.signal);
+        if (abort.signal.aborted) return;
+        setPageAccess(current => !current || current.page_id !== value.page_id || current.revision > value.revision ? current : value);
+        if (viewRef.current && viewRef.current.page.id === value.page_id && viewRef.current.page.access_revision <= value.revision) {
+          const next = { ...viewRef.current, page: { ...viewRef.current.page, access_mode: value.mode, access_revision: value.revision, access_status: value.projection_status } };
+          viewRef.current = next; setView(next);
+        }
+        if (value.projection_status === "ready") setNotice(kt("knowledge.auto.ad9efe7a0288ef84"));
+        else if (value.projection_status !== "failed") timer = window.setTimeout(() => void refresh(), 1_000);
+      } catch (failure) {
+        if (!abort.signal.aborted) {
+          setError(formatError(failure));
+          timer = window.setTimeout(() => void refresh(), 1_000);
+        }
+      }
+    };
+    timer = window.setTimeout(() => void refresh(), 1_000);
+    return () => { window.clearTimeout(timer); abort.abort(); };
+  }, [client, formatError, library.id, library.role, mode, pageAccess?.page_id, pageAccess?.projection_status, pageAccess?.revision, selectedID]);
+
+  useEffect(() => {
     if (mode !== "permissions" || library.role !== "manager" || permissionMode !== "restricted" || permissionSubjectType !== "user") { setPermissionPrincipals([]); return; }
     const abort = new AbortController();
     const timer = window.setTimeout(() => void client.searchLibraryMembers(library.id, permissionQuery.trim(), "", 50, abort.signal).then(page => {
@@ -1259,12 +1328,51 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         content_sha256: await pageContentSHA256(content),
       }, signal);
       if (parentPageID) setExpanded(current => new Set(current).add(parentPageID));
-      editAfterSelectRef.current = saved.page.id;
       await loadChildren(saved.page.parent_page_id || "");
       setSelectedID(saved.page.id);
       setNotice(ktf("knowledge.auto.c5842dbd8976235f", { value0: file.name }));
     } catch (failure) { setError(formatError(failure)); }
     finally { setImportingFilePage(false); }
+  }
+
+  async function replaceFilePage(file: File) {
+    const current = viewRef.current;
+    if (!canWrite || replacingFilePage || !current?.draft || current.page.content_type !== "file" || current.page.state !== "active") return;
+    setError("");
+    if (!library.documents_configured) { setError(kt("knowledge.auto.00e188a5c70a0fcf")); return; }
+    if (!file.size || file.size > documentUploadMaxBytes(library)) { setError(kt("knowledge.auto.d97de7b6f295656b")); return; }
+    if (!knowledgeDocumentSupports(library, file.name)) { setError(kt("knowledge.auto.4701a51f2d507975")); return; }
+    const signal = AbortSignal.timeout(2 * 60 * 60 * 1000);
+    setReplacingFilePage(true);
+    try {
+      const digest = await sha256(file, signal);
+      const document = await client.uploadDocument({ libraryID: library.id, file, clientID: crypto.randomUUID(), sha256: digest, signal });
+      await client.setPageAttachment(library.id, current.page.id, document.id, {
+        client_id: crypto.randomUUID(),
+        title: file.name,
+        rank: `${Date.now()}:${document.id}`,
+      }, signal);
+      const content = filePageContent(document.id, file.name);
+      const saved = await client.savePageDraft(library.id, current.page.id, {
+        client_id: crypto.randomUUID(),
+        expected_draft_revision: current.draft.draft_revision,
+        expected_page_revision: current.page.revision,
+        title: file.name.slice(0, 256),
+        parent_page_id: current.draft.parent_page_id,
+        rank: current.draft.rank,
+        content_schema_version: pageSchemaVersion,
+        content,
+        content_sha256: await pageContentSHA256(content),
+      }, signal);
+      viewRef.current = saved;
+      setView(saved); setTitle(saved.draft?.title || saved.page.title); setBody(saved.draft?.body.content || content);
+      editRef.current = { title: saved.draft?.title || saved.page.title, body: saved.draft?.body.content || content };
+      setDirty(false); setSaveState("saved"); setMode("read");
+      syncVisiblePageTitle(saved.page.id, saved.draft?.title || saved.page.title);
+      setNotice(kt("knowledge.file.version_saved_draft"));
+      await loadChildren(saved.page.parent_page_id || "");
+    } catch (failure) { setError(formatError(failure)); }
+    finally { setReplacingFilePage(false); }
   }
 
   async function convertCurrentPage(targetType: "document" | "mind_note", nextTitle: string, nextBody: string) {
@@ -1569,6 +1677,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     if (!source) return;
     setAddSelectionBusy(true); setError("");
     try {
+		await authorizeContentAction("copy");
       let title = source.title || current.page.title;
       let draftRevision = draftSource ? current.draft?.draft_revision || null : null;
       let contentSha256 = source.body.content_sha256;
@@ -1616,7 +1725,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     event.preventDefault();
     try {
       await authorizeContentAction("copy");
-      await navigator.clipboard.writeText(text);
+      await writeClipboardText(text);
       setNotice(kt("knowledge.auto.3fbf9715dc8f2613"));
     } catch (failure) { setError(formatError(failure)); }
   }
@@ -1624,7 +1733,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   async function copyDraftAfterConflict() {
     try {
       await authorizeContentAction("copy");
-      await navigator.clipboard.writeText(body);
+      await writeClipboardText(body);
       setNotice(kt("knowledge.auto.6bbde7ada7680141"));
     } catch (failure) { setError(formatError(failure)); }
   }
@@ -1908,8 +2017,12 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     try {
       const document = await uploadPageAttachment(file);
       if (file.type.startsWith("image/") && current.page.content_type === "document") {
-        const nextBody = appendDocumentImage(editRef.current.body, document.id, file.name);
-        editRef.current.body = nextBody; setBody(nextBody); setDirty(true); setSaveState("idle"); setMode("edit");
+        setAttachmentInsertRequest({
+          id: crypto.randomUUID(),
+          blockID: crypto.randomUUID(),
+          blockType: "image",
+          props: { name: file.name, caption: file.name, url: `knowledge-document:${document.id}`, showPreview: true },
+        });
       }
       setNotice(kt("knowledge.auto.d507ce8fd4ba36fd"));
     } catch (failure) { setError(formatError(failure)); }
@@ -2054,7 +2167,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     return [...users.values()].sort((left, right) => left.userID === presenceUserID ? -1 : right.userID === presenceUserID ? 1 : right.lastSeenAt.localeCompare(left.lastSeenAt));
   }, [activePresence, presenceUserID]);
   const content = view?.published?.body.content || "";
-  const visibleFileContent = view?.published?.body.content || view?.draft?.body.content || "";
+  const visibleFileContent = canWrite ? view?.draft?.body.content || view?.published?.body.content || "" : view?.published?.body.content || view?.draft?.body.content || "";
+  const fileHasUnpublishedChanges = Boolean(view?.page.content_type === "file" && view.draft && (!view.published || view.draft.title !== view.published.title || view.draft.body.content_sha256 !== view.published.body.content_sha256));
   const outline = useMemo(() => view?.page.content_type === "document" ? documentOutline(content) : [], [content, view?.page.content_type]);
   const editorStats = useMemo(() => documentStats(body), [body]);
   const mentionRuntime = useMemo<KnowledgeMentionRuntime>(() => ({
@@ -2356,12 +2470,42 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const workbenchEditorOpen = Boolean(view && mode === "edit" && workbenchPageTypes.has(view.page.content_type));
   const documentContentScroll = view?.page.content_type === "document" && (mode === "read" || mode === "outline" || mode === "edit" || mode === "suggestions");
   const beginTitleEditing = () => {
-    if (!view || !canWrite || view.page.state !== "active") return;
+    if (!view || !canWrite || view.page.state !== "active" || view.page.content_type === "file") return;
     setMode("edit");
     setTitleEditing(true);
     window.setTimeout(() => titleInputRef.current?.select());
   };
+  const beginPageTreeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pageTreeResizeRef.current = { pointerID: event.pointerId, startX: event.clientX, startWidth: pageTreeWidth, direction: window.getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1 };
+    setPageTreeResizing(true);
+  };
+  const resizePageTree = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = pageTreeResizeRef.current;
+    if (!drag || drag.pointerID !== event.pointerId) return;
+    setPageTreeWidth(clampPageTreeWidth(drag.startWidth + (event.clientX - drag.startX) * drag.direction));
+  };
+  const endPageTreeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pageTreeResizeRef.current?.pointerID !== event.pointerId) return;
+    pageTreeResizeRef.current = null;
+    setPageTreeResizing(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const resizePageTreeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setPageTreeWidth(event.key === "Home" ? pageTreeMinimumWidth : pageTreeMaximumWidth);
+      return;
+    }
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const direction = window.getComputedStyle(event.currentTarget).direction === "rtl" ? -1 : 1;
+    setPageTreeWidth(width => clampPageTreeWidth(width + (event.key === "ArrowRight" ? 16 : -16) * direction));
+  };
   const changeWorkspaceMode = (nextMode: PageWorkspaceMode) => {
+    if (nextMode === "edit" && view?.page.content_type === "file") nextMode = "read";
     setMode(nextMode);
     if (["access", "permissions", "shares", "governance"].includes(nextMode)) {
       setPageFindOpen(false);
@@ -2371,9 +2515,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   return <section className={`knowledge-pages${embedded ? " is-embedded" : ""}`} aria-label={kt("knowledge.auto.fba1208c267ba57c")}>
     {!embedded && <header className="knowledge-section-heading">
       <div className="knowledge-section-identity"><span className="knowledge-section-icon" aria-hidden="true"><BookOpen size={18} /></span><span><small>Knowledge workspace</small><h3>{kt("knowledge.auto.fba1208c267ba57c")}</h3><p>{kt("knowledge.auto.854f0c3ecba55d18")}</p></span></div>
-      {view && <span className={`knowledge-index-state is-${view.page.projection_status || "none"}`}><span aria-hidden="true" />{projectionLabel(view.page)}</span>}
     </header>}
-    <div className="knowledge-pages-layout">
+    <div className="knowledge-pages-layout" style={{ "--knowledge-page-tree-width": `${pageTreeWidth}px` } as CSSProperties}>
       <aside className="knowledge-page-tree" onDragOver={event => { if (canWrite) event.preventDefault(); }} onDrop={() => { if (dragged && dragged.parent_page_id) void move(dragged, ""); setDragged(null); setTreeDropTarget(null); }}>
         {scopeTabs}
         {hasTeamLibraryPicker && <div className="knowledge-team-library-picker"><Select aria-label={kt("knowledge.auto.da80e5bf97c037bf")} value={library.id} disabled={disabled} onChange={event => onLibrarySelect?.(event.target.value)}>{teamLibraries!.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? kt("knowledge.auto.de0931324baa0cab") : ""}</option>)}</Select><KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onCreateLibrary={onCreateLibrary} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} /></div>}
@@ -2397,16 +2540,17 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
           </details>
         </nav>
         <div className="knowledge-tree-label"><span>{pageNavigationLabels[navigationSection]}</span>{navigationSection !== "all" && <button type="button" aria-label={ktf("knowledge.auto.b9da6aab77e5cdbc", { value0: pageNavigationLabels[navigationSection] })} title={kt("knowledge.auto.aee88743413144a2")} disabled={collectionLoading} onClick={() => void refreshCollection(navigationSection)}><RefreshCw className={collectionLoading ? "knowledge-spin" : undefined} size={12} /></button>}</div>
-        {navigationSection === "all" ? <div role="tree" aria-label={kt("knowledge.auto.ab9f749d041b2a91")}>{treeRows.map(({ page, parent, depth, loadMore }, index) => loadMore ? <button key={`more-${parent}-${index}`} className="knowledge-tree-more" style={{ marginInlineStart: `${depth * 16 + 24}px` }} onClick={() => void loadChildren(parent, AbortSignal.timeout(30_000), true)}>{kt("knowledge.auto.af90a08fec8ee28d")}</button> : page && <div key={page.id} className={`knowledge-tree-row${dragged?.id === page.id ? " is-dragging" : ""}${treeDropTarget?.pageID === page.id ? ` is-drop-${treeDropTarget.placement}` : ""}`} style={{ paddingInlineStart: `${depth * 16 + 4}px` }} draggable={canWrite} title={canWrite ? kt("knowledge.auto.9061cb49a6fa8a0e") : undefined} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", page.id); setSelectedID(page.id); setDragged(page); setTreeDropTarget(null); }} onDragEnd={() => { setDragged(null); setTreeDropTarget(null); }} onDragOver={event => { if (!canWrite || !dragged || dragged.id === page.id) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setTreeDropTarget({ pageID: page.id, placement: dragPlacement(event, parent) }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTreeDropTarget(current => current?.pageID === page.id ? null : current); }} onDrop={event => { event.preventDefault(); event.stopPropagation(); const placement = treeDropTarget?.pageID === page.id ? treeDropTarget.placement : dragPlacement(event, parent); if (dragged) void dropTreePage(dragged, page, placement); setDragged(null); setTreeDropTarget(null); }}>
+        {navigationSection === "all" ? <div role="tree" aria-label={kt("knowledge.auto.ab9f749d041b2a91")}>{treeRows.map(({ page, parent, depth, loadMore }, index) => loadMore ? <button key={`more-${parent}-${index}`} className="knowledge-tree-more" style={{ marginInlineStart: `${pageTreeLoadMoreIndent(depth)}px` }} onClick={() => void loadChildren(parent, AbortSignal.timeout(30_000), true)}>{kt("knowledge.auto.af90a08fec8ee28d")}</button> : page && <div key={page.id} className={`knowledge-tree-row${dragged?.id === page.id ? " is-dragging" : ""}${treeDropTarget?.pageID === page.id ? ` is-drop-${treeDropTarget.placement}` : ""}`} style={{ paddingInlineStart: `${pageTreeIndent(depth)}px` }} draggable={canWrite} title={canWrite ? kt("knowledge.auto.9061cb49a6fa8a0e") : undefined} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", page.id); setSelectedID(page.id); setDragged(page); setTreeDropTarget(null); }} onDragEnd={() => { setDragged(null); setTreeDropTarget(null); }} onDragOver={event => { if (!canWrite || !dragged || dragged.id === page.id) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setTreeDropTarget({ pageID: page.id, placement: dragPlacement(event, parent) }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTreeDropTarget(current => current?.pageID === page.id ? null : current); }} onDrop={event => { event.preventDefault(); event.stopPropagation(); const placement = treeDropTarget?.pageID === page.id ? treeDropTarget.placement : dragPlacement(event, parent); if (dragged) void dropTreePage(dragged, page, placement); setDragged(null); setTreeDropTarget(null); }}>
           {hasExpandableChildren(page) ? <button className="knowledge-tree-toggle" aria-label={expanded.has(page.id) ? kt("knowledge.auto.7e44578699728b1d") : kt("knowledge.auto.4044f18980fc413c")} onClick={() => void toggle(page)}>{expanded.has(page.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button> : <span className="knowledge-tree-toggle-spacer" aria-hidden="true" />}
-          <button ref={element => { treeButtonRefs.current[page.id] = element; }} role="treeitem" aria-selected={selectedID === page.id} tabIndex={selectedID === page.id ? 0 : -1} onKeyDown={event => { if (event.key === "ArrowRight" && !expanded.has(page.id) && hasExpandableChildren(page)) { event.preventDefault(); void toggle(page); } else if (event.key === "ArrowLeft") { event.preventDefault(); if (expanded.has(page.id)) void toggle(page); else if (parent) focusTreePage(parent); } else if (event.key === "ArrowDown") { event.preventDefault(); const next = treeRows.slice(index + 1).find(row => row.page)?.page; if (next) focusTreePage(next.id); } else if (event.key === "ArrowUp") { event.preventDefault(); const previous = treeRows.slice(0, index).reverse().find(row => row.page)?.page; if (previous) focusTreePage(previous.id); } else if (event.key === "Enter") { setSelectedID(page.id); } }} onClick={() => setSelectedID(page.id)}><PageTypeIcon type={page.content_type} size={14} /><span>{page.title}</span></button>
+          <button ref={element => { treeButtonRefs.current[page.id] = element; }} role="treeitem" aria-level={depth + 1} aria-selected={selectedID === page.id} title={page.title} tabIndex={selectedID === page.id ? 0 : -1} onKeyDown={event => { if (event.key === "ArrowRight" && !expanded.has(page.id) && hasExpandableChildren(page)) { event.preventDefault(); void toggle(page); } else if (event.key === "ArrowLeft") { event.preventDefault(); if (expanded.has(page.id)) void toggle(page); else if (parent) focusTreePage(parent); } else if (event.key === "ArrowDown") { event.preventDefault(); const next = treeRows.slice(index + 1).find(row => row.page)?.page; if (next) focusTreePage(next.id); } else if (event.key === "ArrowUp") { event.preventDefault(); const previous = treeRows.slice(0, index).reverse().find(row => row.page)?.page; if (previous) focusTreePage(previous.id); } else if (event.key === "Enter") { setSelectedID(page.id); } }} onClick={() => setSelectedID(page.id)}><PageTypeIcon type={page.content_type} size={14} /><span>{page.title}</span></button>
         </div>)}{!loading && treeRows.length === 0 && <p className="knowledge-subtle">{kt("knowledge.auto.4959f72e9e5d9192")}</p>}</div> : <div className="knowledge-collection-list" role="list">
-          {visibleCollectionItems.map(item => <button key={item.page.id} type="button" role="listitem" aria-current={selectedID === item.page.id ? "page" : undefined} onClick={() => setSelectedID(item.page.id)}><PageTypeIcon type={item.page.content_type} size={15} /><span><strong>{item.page.title}</strong><small>{collectionItemDetail(item)}</small></span>{item.page.state === "archived" && <Trash2 size={13} aria-label={kt("knowledge.auto.82395d423099a07a")} />}</button>)}
+          {visibleCollectionItems.map(item => <button key={item.page.id} type="button" role="listitem" aria-current={selectedID === item.page.id ? "page" : undefined} title={item.page.title} onClick={() => setSelectedID(item.page.id)}><PageTypeIcon type={item.page.content_type} size={15} /><span><strong>{item.page.title}</strong><small>{collectionItemDetail(item)}</small></span>{item.page.state === "archived" && <Trash2 size={13} aria-label={kt("knowledge.auto.82395d423099a07a")} />}</button>)}
           {collectionLoading && collectionItems.length === 0 && <p role="status" className="knowledge-subtle"><LoaderCircle className="knowledge-spin" size={14} />{kt("knowledge.auto.21bd738e0d7191a7")}</p>}
           {!collectionLoading && visibleCollectionItems.length === 0 && <p className="knowledge-subtle">{localFilter ? kt("knowledge.auto.c7572df20b03a03e") : ktf("knowledge.auto.ff1f95f1d49e6ba9", { value0: pageNavigationLabels[navigationSection] })}</p>}
           {!collectionComplete && <button type="button" className="knowledge-tree-more" disabled={collectionLoading} onClick={() => void loadMoreCollection()}>{collectionLoading ? kt("knowledge.auto.4927a53bcc886afb") : kt("knowledge.auto.af90a08fec8ee28d")}</button>}
         </div>}
       </aside>
+		<div className={`knowledge-page-tree-resizer${pageTreeResizing ? " is-resizing" : ""}`} role="separator" aria-label={kt("knowledge.auto.c1f31e481aaa0b3b")} aria-orientation="vertical" aria-valuemin={pageTreeMinimumWidth} aria-valuemax={pageTreeMaximumWidth} aria-valuenow={pageTreeWidth} title={kt("knowledge.auto.c1f31e481aaa0b3b")} tabIndex={0} onPointerDown={beginPageTreeResize} onPointerMove={resizePageTree} onPointerUp={endPageTreeResize} onPointerCancel={endPageTreeResize} onKeyDown={resizePageTreeWithKeyboard} />
 		<article ref={pageFindSurfaceRef} onCopyCapture={event => void controlledPageCopy(event)} className={`knowledge-page-main${mode === "access" || mode === "permissions" || mode === "shares" || mode === "governance" ? " has-side-panel" : ""}${mode === "comments" ? " has-comment-drawer" : ""}${workbenchEditorOpen ? " is-workbench" : ""}${documentContentScroll ? " is-scroll-frame" : ""}`}>
 		<KnowledgeDynamicWatermark governance={view?.governance} />
         {!view && <div className="knowledge-page-feedback">
@@ -2415,8 +2559,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         </div>}
         {!view && !loading ? <EmptyState><FilePlus2 size={28} /><h3>{kt("knowledge.auto.adcd1a249aa2aa0e")}</h3></EmptyState> : null}
         {view && <>
-          <PageHeader editing={mode === "edit"} breadcrumbs={view.breadcrumbs} title={mode === "edit" && titleEditing ? <input ref={titleInputRef} className="knowledge-page-heading-title-input" aria-label={kt("knowledge.auto.c3405f8c7d9d392a")} value={title} maxLength={256} disabled={view.page.content_type !== "file" && collaboration.available && !collaboration.ready} onChange={event => updateEditor(event.target.value, body)} onBlur={() => setTitleEditing(false)} onKeyDown={event => { if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur(); }} placeholder={kt("knowledge.auto.5ce2d4cc85397eea")} /> : <h2 className={canWrite && view.page.state === "active" ? "is-editable" : undefined} title={canWrite && view.page.state === "active" ? kt("knowledge.auto.553178355a33f198") : undefined} onDoubleClick={beginTitleEditing}>{mode === "edit" ? title : mode === "suggestions" ? view.draft?.title || view.page.title : view.published?.title || view.page.title}</h2>} governance={view.governance} versionSummary={mode === "suggestions" && view.draft ? ktf("knowledge.auto.549578e1aeee0e7a", { value0: view.draft.draft_revision }) : ktf("knowledge.auto.579c81c37464e6c1", { value0: view.page.published_version || kt("knowledge.auto.926f4d92408df955"), value1: view.published ? `${memberProfiles[view.published.published_by_user_id]?.display_name || kt("knowledge.auto.3c2e935e260f4c63")} ${kt("knowledge.common.published_at")} ${formatKnowledgeDate(view.published.published_at)}` : kt("knowledge.common.draft_only") })} metadataSummary={metadata && (metadataDirty || metadata.tags.length > 0 || metadata.aliases.length > 0 || metadata.related_page_ids.length > 0 || metadata.owner_user_id || metadata.status || metadata.next_review_at) ? <div className="knowledge-page-metadata-summary" aria-label={kt("knowledge.auto.9ad6d695230596e9")}>{metadataDirty && <span className="is-pending">{kt("knowledge.auto.6a1be012c99c34e8")}</span>}{metadata.status && <span className={`is-status-${metadata.status}`}><i aria-hidden="true" />{pageStatusLabels[metadata.status]}</span>}{metadata.owner_user_id && <span><Users size={12} />{kt("knowledge.auto.a525346277ed54bd")}{memberProfiles[metadata.owner_user_id]?.display_name || metadata.owner_user_id}</span>}{metadata.next_review_at && <span><CalendarClock size={12} />{kt("knowledge.auto.4a0c2575242946b5")}{formatKnowledgeDate(metadata.next_review_at)}</span>}{metadata.aliases.map(alias => <span key={`alias-${alias}`}><Share2 size={11} />{kt("knowledge.auto.55c4cb3d74643b57")}{alias}</span>)}{metadata.related_page_ids.length > 0 && <span><Link2 size={11} />{metadata.related_page_ids.length} {kt("knowledge.auto.7fc7f0683827a215")}</span>}{metadata.tags.map(tag => <span key={tag} className="is-tag"><Tags size={11} />{tag}</span>)}</div> : undefined} presence={mode === "edit" && presenceAvailable ? <details className="knowledge-presence-details"><summary aria-label={ktf("knowledge.auto.720b997a9d04050f", { value0: activeOnlineUsers })}><div className="knowledge-avatar-stack">{collaborators.slice(0, 4).map(person => <span key={person.userID} title={memberProfiles[person.userID]?.display_name || person.userID} style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{(memberProfiles[person.userID]?.display_name || person.userID).slice(0, 1).toUpperCase()}</span>)}</div><strong>{activeOnlineUsers} {kt("knowledge.auto.2b1960b2981c2816")}</strong><ChevronDown size={13} /></summary><aside className="knowledge-collaboration-popover" aria-label={kt("knowledge.auto.b86bbdd237a8a383")}><header><div><Users size={17} /><strong>{kt("knowledge.auto.495fa10d8fe90767")}</strong></div><span>{activeOnlineUsers} {kt("knowledge.auto.50f5d65d57290f75")}</span></header><section className="knowledge-merge-strategy"><GitMerge size={17} /><div><strong>{kt("knowledge.auto.bcab100236daa8d2")}</strong><p>{collaboration.available ? kt("knowledge.auto.720e84e55c39b45f") : kt("knowledge.auto.a46e54ea82afc4c2")}</p></div></section>{collaboration.available && collaboration.mergeCount > 0 && <p className="knowledge-merge-event"><Check size={14} />{kt("knowledge.auto.a2424c9cd4039113")}{collaboration.mergeCount} {kt("knowledge.auto.4abd46332d28af22")}{collaboration.mergedUserIDs.length > 0 ? ktf("knowledge.auto.16db0bcd5f1b6ee2", { value0: collaboration.mergedUserIDs.map(id => memberProfiles[id]?.display_name || id).join("、") }) : ""}</p>}<div className="knowledge-collaborator-list">{collaborators.map(person => { const profile = memberProfiles[person.userID]; const name = profile?.display_name || person.userID; const position = person.selectionBlockID ? `${nativeAwareness.available ? kt("knowledge.auto.15786e92263d9459") : kt("knowledge.auto.c44dca9aefa430ce")} ${person.cursorBlockID.slice(0, 8) || kt("knowledge.auto.5491701e1c3a8cfd")} → ${person.selectionBlockID.slice(0, 8)}` : person.cursorBlockID ? `${nativeAwareness.available ? kt("knowledge.auto.45c21a9e1fe271db") : kt("knowledge.auto.7afe4fff68826e80")} ${person.cursorBlockID.slice(0, 8)}` : kt("knowledge.auto.ee04f93a02b7a93a"); return <div className="knowledge-collaborator" key={person.userID}><span className="knowledge-collaborator-avatar" style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{name.slice(0, 1).toUpperCase()}<i /></span><span><strong>{name}{person.userID === presenceUserID && <em>{kt("knowledge.auto.a0c7716669b5ded0")}</em>}</strong><small>{position}{person.sessions > 1 ? ktf("knowledge.auto.a885452820afe192", { value0: person.sessions }) : ""}</small></span><time dateTime={person.lastSeenAt}>{recentActivityLabel(person.lastSeenAt)}</time></div>; })}</div><footer><span><Wifi size={13} />{collaborationStateLabel}</span>{collaboration.available && collaboration.state === "error" && <Button onClick={collaboration.reconnect}><RefreshCw size={13} />{kt("knowledge.auto.68891ab35cab9663")}</Button>}</footer></aside></details> : undefined} actionHostRef={setPageActionHost} canEdit={canWrite && view.page.state === "active"} onNavigate={setSelectedID} onEdit={() => setMode("edit")} />
-          <PageToolbar mode={mode} pageActive={view.page.state === "active"} canWrite={canWrite} isDocument={view.page.content_type === "document"} pageFindOpen={pageFindOpen} personalState={personalState} personalStateSaving={personalStateSaving} aiAvailable={aiAvailable} aiOpen={aiOpen} isManager={library.role === "manager"} canManagePermissions={library.role === "manager" && !!client.getPageAccess && !!client.setPageAccess} canManageShares={library.role === "manager" && !!client.listPageShares && !!client.createPageShare && !!client.revokePageShare} canReviewGovernance={canReviewGovernance} archived={view.page.state === "archived"} onModeChange={changeWorkspaceMode} onOpenSuggestions={() => { setCommentAnchor(null); setSuggestionPanelOpen(false); setMode("suggestions"); }} onOpenFind={() => { setPageFindOpen(true); window.setTimeout(() => pageFindInputRef.current?.select()); }} onToggleFavorite={() => void updatePersonalState({ favorite: !personalState?.favorite }, personalState?.favorite ? kt("knowledge.auto.5abb3406155b1520") : kt("knowledge.auto.e108d15b5d388dcc"))} onToggleSubscription={() => void updatePersonalState({ subscribed: !personalState?.subscribed }, personalState?.subscribed ? kt("knowledge.auto.bfb28f5a652e633f") : kt("knowledge.auto.60469b595212333b"))} onToggleShortcut={() => void updatePersonalState({ shortcutRank: personalState?.shortcut_rank ? "" : `${Date.now().toString().padStart(20, "0")}:${crypto.randomUUID()}` }, personalState?.shortcut_rank ? kt("knowledge.auto.e0087afad93a3b36") : kt("knowledge.auto.8a7f806fb1c06354"))} onOpenAI={() => { setMode("edit"); setAISourceScope(view.published ? "published" : "draft"); setAIOpen(true); setAIFailure(""); }} onCopy={() => void copyCurrentPage()} onArchive={() => void archive(view.page)} />
+          <PageHeader editing={mode === "edit" && view.page.content_type !== "file"} title={mode === "edit" && titleEditing ? <input ref={titleInputRef} className="knowledge-page-heading-title-input" aria-label={kt("knowledge.auto.c3405f8c7d9d392a")} value={title} maxLength={256} disabled={view.page.content_type !== "file" && collaboration.available && !collaboration.ready} onChange={event => updateEditor(event.target.value, body)} onBlur={() => setTitleEditing(false)} onKeyDown={event => { if (event.key === "Enter" || event.key === "Escape") event.currentTarget.blur(); }} placeholder={kt("knowledge.auto.5ce2d4cc85397eea")} /> : <h2 className={canWrite && view.page.state === "active" && view.page.content_type !== "file" ? "is-editable" : undefined} title={canWrite && view.page.state === "active" && view.page.content_type !== "file" ? kt("knowledge.auto.553178355a33f198") : undefined} onDoubleClick={beginTitleEditing}>{view.page.content_type === "file" ? view.draft?.title || view.published?.title || view.page.title : mode === "edit" ? title : mode === "suggestions" ? view.draft?.title || view.page.title : view.published?.title || view.page.title}</h2>} governance={view.governance} versionSummary={mode === "suggestions" && view.draft ? ktf("knowledge.auto.549578e1aeee0e7a", { value0: view.draft.draft_revision }) : ktf("knowledge.auto.579c81c37464e6c1", { value0: view.page.published_version || kt("knowledge.auto.926f4d92408df955"), value1: view.published ? `${memberProfiles[view.published.published_by_user_id]?.display_name || kt("knowledge.auto.3c2e935e260f4c63")} ${kt("knowledge.common.published_at")} ${formatKnowledgeDate(view.published.published_at)}` : kt("knowledge.common.draft_only") })} projectionStatus={<span className={`knowledge-index-state is-${view.page.projection_status || "none"}`}><span aria-hidden="true" />{projectionLabel(view.page)}</span>} metadataSummary={metadata && (metadataDirty || metadata.tags.length > 0 || metadata.aliases.length > 0 || metadata.related_page_ids.length > 0 || metadata.owner_user_id || metadata.status || metadata.next_review_at) ? <div className="knowledge-page-metadata-summary" aria-label={kt("knowledge.auto.9ad6d695230596e9")}>{metadataDirty && <span className="is-pending">{kt("knowledge.auto.6a1be012c99c34e8")}</span>}{metadata.status && <span className={`is-status-${metadata.status}`}><i aria-hidden="true" />{pageStatusLabels[metadata.status]}</span>}{metadata.owner_user_id && <span><Users size={12} />{kt("knowledge.auto.a525346277ed54bd")}{memberProfiles[metadata.owner_user_id]?.display_name || metadata.owner_user_id}</span>}{metadata.next_review_at && <span><CalendarClock size={12} />{kt("knowledge.auto.4a0c2575242946b5")}{formatKnowledgeDate(metadata.next_review_at)}</span>}{metadata.aliases.map(alias => <span key={`alias-${alias}`}><Share2 size={11} />{kt("knowledge.auto.55c4cb3d74643b57")}{alias}</span>)}{metadata.related_page_ids.length > 0 && <span><Link2 size={11} />{metadata.related_page_ids.length} {kt("knowledge.auto.7fc7f0683827a215")}</span>}{metadata.tags.map(tag => <span key={tag} className="is-tag"><Tags size={11} />{tag}</span>)}</div> : undefined} presence={mode === "edit" && presenceAvailable ? <details className="knowledge-presence-details"><summary aria-label={ktf("knowledge.auto.720b997a9d04050f", { value0: activeOnlineUsers })}><div className="knowledge-avatar-stack">{collaborators.slice(0, 4).map(person => <span key={person.userID} title={memberProfiles[person.userID]?.display_name || person.userID} style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{(memberProfiles[person.userID]?.display_name || person.userID).slice(0, 1).toUpperCase()}</span>)}</div><strong>{activeOnlineUsers} {kt("knowledge.auto.2b1960b2981c2816")}</strong><ChevronDown size={13} /></summary><aside className="knowledge-collaboration-popover" aria-label={kt("knowledge.auto.b86bbdd237a8a383")}><header><div><Users size={17} /><strong>{kt("knowledge.auto.495fa10d8fe90767")}</strong></div><span>{activeOnlineUsers} {kt("knowledge.auto.50f5d65d57290f75")}</span></header><section className="knowledge-merge-strategy"><GitMerge size={17} /><div><strong>{kt("knowledge.auto.bcab100236daa8d2")}</strong><p>{collaboration.available ? kt("knowledge.auto.720e84e55c39b45f") : kt("knowledge.auto.a46e54ea82afc4c2")}</p></div></section>{collaboration.available && collaboration.mergeCount > 0 && <p className="knowledge-merge-event"><Check size={14} />{kt("knowledge.auto.a2424c9cd4039113")}{collaboration.mergeCount} {kt("knowledge.auto.4abd46332d28af22")}{collaboration.mergedUserIDs.length > 0 ? ktf("knowledge.auto.16db0bcd5f1b6ee2", { value0: collaboration.mergedUserIDs.map(id => memberProfiles[id]?.display_name || id).join("、") }) : ""}</p>}<div className="knowledge-collaborator-list">{collaborators.map(person => { const profile = memberProfiles[person.userID]; const name = profile?.display_name || person.userID; const position = person.selectionBlockID ? `${nativeAwareness.available ? kt("knowledge.auto.15786e92263d9459") : kt("knowledge.auto.c44dca9aefa430ce")} ${person.cursorBlockID.slice(0, 8) || kt("knowledge.auto.5491701e1c3a8cfd")} → ${person.selectionBlockID.slice(0, 8)}` : person.cursorBlockID ? `${nativeAwareness.available ? kt("knowledge.auto.45c21a9e1fe271db") : kt("knowledge.auto.7afe4fff68826e80")} ${person.cursorBlockID.slice(0, 8)}` : kt("knowledge.auto.ee04f93a02b7a93a"); return <div className="knowledge-collaborator" key={person.userID}><span className="knowledge-collaborator-avatar" style={{ "--collaborator-color": collaboratorColor(person.userID) } as CSSProperties}>{name.slice(0, 1).toUpperCase()}<i /></span><span><strong>{name}{person.userID === presenceUserID && <em>{kt("knowledge.auto.a0c7716669b5ded0")}</em>}</strong><small>{position}{person.sessions > 1 ? ktf("knowledge.auto.a885452820afe192", { value0: person.sessions }) : ""}</small></span><time dateTime={person.lastSeenAt}>{recentActivityLabel(person.lastSeenAt)}</time></div>; })}</div><footer><span><Wifi size={13} />{collaborationStateLabel}</span>{collaboration.available && collaboration.state === "error" && <Button onClick={collaboration.reconnect}><RefreshCw size={13} />{kt("knowledge.auto.68891ab35cab9663")}</Button>}</footer></aside></details> : undefined} actionHostRef={setPageActionHost} canEdit={canWrite && view.page.state === "active" && view.page.content_type !== "file"} onEdit={() => setMode("edit")} />
+          <PageToolbar mode={mode} pageActive={view.page.state === "active"} canWrite={canWrite} canEdit={canWrite && view.page.content_type !== "file"} isDocument={view.page.content_type === "document"} pageFindOpen={pageFindOpen} personalState={personalState} personalStateSaving={personalStateSaving} aiAvailable={aiAvailable} aiOpen={aiOpen} isManager={library.role === "manager"} canManagePermissions={library.role === "manager" && !!client.getPageAccess && !!client.setPageAccess} canManageShares={library.role === "manager" && !!client.listPageShares && !!client.createPageShare && !!client.revokePageShare} canReviewGovernance={canReviewGovernance} archived={view.page.state === "archived"} onModeChange={changeWorkspaceMode} onOpenSuggestions={() => { setCommentAnchor(null); setSuggestionPanelOpen(false); setMode("suggestions"); }} onOpenFind={() => { setPageFindOpen(true); window.setTimeout(() => pageFindInputRef.current?.select()); }} onToggleFavorite={() => void updatePersonalState({ favorite: !personalState?.favorite }, personalState?.favorite ? kt("knowledge.auto.5abb3406155b1520") : kt("knowledge.auto.e108d15b5d388dcc"))} onToggleSubscription={() => void updatePersonalState({ subscribed: !personalState?.subscribed }, personalState?.subscribed ? kt("knowledge.auto.bfb28f5a652e633f") : kt("knowledge.auto.60469b595212333b"))} onToggleShortcut={() => void updatePersonalState({ shortcutRank: personalState?.shortcut_rank ? "" : `${Date.now().toString().padStart(20, "0")}:${crypto.randomUUID()}` }, personalState?.shortcut_rank ? kt("knowledge.auto.e0087afad93a3b36") : kt("knowledge.auto.8a7f806fb1c06354"))} onOpenAI={() => { setMode("edit"); setAISourceScope(view.published ? "published" : "draft"); setAIOpen(true); setAIFailure(""); }} onCopy={() => void copyCurrentPage()} onArchive={() => void archive(view.page)} />
           <div className="knowledge-page-feedback">
             {notice && <p role="status" className="knowledge-notice">{notice}</p>}{error && <p role="alert" className="knowledge-error">{error}</p>}{collaborationFailure && <p role="alert" className="knowledge-error">{collaborationFailure}</p>}
             {pendingMove && <section className="knowledge-confirm knowledge-move-impact" role="dialog" aria-label={kt("knowledge.auto.7f369b2e273e1ff7")}><h3>{kt("knowledge.auto.abffdaf9fb6ebc33")}</h3><p>{kt("knowledge.auto.d23818fa69418968")}{pendingMove.impact.affected_pages} {kt("knowledge.auto.937a7533bd1edac5")}{pendingMove.impact.changed_subjects.length} {kt("knowledge.auto.93da36b330112475")}</p>{pendingMove.impact.changed_subjects.length > 0 && <p className="knowledge-subtle">{kt("knowledge.auto.74b87ef6e4201341")}{pendingMove.impact.changed_subjects.map(subjectLabel).join("、")}</p>}<div className="knowledge-actions"><Button className="danger" onClick={() => void commitMove(pendingMove.page, pendingMove.parentPageID, pendingMove.impact.token)}>{kt("knowledge.auto.53c8cf2dc28cb380")}</Button><Button onClick={() => setPendingMove(null)}>{kt("knowledge.auto.80446e210c9863e9")}</Button></div></section>}
@@ -2493,17 +2637,16 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
               </article>
             </div>
           </section>}
-          {(mode === "read" || mode === "outline" || mode === "comments" || mode === "access" || mode === "permissions" || mode === "shares" || mode === "governance") && (view.page.content_type === "file" && visibleFileContent ? <div className="knowledge-page-readable typed-readable"><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={visibleFileContent} pageActionHost={pageActionHost} formatError={formatError} /></div> : (view.published || view.draft) ? <div className={`knowledge-page-readable typed-readable${view.page.content_type === "document" ? " is-document" : ""}${mode === "outline" && view.page.content_type === "document" ? " has-inline-outline" : ""}`}>
+          {(mode === "read" || mode === "outline" || mode === "comments" || mode === "access" || mode === "permissions" || mode === "shares" || mode === "governance") && (view.page.content_type === "file" && visibleFileContent ? <div className="knowledge-page-readable typed-readable"><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={visibleFileContent} pageActionHost={pageActionHost} canReplace={canWrite && view.page.state === "active" && library.documents_configured} replacing={replacingFilePage} replaceAccept={knowledgeDocumentAccept(library)} onReplace={file => void replaceFilePage(file)} canPublish={canWrite && view.page.state === "active" && fileHasUnpublishedChanges} publishing={publishState === "publishing"} onPublish={() => void publish()} formatError={formatError} /></div> : (view.published || view.draft) ? <div className={`knowledge-page-readable typed-readable${view.page.content_type === "document" ? " is-document" : ""}${mode === "outline" && view.page.content_type === "document" ? " has-inline-outline" : ""}`}>
             {mode === "outline" && view.page.content_type === "document" && <PageOutline items={outline} />}
-            <KnowledgeEditor type={view.page.content_type} body={view.published?.body.content || view.draft?.body.content || ""} documentTitle={view.published?.title || view.draft?.title || view.page.title} canManage={library.role === "manager"} gridAccess={view.grid_access} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={highlightedBlockID} initialSearchLocation={linkedSearchLocation} blockHighlightRevision={commentFocus.revision} commentMarkers={showCommentMarkers ? commentMarkers : undefined} onCommentMarkerOpen={showCommentMarkers ? openCommentThread : undefined} onCommentAnchor={["document", "whiteboard", "mind_map", "flowchart"].includes(view.page.content_type) ? anchor => setCommentAnchor(anchor || null) : undefined} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} uploadFile={view.page.content_type === "form" ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} />
+            <KnowledgeEditor type={view.page.content_type} body={view.published?.body.content || view.draft?.body.content || ""} documentTitle={view.published?.title || view.draft?.title || view.page.title} canManage={library.role === "manager"} gridAccess={view.grid_access} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={highlightedBlockID} initialSearchLocation={linkedSearchLocation} blockHighlightRevision={commentFocus.revision} commentMarkers={showCommentMarkers ? commentMarkers : undefined} onCommentMarkerOpen={showCommentMarkers ? openCommentThread : undefined} onCommentAnchor={["document", "whiteboard", "mind_map", "flowchart"].includes(view.page.content_type) ? anchor => setCommentAnchor(anchor || null) : undefined} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} uploadFile={view.page.content_type === "form" ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} />
           </div> : <EmptyState><Upload size={28} /><h3>{kt("knowledge.auto.6c47b9ebe1b6023a")}</h3><p>{kt("knowledge.auto.1e49553942628f25")}</p></EmptyState>)}
-          {mode === "suggestions" && view.draft && <div className="knowledge-page-readable typed-readable is-document knowledge-suggestion-draft"><KnowledgeEditor type="document" body={view.draft.body.content} documentTitle={view.draft.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} initialBlockID={commentFocus.nodeID || undefined} blockHighlightRevision={commentFocus.revision} onCommentAnchor={anchor => { setCommentAnchor(anchor || null); if (anchor) setSuggestionPanelOpen(true); }} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div>}
-          {mode === "edit" && view.draft && view.page.content_type === "file" && <div className="knowledge-editor-shell"><section className="knowledge-page-editor knowledge-file-page-editor"><div className="knowledge-editor-canvas"><div className="knowledge-editor-toolbar"><span>{kt("knowledge.auto.04c6b3170286010f")}</span><span>{kt("knowledge.auto.2c443624e0d0088b")}</span></div><KnowledgeFilePage client={client} libraryID={library.id} pageID={view.page.id} content={body} pageActionHost={pageActionHost} formatError={formatError} /></div><footer className="knowledge-editor-actions"><div><Button disabled={!dirty || saveState === "saving" || publishState === "publishing"} onClick={() => void saveDraft()}><Save size={14} />{kt("knowledge.auto.5329e3f0ee463df5")}</Button><span className="knowledge-editor-hint">{kt("knowledge.auto.ac5ab601ea917355")}</span></div><div><Button className="primary" disabled={saveState === "conflict" || publishState === "publishing" || !title.trim()} onClick={() => void publish()}><Send size={14} />{publishState === "publishing" ? kt("knowledge.auto.c7f77b9c7cdd4823") : kt("knowledge.auto.cbfe181351c872eb")}</Button></div></footer></section></div>}
+          {mode === "suggestions" && view.draft && <div className="knowledge-page-readable typed-readable is-document knowledge-suggestion-draft"><KnowledgeEditor type="document" body={view.draft.body.content} documentTitle={view.draft.title} readOnly mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} initialBlockID={commentFocus.nodeID || undefined} blockHighlightRevision={commentFocus.revision} onCommentAnchor={anchor => { setCommentAnchor(anchor || null); if (anchor) setSuggestionPanelOpen(true); }} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} readFile={readEditorFile} onActionFeedback={setNotice} onChange={() => undefined} /></div>}
           {mode === "edit" && view.draft && view.page.content_type !== "file" && <div className="knowledge-editor-shell">
             <section className="knowledge-page-editor">
               <div className="knowledge-editor-canvas">
                 <div className="knowledge-editor-toolbar"><span>{pageTypeMeta[view.page.content_type].label}</span><span>{view.page.content_type === "document" ? ktf("knowledge.auto.8a9696c86f276528", { value0: editorStats.blocks, value1: editorStats.characters }) : kt("knowledge.auto.c31c138a3c27d00d")}</span></div>
-                <KnowledgeEditor key={`${view.page.id}:${remountEditorOnDraftRevision ? view.draft.draft_revision : 0}:${editorEpoch}`} type={view.page.content_type} body={body} documentTitle={title} canManage={library.role === "manager"} gridAccess={view.grid_access} collaboration={collaboration.available && collaboration.ready ? collaboration.editorCollaboration : undefined} readOnly={collaboration.available && !collaboration.ready} mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={linkedBlockID} initialSearchLocation={linkedSearchLocation} blockLink={blockLink} insertMarkdownRequest={aiInsertRequest} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} onActionFeedback={setNotice} uploadFile={library.documents_configured && (view.page.content_type === "document" || view.page.content_type === "multidimensional_table" || view.page.content_type === "presentation" || view.page.content_type === "form") ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} fileUploadAccept={fileUploadAccept} readFile={readEditorFile} convertPage={view.page.content_type === "document" || view.page.content_type === "mind_note" ? convertCurrentPage : undefined} onChange={(next, change) => updateEditor(title, next, change)} onPresence={collaboration.available ? collaboration.updatePresence : nativeAwareness.updatePresence} />
+                <KnowledgeEditor key={`${view.page.id}:${remountEditorOnDraftRevision ? view.draft.draft_revision : 0}:${editorEpoch}`} type={view.page.content_type} body={body} documentTitle={title} canManage={library.role === "manager"} gridAccess={view.grid_access} collaboration={collaboration.available && collaboration.ready ? collaboration.editorCollaboration : undefined} readOnly={collaboration.available && !collaboration.ready} mentions={mentionRuntime} tasks={taskRuntime} polls={pollRuntime} dynamicBlocks={dynamicBlockRuntime} form={formRuntime} initialBlockID={linkedBlockID} initialSearchLocation={linkedSearchLocation} blockLink={blockLink} insertMarkdownRequest={aiInsertRequest} insertFileRequest={attachmentInsertRequest} addDocumentSelection={addDocumentSelectionAction} addDocumentSelectionBusy={addSelectionBusy} pageActionHost={pageActionHost} authorizeContentAction={authorizeContentAction} writeClipboardText={writeClipboardText} onActionFeedback={setNotice} uploadFile={library.documents_configured && (view.page.content_type === "document" || view.page.content_type === "multidimensional_table" || view.page.content_type === "presentation" || view.page.content_type === "form") ? uploadEditorFile : undefined} fileUploadsEnabled={library.documents_configured} fileUploadAccept={fileUploadAccept} readFile={readEditorFile} convertPage={view.page.content_type === "document" || view.page.content_type === "mind_note" ? convertCurrentPage : undefined} onChange={(next, change) => updateEditor(title, next, change)} onPresence={collaboration.available ? collaboration.updatePresence : nativeAwareness.updatePresence} />
               </div>
               <div className="knowledge-editor-meta">
                 <div className={`knowledge-sync-state is-${collaboration.state}`} role="status">{collaboration.state === "syncing" || collaboration.state === "connecting" || collaboration.state === "reconnecting" ? <Cloud className="knowledge-pulse" size={15} /> : collaboration.state === "error" ? <Wifi size={15} /> : <Check size={15} />}<span>{publishState === "publishing" ? kt("knowledge.auto.e1af5270ae9b1bf8") : publishState === "error" ? kt("knowledge.auto.c8bceff124ed25a2") : collaboration.available ? collaborationStateLabel : { idle: dirty ? kt("knowledge.auto.46611c8a6e79d47b") : kt("knowledge.auto.e44c4b0437994cf2"), saving: kt("knowledge.auto.6bdb4435095e5d28"), saved: ktf("knowledge.auto.9d5dc30e92ee554d", { value0: view.draft.draft_revision }), conflict: kt("knowledge.auto.a0098d8cb82a728d"), error: kt("knowledge.auto.6309a3bb5ba4c714") }[saveState]}</span>{collaboration.available && collaboration.draftRevision > 0 && <small>revision {collaboration.draftRevision} · clock {collaboration.serverClock}</small>}</div>

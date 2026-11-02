@@ -4,4 +4,4 @@ export type DisplayCell = { row: number; col: number; text: string; formula?: st
 export type DisplayMerge = { top: number; left: number; bottom: number; right: number };
 export type DisplaySheet = { name: string; rows: number; cols: number; cells: DisplayCell[]; merges: DisplayMerge[]; widths: Record<number, number>; heights: Record<number, number>; hiddenRows: number[]; hiddenCols: number[] };
 export type DisplaySlide = { number: number; title: string; lines: string[] };
-export type OfficeResult = { sheets?: DisplaySheet[]; slides?: DisplaySlide[]; error?: string };
+export type OfficeResult = { sheets?: DisplaySheet[]; slides?: DisplaySlide[] };

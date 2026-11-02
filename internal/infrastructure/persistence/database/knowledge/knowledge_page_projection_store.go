@@ -16,8 +16,12 @@ func knowledgePageProjectionDocumentID(a agentsdk.Authority, pageID string) (str
 	return entityid.Derive("kdoc", "knowledge.page_projection_document", a.RuntimeID, a.WorkspaceID, pageID)
 }
 
-func knowledgePageProjectionRemoteID(sourceID string, authority agentsdk.Authority, pageID string, version, accessRevision int64, sha256 string) string {
-	return "dka_" + conversationHash([]any{sourceID, libraryScope(authority), pageID, version, accessRevision, sha256})
+func knowledgePageProjectionRemoteID(sourceID string, authority agentsdk.Authority, pageID string, version, accessRevision, generation int64, sha256 string) string {
+	return "dka_" + conversationHash([]any{sourceID, libraryScope(authority), pageID, version, accessRevision, generation, sha256})
+}
+
+func knowledgePageProjectionRetryable(status string) bool {
+	return status == "queued" || status == "failed"
 }
 
 func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, owner string, now time.Time, ttl time.Duration) (out knowledgesdk.KnowledgePageProjectionWork, found bool, err error) {
@@ -58,7 +62,7 @@ func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, own
 			return conversationError("unavailable", "page_projection_version_invalid")
 		}
 		access, readErr := s.knowledgePageAccessPolicy(ctx, tx, job.LibraryID, job.PageID, job.Actor)
-		if readErr != nil || access.Revision != job.AccessRevision || access.ProjectionStatus != "queued" {
+		if readErr != nil || access.Revision != job.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
 			if readErr != nil {
 				return readErr
 			}
@@ -112,10 +116,14 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 			return err
 		}
 		expectedPermission := knowledgePagePermissionToken(lease.Actor, lease.PageID)
-		if access.Revision != lease.AccessRevision || access.ProjectionStatus != "queued" || expectedPermission != lease.PermissionID {
+		if access.Revision != lease.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) || expectedPermission != lease.PermissionID {
 			return conversationError("conflict", "page_projection_access_stale")
 		}
 		version, err := s.pageVersion(ctx, tx, lease.PageID, lease.Version, lease.Actor)
+		if err != nil {
+			return err
+		}
+		library, err := s.libraryRecord(ctx, tx, lease.LibraryID, lease.Actor)
 		if err != nil {
 			return err
 		}
@@ -130,7 +138,10 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		if err != nil {
 			return err
 		}
-		origin := persistence.KnowledgePageProjectionOrigin{PageID: lease.PageID, Version: lease.Version, AccessRevision: lease.AccessRevision, PermissionID: lease.PermissionID}
+		origin := persistence.KnowledgePageProjectionOrigin{
+			PageID: lease.PageID, Version: lease.Version, AccessRevision: lease.AccessRevision, PermissionID: lease.PermissionID,
+			Title: version.Title, ContentType: version.ContentType, LibraryKind: library.Kind,
+		}
 		var record persistence.KnowledgeDocumentRecord
 		found, err := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(lease.Actor, documentID), &record)
 		if err != nil {
@@ -138,7 +149,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		if !found {
-			remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
+			remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, 1, sha256)
 			record = persistence.KnowledgeDocumentRecord{
 				PageProjection: &origin,
 				Document:       agentsdk.KnowledgeDocument{ID: documentID, LibraryID: lease.LibraryID, ProjectionKind: "page", OriginPageID: lease.PageID, OriginPageVersion: lease.Version, Filename: filename, ContentType: "text/markdown; charset=utf-8", Bytes: bytes, SHA256: sha256, ContentVersion: lease.Version, IndexGeneration: 1, CreatedByUserID: version.PublishedByUserID, State: "queued", ProcessingStage: "parse", SecurityStatus: "clean", SecurityScanner: "knowledge-page-schema", SecurityReportSHA256: sha256, Revision: 1, CreatedAt: now, UpdatedAt: now},
@@ -153,11 +164,9 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 			if record.Document.ProjectionKind != "page" || record.PageProjection == nil || record.PageProjection.PageID != lease.PageID || record.SourceID != sourceID {
 				return conversationError("conflict", "page_projection_identity_conflict")
 			}
-			if record.PageProjection.Version == lease.Version && record.PageProjection.AccessRevision == lease.AccessRevision && record.PageProjection.PermissionID == lease.PermissionID && record.Document.SHA256 == sha256 {
-				// An acknowledgement may have been lost after the document intent
-				// was committed. Treat the source-owned projection as idempotent.
-			} else if record.Document.State == "deleted" {
-				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
+			if record.Document.State == "deleted" {
+				generation := record.Document.IndexGeneration + 1
+				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, generation, sha256)
 				revision := record.Document.Revision
 				record.PageProjection, record.Replacement = &origin, nil
 				record.Actor, record.BodyRef, record.RemoteID = lease.Actor, bodyRef, remoteID
@@ -169,10 +178,16 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				record.Document.Filename, record.Document.Bytes, record.Document.SHA256 = filename, bytes, sha256
 				record.Document.ContentVersion, record.Document.OriginPageVersion = lease.Version, lease.Version
 				record.Document.State, record.Document.ProcessingStage, record.Document.SecurityStatus = "queued", "parse", "clean"
+				record.Document.IndexGeneration, record.Document.IndexStatus, record.Document.Reindexing = generation, "", false
 				record.Document.SecurityScanner, record.Document.SecurityReportSHA256, record.Document.ErrorCode = "knowledge-page-schema", sha256, ""
 				if err = s.saveDocumentRecord(ctx, tx, &record, revision); err != nil {
 					return err
 				}
+			} else if record.PageProjection.Version == lease.Version && record.PageProjection.AccessRevision == lease.AccessRevision && record.PageProjection.PermissionID == lease.PermissionID && record.Document.SHA256 == sha256 {
+				// An acknowledgement may have been lost after the document intent
+				// was committed. Treat only a live source-owned projection as
+				// idempotent. A deleted record with the same page version is a
+				// restore and must reset its provider lifecycle above.
 			} else {
 				if record.Document.State != "ready" || record.Reindex != nil || record.RetiredRemoteID != "" || record.DeleteStarted {
 					return conversationError("conflict", "page_projection_busy")
@@ -180,7 +195,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				record.Actor = lease.Actor
 				record.Replacement = &persistence.KnowledgeDocumentReplacement{PageProjection: origin, Filename: filename, Bytes: bytes, SHA256: sha256, ContentVersion: lease.Version, BodyRef: bodyRef}
 				generation := record.Document.IndexGeneration + 1
-				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, sha256)
+				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, generation, sha256)
 				record.Reindex = &persistence.KnowledgeDocumentReindex{Generation: generation, RemoteID: remoteID, PutRequestID: "kput_" + conversationHash([]any{sourceID, remoteID, lease.Version, sha256})}
 				record.Document.Reindexing = true
 				if err = s.saveDocumentRecord(ctx, tx, &record, record.Document.Revision); err != nil {
@@ -203,6 +218,23 @@ func (s *Store) RetryKnowledgePageProjection(ctx context.Context, lease knowledg
 	return s.transaction(ctx, func(tx *sql.Tx) error {
 		job, err := s.currentPageProjectionJob(ctx, tx, lease)
 		if err != nil {
+			return err
+		}
+		page, err := s.pageRecord(ctx, tx, lease.LibraryID, lease.PageID, lease.Actor)
+		if err != nil {
+			return err
+		}
+		if page.State != "active" || page.PublishedVersion != lease.Version {
+			return conversationError("conflict", "page_projection_stale")
+		}
+		access, err := s.knowledgePageAccessPolicy(ctx, tx, lease.LibraryID, lease.PageID, lease.Actor)
+		if err != nil {
+			return err
+		}
+		if access.Revision != lease.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
+			return conversationError("conflict", "page_projection_access_stale")
+		}
+		if err = s.setPageProjectionStatus(ctx, tx, page, "failed", lease.AccessRevision, lease.Actor); err != nil {
 			return err
 		}
 		job.LeaseUntil = time.Time{}
@@ -228,8 +260,17 @@ func (s *Store) SkipKnowledgePageProjection(ctx context.Context, lease knowledge
 		if err != nil {
 			return err
 		}
-		if page.State != "active" || page.PublishedVersion != lease.Version || access.Revision != lease.AccessRevision || access.ProjectionStatus != "queued" {
+		if page.State != "active" || page.PublishedVersion != lease.Version || access.Revision != lease.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
 			return conversationError("conflict", "page_projection_stale")
+		}
+		// Source discovery happens before this transaction. A binding committed
+		// in between must leave this job available for the normal worker retry.
+		source, err := s.documentLibrarySource(ctx, tx, lease.LibraryID, lease.Actor)
+		if err != nil {
+			return err
+		}
+		if source != "" {
+			return conversationError("conflict", "page_projection_source_changed")
 		}
 		now := time.Now().UTC().Truncate(time.Millisecond)
 		page.ProjectionStatus, page.AccessStatus = "none", "ready"

@@ -117,8 +117,15 @@ export type KnowledgeEditorProps = {
   onCommentMarkerOpen?(nodeID: string): void;
   blockLink?(blockID: string): string;
   insertMarkdownRequest?: { id: string; markdown: string };
+  insertFileRequest?: {
+    id: string;
+    blockID: string;
+    blockType: "image" | "video" | "audio" | "file";
+    props: Record<string, unknown>;
+  };
   pageActionHost?: HTMLElement | null;
   authorizeContentAction?(operation: "copy" | "print" | "export" | "duplicate"): Promise<void>;
+  writeClipboardText?(text: string): Promise<void>;
   onActionFeedback?(message: string): void;
   uploadFile?(file: File, blockID?: string): Promise<string | Record<string, unknown>>;
   fileUploadsEnabled?: boolean;

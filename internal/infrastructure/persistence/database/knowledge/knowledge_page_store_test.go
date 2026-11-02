@@ -14,6 +14,7 @@ import (
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 )
 
@@ -242,6 +243,132 @@ func TestKnowledgeFilePageUsesTreeLifecycleAndAuthorizedDocumentReference(t *tes
 	}
 }
 
+func TestKnowledgeFilePageArchiveRetiresOnlyTheLastActiveReferenceAndRestoreCreatesNewGeneration(t *testing.T) {
+	store, authority, library, _ := pageFixture(t)
+	documents, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := reserveSubjectDocument(t, store, documents, library, "file-page-lifecycle", authority)
+	record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+	record.PutStarted, record.PutAcknowledged, record.IndexObserved = true, true, true
+	record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+	record.Document.SecurityStatus, record.Document.IndexStatus = "clean", "INDEXED"
+	saveRetryFixture(t, store.store.Database(), record, authority)
+	originalRemoteID := record.RemoteID
+
+	created, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "managed-file-create", Title: "受页面管理.txt", ContentType: knowledgePageTypeFile}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SetKnowledgePageAttachment(t.Context(), library.ID, created.Page.ID, record.Document.ID, knowledgesdk.KnowledgePageAttachmentWrite{ClientID: "managed-file-attach", Title: record.Document.Filename, Rank: "a"}, authority); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || !retained.PageLifecycleManaged || retained.Document.State != "ready" || retained.BodyRef == "" {
+		t.Fatalf("active draft File Page must retain its readable original: record=%+v err=%v", retained, err)
+	}
+
+	content := `{"document_id":"` + record.Document.ID + `","display_mode":"preview","title":"受页面管理.txt"}`
+	saved := savePageFixture(t, store, authority, library, created, "managed-file-save", "受页面管理.txt", content)
+	published := publishPageFixture(t, store, authority, library, saved, "managed-file-publish")
+	reopened, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || reopened.Document.State != "ready" || reopened.Document.IndexGeneration != 1 || reopened.RemoteID != originalRemoteID || reopened.BodyRef == "" || reopened.ResumeAfterDelete {
+		t.Fatalf("publishing an active File Page must keep the same readable original: record=%+v err=%v", reopened, err)
+	}
+
+	reopened.PutStarted, reopened.PutAcknowledged, reopened.IndexObserved = true, true, true
+	reopened.Document.State, reopened.Document.ProcessingStage, reopened.Document.IndexStatus = "ready", "complete", "INDEXED"
+	saveRetryFixture(t, store.store.Database(), reopened, authority)
+	copied, err := store.CopyKnowledgePage(t.Context(), library.ID, published.Page.ID, knowledgesdk.KnowledgePageCopy{ClientID: "managed-file-copy", Title: "受页面管理副本"}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied = publishPageFixture(t, store, authority, library, copied, "managed-file-copy-publish")
+	archivedOriginal, err := store.SetKnowledgePageArchived(t.Context(), library.ID, published.Page.ID, true, knowledgesdk.KnowledgePageStateWrite{ClientID: "managed-file-archive-original", ExpectedRevision: published.Page.Revision}, authority)
+	if err != nil || archivedOriginal.State != "archived" {
+		t.Fatalf("archive original File Page: page=%+v err=%v", archivedOriginal, err)
+	}
+	shared, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || shared.Document.State != "ready" {
+		t.Fatalf("one remaining active File Page must keep the shared original indexed: record=%+v err=%v", shared, err)
+	}
+	archivedCopy, err := store.SetKnowledgePageArchived(t.Context(), library.ID, copied.Page.ID, true, knowledgesdk.KnowledgePageStateWrite{ClientID: "managed-file-archive-copy", ExpectedRevision: copied.Page.Revision}, authority)
+	if err != nil || archivedCopy.State != "archived" {
+		t.Fatalf("archive copied File Page: page=%+v err=%v", archivedCopy, err)
+	}
+	last, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || last.Document.State != "deleting" {
+		t.Fatalf("last active File Page archive must retire the original: record=%+v err=%v", last, err)
+	}
+	restoredCopy, err := store.SetKnowledgePageArchived(t.Context(), library.ID, copied.Page.ID, false, knowledgesdk.KnowledgePageStateWrite{ClientID: "managed-file-restore-during-delete", ExpectedRevision: archivedCopy.Revision}, authority)
+	if err != nil || restoredCopy.State != "active" {
+		t.Fatalf("restore copied File Page during delete: page=%+v err=%v", restoredCopy, err)
+	}
+	resuming, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || resuming.Document.State != "deleting" || !resuming.ResumeAfterDelete {
+		t.Fatalf("restore during delete must durably request a new generation: record=%+v err=%v", resuming, err)
+	}
+	lease, claimed, err := store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "file-page-resume", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed || lease.DocumentID != record.Document.ID {
+		t.Fatalf("claim File Page resume delete: lease=%+v claimed=%t err=%v", lease, claimed, err)
+	}
+	if err = store.StartKnowledgeDocumentDelete(t.Context(), lease); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "delete_acknowledged"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, claimed, err = store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "file-page-resume", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim acknowledged resume delete: lease=%+v claimed=%t err=%v", lease, claimed, err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "deleted"}); err != nil {
+		t.Fatal(err)
+	}
+	resumed, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || resumed.Document.State != "queued" || resumed.Document.IndexGeneration != 2 || resumed.RemoteID == reopened.RemoteID || resumed.ResumeAfterDelete || resumed.BodyRef == "" {
+		t.Fatalf("delete completion must atomically reopen the requested generation: record=%+v err=%v", resumed, err)
+	}
+}
+
+func TestKnowledgeFilePageDraftSaveReopensAttachedDeletedDocument(t *testing.T) {
+	store, authority, library, _ := pageFixture(t)
+	documents, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := reserveSubjectDocument(t, store, documents, library, "file-page-draft-recovery", authority)
+	record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+	record.PutStarted, record.PutAcknowledged, record.IndexObserved = true, true, true
+	record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+	record.Document.SecurityStatus, record.Document.IndexStatus = "clean", "INDEXED"
+	saveRetryFixture(t, store.store.Database(), record, authority)
+
+	created, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "draft-recovery-create", Title: "恢复原件.txt", ContentType: knowledgePageTypeFile}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SetKnowledgePageAttachment(t.Context(), library.ID, created.Page.ID, record.Document.ID, knowledgesdk.KnowledgePageAttachmentWrite{ClientID: "draft-recovery-attach", Title: record.Document.Filename, Rank: "a"}, authority); err != nil {
+		t.Fatal(err)
+	}
+
+	broken, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	broken.Document.State, broken.Document.ProcessingStage = "deleted", "complete"
+	broken.PageLifecycleManaged = true
+	saveRetryFixture(t, store.store.Database(), broken, authority)
+
+	content := `{"document_id":"` + record.Document.ID + `","display_mode":"preview","title":"恢复原件.txt"}`
+	_ = savePageFixture(t, store, authority, library, created, "draft-recovery-save", "恢复原件.txt", content)
+	reopened, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil || reopened.Document.State != "queued" || reopened.Document.IndexGeneration != broken.Document.IndexGeneration+1 || reopened.BodyRef == "" || reopened.Document.ErrorCode != "" {
+		t.Fatalf("saving an active File Page draft must reopen its attached original: record=%+v err=%v", reopened, err)
+	}
+}
+
 func TestKnowledgePageSiblingReorderIsAtomicAndRequiresExactSet(t *testing.T) {
 	store, authority, library, first := pageFixture(t)
 	second, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "reorder-second", Title: "第二页", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
@@ -413,7 +540,9 @@ func TestKnowledgePageTreeCommentsAndHiddenProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, err := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
-	if err != nil || record.Document.ProjectionKind != "page" || record.Document.OriginPageID != root.Page.ID || record.Document.OriginPageVersion != 1 {
+	if err != nil || record.Document.ProjectionKind != "page" || record.Document.OriginPageID != root.Page.ID || record.Document.OriginPageVersion != 1 ||
+		record.PageProjection == nil || record.PageProjection.PageID != root.Page.ID || record.PageProjection.Version != 1 ||
+		record.PageProjection.Title != work.Version.Title || record.PageProjection.ContentType != root.Page.ContentType || record.PageProjection.LibraryKind != library.Kind {
 		t.Fatalf("page projection origin missing: %+v err=%v", record, err)
 	}
 }
@@ -438,6 +567,148 @@ func TestKnowledgePageProjectionCanFinishLocallyWithoutRemoteSource(t *testing.T
 	}
 	if _, found, err = store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "local-worker", time.Now().UTC().Add(time.Second), time.Minute); err != nil || found {
 		t.Fatalf("local projection job remained claimable: found=%v err=%v", found, err)
+	}
+}
+
+func TestKnowledgePageProjectionRetryMarksFailedAndRemainsRecoverable(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	page = savePageFixture(t, store, authority, library, page, "retry-body", "故障恢复页面", "故障恢复正文")
+	page = publishPageFixture(t, store, authority, library, page, "retry-publish")
+	if err := store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{
+		RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: library.ID,
+	}, conversationHash([]string{"retry-source", library.ID})); err != nil {
+		t.Fatal(err)
+	}
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "retry-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim projection: found=%t err=%v", found, err)
+	}
+	if err = store.RetryKnowledgePageProjection(t.Context(), work.Lease, time.Now().UTC().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := store.KnowledgePage(t.Context(), library.ID, page.Page.ID, false, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.Page.ProjectionStatus != "failed" || failed.Page.AccessStatus != "failed" {
+		t.Fatalf("retry did not expose failure: projection=%q access=%q", failed.Page.ProjectionStatus, failed.Page.AccessStatus)
+	}
+	policy, err := store.KnowledgePageAccess(t.Context(), library.ID, page.Page.ID, authority)
+	if err != nil || policy.ProjectionStatus != "failed" {
+		t.Fatalf("retry did not fail the access projection: policy=%+v err=%v", policy, err)
+	}
+	retry, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "retry-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !found || retry.Lease.Token <= work.Lease.Token {
+		t.Fatalf("failed projection not reclaimable: found=%t work=%+v err=%v", found, retry, err)
+	}
+	canonical := []byte("# " + retry.Version.Title + "\n\n" + retry.Version.Body.Content)
+	digest := sha256.Sum256(canonical)
+	if err = store.CompleteKnowledgePageProjection(t.Context(), retry.Lease, "body://retry", int64(len(canonical)), hex.EncodeToString(digest[:]), retry.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := store.KnowledgePage(t.Context(), library.ID, page.Page.ID, false, authority)
+	if err != nil || recovered.Page.ProjectionStatus != "queued" || recovered.Page.AccessStatus != "queued" {
+		t.Fatalf("successful retry did not resume indexing: page=%+v err=%v", recovered.Page, err)
+	}
+}
+
+func TestKnowledgePageProjectionRestoreReopensDeletedSameVersion(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	page = savePageFixture(t, store, authority, library, page, "restore-body", "恢复页面", "恢复正文")
+	page = publishPageFixture(t, store, authority, library, page, "restore-publish")
+	if err := store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{
+		RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: library.ID,
+	}, conversationHash([]string{"restore-source", library.ID})); err != nil {
+		t.Fatal(err)
+	}
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "restore-page-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim initial page projection: found=%t err=%v", found, err)
+	}
+	canonical := []byte("# " + work.Version.Title + "\n\n" + work.Version.Body.Content)
+	digest := sha256.Sum256(canonical)
+	hash := hex.EncodeToString(digest[:])
+	if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://restore", int64(len(canonical)), hash, work.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+
+	lease, claimed, err := store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "restore-document-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim initial document: claimed=%t err=%v", claimed, err)
+	}
+	if _, started, startErr := store.StartKnowledgeDocumentPut(t.Context(), lease); startErr != nil || !started {
+		t.Fatalf("start initial put: started=%t err=%v", started, startErr)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "put_acknowledged"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, claimed, err = store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "restore-document-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim initial indexing: claimed=%t err=%v", claimed, err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "indexed", IndexStatus: "INDEXED"}); err != nil {
+		t.Fatal(err)
+	}
+	documentID, err := knowledgePageProjectionDocumentID(authority, page.Page.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed, err := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRemoteID := indexed.RemoteID
+
+	current, err := store.KnowledgePage(t.Context(), library.ID, page.Page.ID, false, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived, err := store.SetKnowledgePageArchived(t.Context(), library.ID, page.Page.ID, true, knowledgesdk.KnowledgePageStateWrite{ClientID: "restore-archive", ExpectedRevision: current.Page.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, claimed, err = store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "restore-document-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim archived document: claimed=%t err=%v", claimed, err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "retry", ErrorCode: "document_work_unavailable"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, claimed, err = store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "restore-document-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim deleting document: claimed=%t err=%v", claimed, err)
+	}
+	if err = store.StartKnowledgeDocumentDelete(t.Context(), lease); err != nil {
+		t.Fatal(err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "delete_acknowledged"}); err != nil {
+		t.Fatal(err)
+	}
+	lease, claimed, err = store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "restore-document-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed {
+		t.Fatalf("claim acknowledged deletion: claimed=%t err=%v", claimed, err)
+	}
+	if err = store.ApplyKnowledgeDocumentProgress(t.Context(), lease, persistence.KnowledgeDocumentProgress{Event: "deleted"}); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, err := store.SetKnowledgePageArchived(t.Context(), library.ID, page.Page.ID, false, knowledgesdk.KnowledgePageStateWrite{ClientID: "restore-page", ExpectedRevision: archived.Revision}, authority)
+	if err != nil || restored.State != "active" {
+		t.Fatalf("restore page: page=%+v err=%v", restored, err)
+	}
+	work, found, err = store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "restore-page-worker", time.Now().UTC(), time.Minute)
+	if err != nil || !found || work.Version.Version != 1 {
+		t.Fatalf("claim restored projection: found=%t work=%+v err=%v", found, work, err)
+	}
+	if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://restore", int64(len(canonical)), hash, work.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Document.State != "queued" || reopened.BodyRef != "body://restore" || reopened.RemoteID == oldRemoteID || reopened.Document.IndexGeneration != 2 || reopened.Document.IndexStatus != "" || reopened.PutStarted || reopened.PutAcknowledged || reopened.IndexObserved || reopened.DeleteStarted || reopened.DeleteAcknowledged || reopened.Document.ErrorCode != "" {
+		t.Fatalf("deleted same-version projection was not reopened: %+v", reopened)
 	}
 }
 

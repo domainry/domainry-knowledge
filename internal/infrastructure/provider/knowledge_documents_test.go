@@ -33,6 +33,15 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 				if !knowledgeWireFilename.MatchString(r.URL.Query().Get("filename")) || !strings.HasSuffix(r.URL.Query().Get("filename"), ".pdf") || r.Header.Get("Content-Type") != "application/octet-stream" {
 					t.Error("wrong upload request")
 				}
+				wantSource := map[string]string{
+					"source": "verdent_knowledge", "title": "季度费用", "page_id": "kpage-safe-1",
+					"page_version": "3", "library_kind": "shared", "content_type": "document",
+				}
+				for key, value := range wantSource {
+					if r.URL.Query().Get(key) != value {
+						t.Errorf("%s=%q want %q", key, r.URL.Query().Get(key), value)
+					}
+				}
 				stored, _ = io.ReadAll(r.Body)
 				phase = "PENDING"
 				w.WriteHeader(202)
@@ -58,14 +67,14 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"err_code": 0, "data": map[string]any{"doc_id": "doc-1", "status": phase, "chunks": []any{}}})
 	}))
 	defer server.Close()
-	config := KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: server.Client()}
+	config := KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: server.Client(), DocumentSourceProvider: "verdent_knowledge"}
 	read, err := newKnowledgeWithOfficialAdapter(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := knowledgeAuthority()
 	raw := bytes.Repeat([]byte{0, 0xff, 0x80, 1}, 65536)
-	content := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw)}
+	content := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw), Source: &agentsdk.KnowledgeDocumentIndexSource{Title: "季度费用", PageID: "kpage-safe-1", PageVersion: 3, LibraryKind: "shared", ContentType: "document"}}
 	if err := read.PutKnowledgeDocument(t.Context(), content, a); err == nil {
 		t.Fatal("retrieval config granted writes")
 	}

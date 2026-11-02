@@ -1,4 +1,8 @@
 {
+  "knowledge.file.upload_new_version": "Upload new version",
+  "knowledge.file.reupload": "Re-upload",
+  "knowledge.file.uploading_version": "Uploading new version…",
+  "knowledge.file.version_saved_draft": "The new file version has been uploaded and saved as a draft.",
   "knowledge.host.add_selection": "Add to Verdent conversation",
   "knowledge.host.adding_selection": "Adding to Verdent conversation…",
   "knowledge.host.selection_added": "Selection added to the Verdent conversation.",
@@ -12,6 +16,8 @@
   "knowledge.common.draft_only": "Draft only",
   "knowledge.common.unavailable_page": "Unavailable page",
   "knowledge.common.published_at": "Published at",
+  "knowledge.document.stored_only": "Original stored only",
+  "knowledge.document.stored_only_detail": "The original file has been safely stored and can be previewed and downloaded; it was not added to full-text search.",
   "knowledge.auto.0006d696d8e1ec28": "New",
   "knowledge.auto.002d03871a8d3477": "Contains up to 200 editable subpages under the current page.",
   "knowledge.auto.004239c86dc8eec2": "Set fields",

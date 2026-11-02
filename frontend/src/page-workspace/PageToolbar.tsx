@@ -9,6 +9,7 @@ export type PageToolbarProps = {
   mode: PageWorkspaceMode;
   pageActive: boolean;
   canWrite: boolean;
+  canEdit: boolean;
   isDocument: boolean;
   pageFindOpen: boolean;
   personalState: KnowledgePagePersonalState | null;
@@ -35,7 +36,7 @@ export function PageToolbar(props: PageToolbarProps) {
   return <div className="knowledge-page-toolbar">
     <div className="knowledge-view-tabs" role="tablist" aria-label={kt("knowledge.auto.0278dfee40b99549")}>
       <button role="tab" aria-selected={props.mode === "read"} onClick={() => props.onModeChange("read")}><BookOpen size={14} />{kt("knowledge.auto.ce9b12499c471759")}</button>
-      {props.canWrite && props.pageActive && <button role="tab" aria-selected={props.mode === "edit"} onClick={() => props.onModeChange("edit")}><Pencil size={14} />{kt("knowledge.auto.051836569928a9f9")}</button>}
+      {props.canEdit && props.pageActive && <button role="tab" aria-selected={props.mode === "edit"} onClick={() => props.onModeChange("edit")}><Pencil size={14} />{kt("knowledge.auto.051836569928a9f9")}</button>}
       {props.isDocument && <button role="tab" aria-selected={props.mode === "suggestions"} onClick={props.onOpenSuggestions}><GitPullRequest size={14} />{kt("knowledge.auto.abee4974732afaf5")}</button>}
       <button role="tab" aria-selected={props.mode === "history"} onClick={() => props.onModeChange("history")}><Clock3 size={14} />{kt("knowledge.auto.b0385cfe4b424d83")}</button>
       <button role="tab" aria-selected={props.mode === "comments"} onClick={() => props.onModeChange("comments")}><MessageSquare size={14} />{kt("knowledge.auto.6849b8254d20c4ab")}</button>

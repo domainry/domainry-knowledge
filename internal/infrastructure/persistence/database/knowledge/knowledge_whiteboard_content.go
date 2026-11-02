@@ -443,7 +443,7 @@ func decodeKnowledgeWhiteboardContent(content string) (knowledgesdk.KnowledgeWhi
 func whiteboardPlainText(value knowledgesdk.KnowledgeWhiteboardContent) string {
 	words := make([]string, 0, len(value.Elements))
 	for _, element := range value.Elements {
-		if text := strings.TrimSpace(element.Text); text != "" {
+		if text := whiteboardElementText(element); text != "" {
 			words = append(words, text)
 		}
 		if name := strings.TrimSpace(element.Name); name != "" {
@@ -451,6 +451,16 @@ func whiteboardPlainText(value knowledgesdk.KnowledgeWhiteboardContent) string {
 		}
 	}
 	return strings.TrimSpace(strings.Join(strings.Fields(strings.Join(words, " ")), " "))
+}
+
+func whiteboardElementText(element knowledgesdk.KnowledgeWhiteboardElement) string {
+	// Excalidraw's Text is the rendered value and may contain soft wrapping
+	// inserted only to fit the element width. OriginalText is the user-authored
+	// value and must be the source for search, quotes, and index projections.
+	if original := strings.TrimSpace(element.OriginalText); original != "" {
+		return original
+	}
+	return strings.TrimSpace(element.Text)
 }
 
 func whiteboardPageTypeDefinition() knowledgePageTypeDefinition {
@@ -483,7 +493,7 @@ func whiteboardPageTypeDefinition() knowledgePageTypeDefinition {
 }
 
 func whiteboardElementQuote(element knowledgesdk.KnowledgeWhiteboardElement) string {
-	if text := strings.TrimSpace(element.Text); text != "" {
+	if text := whiteboardElementText(element); text != "" {
 		return text
 	}
 	if name := strings.TrimSpace(element.Name); name != "" {

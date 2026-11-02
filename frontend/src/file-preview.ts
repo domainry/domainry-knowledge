@@ -10,43 +10,45 @@ export const previewOfficeMaxBytes = 8 * 1024 * 1024;
 export const previewBinaryMaxBytes = 64 * 1024 * 1024;
 export const fallbackDownloadMaxBytes = 128 * 1024 * 1024;
 export const fileSHA256Header = "X-Domainry-File-SHA256";
-const textFormats = new Set(["txt", "md", "rst", "html", "htm", "csv", "json", "jsonl", "py", "js", "ts", "tsx", "jsx", "java", "go", "rs", "c", "h", "cpp", "hpp", "cs", "rb", "php", "kt", "swift", "scala", "sh"]);
-const fileFormats = new Set(["pdf", "docx", "pptx", "xlsx", "xlsm", "png", "jpg", "jpeg", "gif", "bmp", "webp", "mp3", "wav", "ogg", "flac", "m4a", "aac", "mp4", "mov", "webm", "avi"]);
-const previewContentTypes: Record<string, string> = {
-  pdf: "application/pdf",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  xlsm: "application/vnd.ms-excel.sheet.macroEnabled.12",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  bmp: "image/bmp",
-  webp: "image/webp",
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  ogg: "audio/ogg",
-  flac: "audio/flac",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-  mp4: "video/mp4",
-  mov: "video/quicktime",
-  webm: "video/webm",
-  avi: "video/x-msvideo",
-};
+export type FilePreviewKind = "text" | "pdf" | "word" | "presentation" | "spreadsheet" | "image" | "audio" | "video";
+
+type PreviewFormatDefinition = { kind: FilePreviewKind; contentType: string };
+
+// This is the browser preview contract. Keep every supported extension in one
+// registry so capability checks, response MIME types, renderer dispatch, and
+// the exhaustive format test cannot drift independently.
+export const previewFormatDefinitions = Object.freeze({
+  txt: { kind: "text", contentType: "text/plain" }, md: { kind: "text", contentType: "text/markdown" }, rst: { kind: "text", contentType: "text/plain" }, html: { kind: "text", contentType: "text/html" }, htm: { kind: "text", contentType: "text/html" },
+  csv: { kind: "text", contentType: "text/csv" }, json: { kind: "text", contentType: "application/json" }, jsonl: { kind: "text", contentType: "application/x-ndjson" }, py: { kind: "text", contentType: "text/x-python" },
+  js: { kind: "text", contentType: "text/javascript" }, ts: { kind: "text", contentType: "text/plain" }, tsx: { kind: "text", contentType: "text/plain" }, jsx: { kind: "text", contentType: "text/javascript" }, java: { kind: "text", contentType: "text/x-java-source" },
+  go: { kind: "text", contentType: "text/x-go" }, rs: { kind: "text", contentType: "text/plain" }, c: { kind: "text", contentType: "text/x-c" }, h: { kind: "text", contentType: "text/x-c" }, cpp: { kind: "text", contentType: "text/x-c++" }, hpp: { kind: "text", contentType: "text/x-c++" },
+  cs: { kind: "text", contentType: "text/plain" }, rb: { kind: "text", contentType: "text/x-ruby" }, php: { kind: "text", contentType: "text/x-php" }, kt: { kind: "text", contentType: "text/plain" }, swift: { kind: "text", contentType: "text/plain" }, scala: { kind: "text", contentType: "text/plain" }, sh: { kind: "text", contentType: "text/x-shellscript" },
+  pdf: { kind: "pdf", contentType: "application/pdf" },
+  docx: { kind: "word", contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+  pptx: { kind: "presentation", contentType: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+  xlsx: { kind: "spreadsheet", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }, xlsm: { kind: "spreadsheet", contentType: "application/vnd.ms-excel.sheet.macroEnabled.12" },
+  png: { kind: "image", contentType: "image/png" }, jpg: { kind: "image", contentType: "image/jpeg" }, jpeg: { kind: "image", contentType: "image/jpeg" }, gif: { kind: "image", contentType: "image/gif" }, bmp: { kind: "image", contentType: "image/bmp" }, webp: { kind: "image", contentType: "image/webp" },
+  mp3: { kind: "audio", contentType: "audio/mpeg" }, wav: { kind: "audio", contentType: "audio/wav" }, ogg: { kind: "audio", contentType: "audio/ogg" }, flac: { kind: "audio", contentType: "audio/flac" }, m4a: { kind: "audio", contentType: "audio/mp4" }, aac: { kind: "audio", contentType: "audio/aac" },
+  mp4: { kind: "video", contentType: "video/mp4" }, mov: { kind: "video", contentType: "video/quicktime" }, webm: { kind: "video", contentType: "video/webm" }, avi: { kind: "video", contentType: "video/x-msvideo" },
+} satisfies Record<string, PreviewFormatDefinition>);
+
+export const supportedPreviewFormats = Object.freeze(Object.keys(previewFormatDefinitions));
 
 export function previewFormat(filename: string) {
   return filename.split(".").at(-1)?.toLowerCase() || "";
 }
 
+export function previewKind(filename: string): FilePreviewKind | null {
+  const format = previewFormat(filename);
+  return (previewFormatDefinitions as Record<string, PreviewFormatDefinition>)[format]?.kind || null;
+}
+
 export function isTextPreviewFormat(format: string) {
-  return textFormats.has(format);
+  return (previewFormatDefinitions as Record<string, PreviewFormatDefinition>)[format]?.kind === "text";
 }
 
 export function canPreviewFilename(filename: string) {
-  const format = previewFormat(filename);
-  return textFormats.has(format) || fileFormats.has(format);
+  return previewKind(filename) !== null;
 }
 
 export function downloadFilename(header: string | null) {
@@ -95,7 +97,8 @@ export async function readPreviewFile(source: FilePreviewSource, signal: AbortSi
   if (blob.size !== current.total) throw Error(kt("knowledge.auto.a587b9da0fcaea81"));
   signal.throwIfAborted();
   const format = previewFormat(current.filename);
-  blob = blob.slice(0, blob.size, previewContentTypes[format] || "application/octet-stream");
+  const definition = (previewFormatDefinitions as Record<string, PreviewFormatDefinition>)[format];
+  blob = blob.slice(0, blob.size, definition?.contentType || "application/octet-stream");
   return { filename: current.filename, blob, format, bytes: current.total, sha256: current.sha256 };
 }
 
