@@ -1,4 +1,20 @@
 export declare const knowledgeEnglishMessages: {
+    readonly "knowledge.settings.title": "Knowledge base settings";
+    readonly "knowledge.settings.description": "Configure this knowledge base without mixing everyday content with ingestion operations.";
+    readonly "knowledge.settings.general": "General";
+    readonly "knowledge.settings.general_description": "Update the name and description shown to knowledge base members.";
+    readonly "knowledge.settings.members": "Members and access";
+    readonly "knowledge.settings.data_index": "Data and indexing";
+    readonly "knowledge.settings.sources": "External sources";
+    readonly "knowledge.settings.danger": "Dangerous operations";
+    readonly "knowledge.settings.danger_description": "Archiving removes this knowledge base from everyday use. Its content is retained and can be restored.";
+    readonly "knowledge.settings.ingested_files": "Ingested files";
+    readonly "knowledge.settings.ingested_files_description": "Manager-only inventory for processing status, recovery, reindexing and cleanup. Members open and download files from their file pages.";
+    readonly "knowledge.settings.ingested_files_loading": "Loading ingested files…";
+    readonly "knowledge.settings.ingested_files_empty": "No ingested files. Upload a file from the New menu to create a file page.";
+    readonly "knowledge.file.size": "Size";
+    readonly "knowledge.file.original_version": "Original version";
+    readonly "knowledge.file.checksum": "SHA-256";
     readonly "knowledge.file.upload_new_version": "Upload new version";
     readonly "knowledge.file.reupload": "Re-upload";
     readonly "knowledge.file.uploading_version": "Uploading new version…";
@@ -2181,6 +2197,22 @@ export declare const knowledgeEnglishMessages: {
     readonly "knowledge.auto.fffb153d67c5c0cb": "Access to the document has stopped, and the original files and indexes are being cleaned in the background.";
 };
 export declare const knowledgeChineseMessages: {
+    readonly "knowledge.settings.title": "知识库设置";
+    readonly "knowledge.settings.description": "配置知识库；日常内容与入库运维分开管理。";
+    readonly "knowledge.settings.general": "基本信息";
+    readonly "knowledge.settings.general_description": "修改知识库成员看到的名称和说明。";
+    readonly "knowledge.settings.members": "成员与权限";
+    readonly "knowledge.settings.data_index": "数据与索引";
+    readonly "knowledge.settings.sources": "外部数据源";
+    readonly "knowledge.settings.danger": "危险操作";
+    readonly "knowledge.settings.danger_description": "归档后知识库将退出日常使用；内容仍会保留，并可恢复。";
+    readonly "knowledge.settings.ingested_files": "入库文件";
+    readonly "knowledge.settings.ingested_files_description": "仅供管理员查看处理状态、恢复失败任务、重建索引和清理异常数据。成员应从对应的文件页面预览和下载。";
+    readonly "knowledge.settings.ingested_files_loading": "正在读取入库文件…";
+    readonly "knowledge.settings.ingested_files_empty": "还没有入库文件。请从“新增”菜单上传文件并创建文件页面。";
+    readonly "knowledge.file.size": "大小";
+    readonly "knowledge.file.original_version": "原件版本";
+    readonly "knowledge.file.checksum": "SHA-256";
     readonly "knowledge.file.upload_new_version": "上传新版本";
     readonly "knowledge.file.reupload": "重新上传";
     readonly "knowledge.file.uploading_version": "正在上传新版本…";

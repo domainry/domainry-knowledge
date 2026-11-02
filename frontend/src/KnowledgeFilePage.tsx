@@ -1,6 +1,6 @@
 import { kt, ktf } from "./i18n/runtime.ts";
 import { useEffect, useRef, useState } from "react";
-import { Download, FileWarning, RefreshCw, Send, Upload } from "lucide-react";
+import { Download, FileText, FileWarning, RefreshCw, Send, Upload } from "lucide-react";
 import { Button } from "./components.tsx";
 import { documentCanDownload, documentLabel, documentStatusDetail } from "./document.ts";
 import { FilePreview } from "./FilePreviewDialog.tsx";
@@ -24,6 +24,13 @@ export type KnowledgeFilePageProps = {
   onPublish?(): void;
   formatError(error: unknown): string;
 };
+
+function formatBytes(value: number) {
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(value % (1024 ** 3) ? 1 : 0)} GiB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MiB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${value} B`;
+}
 
 export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActionHost, canReplace = false, replacing = false, replaceAccept, onReplace, canPublish = false, publishing = false, onPublish, formatError }: KnowledgeFilePageProps) {
   const reference = parseFilePageContent(content);
@@ -54,7 +61,7 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActi
 
   const downloadable = !!document && documentCanDownload(document);
   const actions = <PageActionPortal host={pageActionHost}>
-    {downloadable && <Button disabled={downloading || replacing || publishing} onClick={() => void download()}><Download size={15} />{downloading ? kt("knowledge.auto.369ca5e19c59093f") : kt("knowledge.auto.76420433f22d1c80")}</Button>}
+    {downloadable && <Button disabled={downloading || replacing || publishing} onClick={() => void download()}><Download size={15} />{downloading ? kt("knowledge.auto.369ca5e19c59093f") : kt("knowledge.auto.aa1d4263667a8086")}</Button>}
     {canReplace && onReplace && <><input ref={replacementInput} className="knowledge-visually-hidden" type="file" accept={replaceAccept} disabled={replacing || publishing} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) onReplace(file); }} /><Button className="primary" disabled={replacing || publishing} onClick={() => replacementInput.current?.click()}><Upload size={15} />{replacing ? kt("knowledge.file.uploading_version") : document ? kt("knowledge.file.upload_new_version") : kt("knowledge.file.reupload")}</Button></>}
     {canPublish && onPublish && <Button className="primary" disabled={replacing || publishing} onClick={onPublish}><Send size={15} />{publishing ? kt("knowledge.auto.c7f77b9c7cdd4823") : kt("knowledge.auto.cbfe181351c872eb")}</Button>}
   </PageActionPortal>;
@@ -66,6 +73,15 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActi
   return <section className={`knowledge-file-page is-${document.state}`}>
     {actions}
     {error && <p className="knowledge-error" role="alert">{error}</p>}
+    <header className="knowledge-file-page-summary">
+      <span className="knowledge-file-page-summary-icon" aria-hidden="true"><FileText size={18} /></span>
+      <div><strong>{document.filename}</strong><span className={`knowledge-file-state is-${document.security_status}`}>{documentLabel(document)}</span></div>
+      <dl>
+        <div><dt>{kt("knowledge.file.size")}</dt><dd>{formatBytes(document.bytes)}</dd></div>
+        <div><dt>{kt("knowledge.file.original_version")}</dt><dd>{document.content_version}</dd></div>
+        <div><dt>{kt("knowledge.file.checksum")}</dt><dd title={document.sha256}>{document.sha256.slice(0, 12)}…</dd></div>
+      </dl>
+    </header>
     <FilePreview source={knowledgeDocumentPreviewSource(client, document)} formatError={formatError} />
   </section>;
 }

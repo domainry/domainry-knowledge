@@ -1,5 +1,5 @@
 import type { KnowledgeClient, KnowledgeDocument, KnowledgeLibrary } from "./types.ts";
-export declare function KnowledgeDocumentsPanel({ client, initialLibrary, formatError, onBusyChange, onOpenLibrary, embedded, hideList, showUploader, selectedDocumentID, onSelectedDocumentChange, onDocumentsChange }: {
+export declare function KnowledgeDocumentsPanel({ client, initialLibrary, formatError, onBusyChange, onOpenLibrary, embedded, hideList, showUploader, managementMode, selectedDocumentID, onSelectedDocumentChange, onDocumentsChange }: {
     client: KnowledgeClient;
     initialLibrary: KnowledgeLibrary;
     formatError?: (error: unknown) => string;
@@ -8,6 +8,7 @@ export declare function KnowledgeDocumentsPanel({ client, initialLibrary, format
     embedded?: boolean;
     hideList?: boolean;
     showUploader?: boolean;
+    managementMode?: boolean;
     selectedDocumentID?: string;
     onSelectedDocumentChange?: (documentID: string) => void;
     onDocumentsChange?: (documents: KnowledgeDocument[]) => void;

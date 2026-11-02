@@ -88,12 +88,23 @@ test("product authentication uses the shared editorial design contract", async (
   assert.match(design, /Authentication uses a two-region editorial entry shell/);
 });
 
-test("library management exposes the existing document lifecycle panel", async () => {
+test("library settings separate everyday configuration from manager-only ingestion operations", async () => {
   const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
+  const documents = await readFile(path.join(root, "src", "KnowledgeDocumentsPanel.tsx"), "utf8");
   assert.match(workspace, /import \{ KnowledgeDocumentsPanel \} from "\.\/KnowledgeDocumentsPanel\.tsx"/);
   assert.match(workspace, /<KnowledgeDocumentsPanel client=\{client\} initialLibrary=\{selected\}/);
+  assert.match(workspace, /showUploader=\{false\} managementMode/);
   assert.match(workspace, /onBusyChange=\{setDocumentBusy\}/);
   assert.match(workspace, /const blocked = busy \|\| sourceBusy \|\| documentBusy/);
+  assert.match(workspace, /settingsSection === "general"/);
+  assert.match(workspace, /settingsSection === "members"/);
+  assert.match(workspace, /settingsSection === "data"/);
+  assert.match(workspace, /settingsSection === "sources"/);
+  assert.match(workspace, /settingsSection === "danger"/);
+  assertLocalized(workspace, "知识库设置");
+  assertLocalized(workspace, "危险操作");
+  assertLocalized(documents, "入库文件");
+  assertLocalized(documents, "成员应从对应的文件页面预览和下载");
 });
 
 test("page collaboration and ACL UI expose bounded responsive states without browser-owned authority", async () => {
@@ -344,10 +355,10 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(styles, /\.knowledge-create-page-dialog/);
   assert.match(styles, /\.knowledge-create-menu > div \{[^}]*position: absolute/);
   assert.match(styles, /\.managed-library-browser > \.managed-library-list \{ display: none; \}/);
-  assertLocalized(workspace, "知识库管理");
+  assertLocalized(workspace, "知识库设置");
 });
 
-test("file-page export is a one-click browser download without a second save-picker workflow", async () => {
+test("file-page original download is a one-click browser download without a second save-picker workflow", async () => {
   const preview = await readFile(path.join(root, "src", "file-preview.ts"), "utf8");
   const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
   assert.doesNotMatch(preview, /showSaveFilePicker|createWritable/);
@@ -355,7 +366,9 @@ test("file-page export is a one-click browser download without a second save-pic
   assert.match(preview, /link\.download = current\.filename/);
   assert.match(preview, /link\.click\(\)/);
   assertLocalized(filePage, "正在下载…");
-  assertLocalized(filePage, "导出");
+  assertLocalized(filePage, "下载原文件");
+  assert.match(filePage, /knowledge-file-page-summary/);
+  assert.match(filePage, /document\.sha256\.slice\(0, 12\)/);
 });
 
 test("file pages render the authorized original inline immediately without a card or preview dialog gate", async () => {
