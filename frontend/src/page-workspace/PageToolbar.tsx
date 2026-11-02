@@ -1,5 +1,6 @@
 import { kt } from "../i18n/runtime.ts";
-import { Activity, Archive, ArchiveRestore, Bell, BookOpen, Clock3, Copy, GitPullRequest, Link2, ListTree, MessageSquare, Network, Pencil, Pin, ScanSearch, Search, Share2, ShieldCheck, Sparkles, Star, Tags, UserRoundCog } from "lucide-react";
+import { Menu, MenuButton, MenuItem, MenuProvider, MenuSeparator } from "@ariakit/react";
+import { Activity, Archive, ArchiveRestore, Bell, BookOpen, Clock3, Copy, Ellipsis, GitPullRequest, Link2, ListTree, MessageSquare, Network, Pencil, Pin, ScanSearch, Search, Share2, ShieldCheck, Sparkles, Star, Tags, UserRoundCog } from "lucide-react";
 import { Button } from "../components.tsx";
 import type { KnowledgePagePersonalState } from "../types.ts";
 
@@ -50,16 +51,25 @@ export function PageToolbar(props: PageToolbarProps) {
         <Button className="knowledge-toolbar-icon" data-tooltip={props.personalState.shortcut_rank ? kt("knowledge.auto.40322a2bf31bae7e") : kt("knowledge.auto.625c1a980544c637")} aria-label={props.personalState.shortcut_rank ? kt("knowledge.auto.40322a2bf31bae7e") : kt("knowledge.auto.625c1a980544c637")} aria-pressed={!!props.personalState.shortcut_rank} title={props.personalState.shortcut_rank ? kt("knowledge.auto.40322a2bf31bae7e") : kt("knowledge.auto.625c1a980544c637")} disabled={props.personalStateSaving} onClick={props.onToggleShortcut}><Pin size={15} fill={props.personalState.shortcut_rank ? "currentColor" : "none"} /></Button>
       </>}
       {props.isDocument && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.be1ad90195c74408")} aria-label={kt("knowledge.auto.be1ad90195c74408")} aria-pressed={props.mode === "outline"} title={kt("knowledge.auto.be1ad90195c74408")} onClick={() => props.onModeChange("outline")}><ListTree size={15} /></Button>}
-      {props.aiAvailable && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.2f9ff39566bb9bc8")} aria-pressed={props.aiOpen} aria-label={kt("knowledge.auto.2f9ff39566bb9bc8")} title={kt("knowledge.auto.2f9ff39566bb9bc8")} onClick={props.onOpenAI}><Sparkles size={15} /></Button>}
-      <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.08c1154822126142")} aria-pressed={props.mode === "metadata"} aria-label={kt("knowledge.auto.08c1154822126142")} title={kt("knowledge.auto.08c1154822126142")} onClick={() => props.onModeChange("metadata")}><Tags size={15} /></Button>
-      <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.bf3a3e79e9765e86")} aria-pressed={props.mode === "references"} aria-label={kt("knowledge.auto.89d7a116be1911b3")} title={kt("knowledge.auto.89d7a116be1911b3")} onClick={() => props.onModeChange("references")}><Link2 size={15} /></Button>
-      <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.73cfc661a728ad5b")} aria-pressed={props.mode === "relationships"} aria-label={kt("knowledge.auto.73cfc661a728ad5b")} title={kt("knowledge.auto.bff649dfd34f83b3")} onClick={() => props.onModeChange("relationships")}><Network size={15} /></Button>
-      {props.isManager && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.4f3125785c1ca618")} aria-label={kt("knowledge.auto.4f3125785c1ca618")} aria-pressed={props.mode === "access"} title={kt("knowledge.auto.c9ff0b899f893621")} onClick={() => props.onModeChange("access")}><ScanSearch size={15} /></Button>}
-      {props.canManagePermissions && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.0e235da0a383c26c")} aria-label={kt("knowledge.auto.0e235da0a383c26c")} aria-pressed={props.mode === "permissions"} title={kt("knowledge.auto.b157acddff49cff2")} onClick={() => props.onModeChange("permissions")}><UserRoundCog size={15} /></Button>}
-      {props.canManageShares && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.348c903d1b5d1b9c")} aria-label={kt("knowledge.auto.348c903d1b5d1b9c")} aria-pressed={props.mode === "shares"} title={kt("knowledge.auto.a2b608d0dfdf9d3d")} onClick={() => props.onModeChange("shares")}><Share2 size={15} /></Button>}
-      {(props.isManager || props.canReviewGovernance) && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.0c4ab1ae758a60c4")} aria-pressed={props.mode === "governance"} aria-label={kt("knowledge.auto.0c4ab1ae758a60c4")} title={kt("knowledge.auto.3a8f071b55717a6e")} onClick={() => props.onModeChange("governance")}><ShieldCheck size={15} /></Button>}
-      {props.canWrite && <Button className="knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.12f008adad5c79c4")} aria-label={kt("knowledge.auto.12f008adad5c79c4")} title={kt("knowledge.auto.12f008adad5c79c4")} onClick={props.onCopy}><Copy size={15} /></Button>}
-      {props.canWrite && <Button className="knowledge-toolbar-icon" data-tooltip={props.archived ? kt("knowledge.auto.d89a000da895d46b") : kt("knowledge.auto.7ab258e99c1e9382")} aria-label={props.archived ? kt("knowledge.auto.d89a000da895d46b") : kt("knowledge.auto.7ab258e99c1e9382")} title={props.archived ? kt("knowledge.auto.d89a000da895d46b") : kt("knowledge.auto.7ab258e99c1e9382")} onClick={props.onArchive}>{props.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}</Button>}
+      <MenuProvider placement="bottom-end">
+        <MenuButton className="knowledge-button knowledge-toolbar-icon" data-tooltip={kt("knowledge.auto.38844b135cf70dfc")} aria-label={kt("knowledge.auto.38844b135cf70dfc")}><Ellipsis size={18} /></MenuButton>
+        <Menu className="knowledge-page-actions-menu" aria-label={kt("knowledge.auto.38844b135cf70dfc")} portal gutter={6} unmountOnHide>
+          {props.aiAvailable && <MenuItem data-selected={props.aiOpen || undefined} onClick={props.onOpenAI}><Sparkles size={15} />{kt("knowledge.auto.2f9ff39566bb9bc8")}</MenuItem>}
+          <MenuItem data-selected={props.mode === "metadata" || undefined} onClick={() => props.onModeChange("metadata")}><Tags size={15} />{kt("knowledge.auto.08c1154822126142")}</MenuItem>
+          <MenuItem data-selected={props.mode === "references" || undefined} onClick={() => props.onModeChange("references")}><Link2 size={15} />{kt("knowledge.auto.89d7a116be1911b3")}</MenuItem>
+          <MenuItem data-selected={props.mode === "relationships" || undefined} onClick={() => props.onModeChange("relationships")}><Network size={15} />{kt("knowledge.auto.73cfc661a728ad5b")}</MenuItem>
+          {(props.isManager || props.canManagePermissions || props.canManageShares || props.canReviewGovernance) && <MenuSeparator />}
+          {props.isManager && <MenuItem data-selected={props.mode === "access" || undefined} onClick={() => props.onModeChange("access")}><ScanSearch size={15} />{kt("knowledge.auto.4f3125785c1ca618")}</MenuItem>}
+          {props.canManagePermissions && <MenuItem data-selected={props.mode === "permissions" || undefined} onClick={() => props.onModeChange("permissions")}><UserRoundCog size={15} />{kt("knowledge.auto.0e235da0a383c26c")}</MenuItem>}
+          {props.canManageShares && <MenuItem data-selected={props.mode === "shares" || undefined} onClick={() => props.onModeChange("shares")}><Share2 size={15} />{kt("knowledge.auto.348c903d1b5d1b9c")}</MenuItem>}
+          {(props.isManager || props.canReviewGovernance) && <MenuItem data-selected={props.mode === "governance" || undefined} onClick={() => props.onModeChange("governance")}><ShieldCheck size={15} />{kt("knowledge.auto.0c4ab1ae758a60c4")}</MenuItem>}
+          {props.canWrite && <>
+            <MenuSeparator />
+            <MenuItem onClick={props.onCopy}><Copy size={15} />{kt("knowledge.auto.12f008adad5c79c4")}</MenuItem>
+            <MenuItem className={props.archived ? undefined : "is-danger"} onClick={props.onArchive}>{props.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}{props.archived ? kt("knowledge.auto.d89a000da895d46b") : kt("knowledge.auto.7ab258e99c1e9382")}</MenuItem>
+          </>}
+        </Menu>
+      </MenuProvider>
     </div>
   </div>;
 }
