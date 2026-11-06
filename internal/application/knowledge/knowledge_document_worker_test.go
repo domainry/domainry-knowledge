@@ -171,12 +171,14 @@ func TestDeletingUnconfirmedPutWithAcknowledgedRecoveryFinalizesWithoutSourceBin
 func TestKnowledgeDocumentIndexSourcePreservesPageProjectionMetadata(t *testing.T) {
 	record := persistence.KnowledgeDocumentRecord{PageProjection: &persistence.KnowledgePageProjectionOrigin{
 		PageID: "kpage-current", Version: 3, Title: "发布流程", LibraryKind: "shared", ContentType: "document",
+		Breadcrumbs: []agentsdk.KnowledgePageBreadcrumb{{PageID: "kpage-root", Title: "研发"}, {PageID: "kpage-current", Title: "发布流程"}},
 	}, Replacement: &persistence.KnowledgeDocumentReplacement{PageProjection: persistence.KnowledgePageProjectionOrigin{
 		PageID: "kpage-current", Version: 4, Title: "新版发布流程", LibraryKind: "shared", ContentType: "document",
+		Breadcrumbs: []agentsdk.KnowledgePageBreadcrumb{{PageID: "kpage-root", Title: "研发"}, {PageID: "kpage-current", Title: "新版发布流程"}},
 	}}}
 	current := knowledgeDocumentIndexSource(record, false)
 	replacement := knowledgeDocumentIndexSource(record, true)
-	if current == nil || current.Title != "发布流程" || current.PageID != "kpage-current" || current.PageVersion != 3 || current.LibraryKind != "shared" || current.ContentType != "document" {
+	if current == nil || current.Title != "发布流程" || current.PageID != "kpage-current" || current.PageVersion != 3 || current.LibraryKind != "shared" || current.ContentType != "document" || len(current.Breadcrumbs) != 2 || current.Breadcrumbs[0].PageID != "kpage-root" {
 		t.Fatalf("current source metadata lost: %+v", current)
 	}
 	if replacement == nil || replacement.Title != "新版发布流程" || replacement.PageVersion != 4 {

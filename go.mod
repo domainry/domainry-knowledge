@@ -7,8 +7,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/domainry/domainry-audit v0.1.45
-	github.com/domainry/domainry-connector-sdk v0.1.19
-	github.com/domainry/domainry-connectors v0.1.26
+	github.com/domainry/domainry-connector-sdk v0.1.20
+	github.com/domainry/domainry-connectors v0.1.27
 	github.com/domainry/domainry-identity v0.2.77
 	github.com/domainry/domainry-metadata v0.1.39
 	github.com/domainry/domainry-orm v0.1.34
@@ -22,7 +22,7 @@ require (
 	github.com/domainry/domainry-audit-sdk v0.1.21
 	github.com/domainry/domainry-foundation v0.2.20
 	github.com/domainry/domainry-identity-sdk v0.1.41
-	github.com/domainry/domainry-knowledge-sdk v0.1.39
+	github.com/domainry/domainry-knowledge-sdk v0.1.40
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	golang.org/x/crypto v0.55.0

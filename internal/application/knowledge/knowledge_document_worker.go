@@ -39,6 +39,7 @@ func knowledgeDocumentIndexSource(r persistence.KnowledgeDocumentRecord, replace
 	return &agentsdk.KnowledgeDocumentIndexSource{
 		Title: projection.Title, PageID: projection.PageID, PageVersion: projection.Version,
 		LibraryKind: projection.LibraryKind, ContentType: projection.ContentType,
+		Breadcrumbs: append([]agentsdk.KnowledgePageBreadcrumb(nil), projection.Breadcrumbs...),
 	}
 }
 

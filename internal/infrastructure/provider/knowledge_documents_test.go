@@ -34,13 +34,19 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 					t.Error("wrong upload request")
 				}
 				wantSource := map[string]string{
-					"source": "verdent_knowledge", "title": "季度费用", "page_id": "kpage-safe-1",
+					"source": "verdent_knowledge", "source_id": "verdent-main", "title": "季度费用", "page_id": "kpage-safe-1",
 					"page_version": "3", "library_kind": "shared", "content_type": "document",
 				}
 				for key, value := range wantSource {
 					if r.URL.Query().Get(key) != value {
 						t.Errorf("%s=%q want %q", key, r.URL.Query().Get(key), value)
 					}
+				}
+				var pathSegments []struct {
+					ID, Title, Kind string
+				}
+				if json.Unmarshal([]byte(r.URL.Query().Get("path_segments")), &pathSegments) != nil || len(pathSegments) != 2 || pathSegments[0].ID != "kpage-parent-1" || pathSegments[0].Kind != "folder" || pathSegments[1].ID != "kpage-safe-1" || pathSegments[1].Kind != "document" {
+					t.Errorf("wrong path segments: %+v", pathSegments)
 				}
 				stored, _ = io.ReadAll(r.Body)
 				phase = "PENDING"
@@ -67,14 +73,14 @@ func TestKnowledgeDocumentLifecycleUsesScopedConnector(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"err_code": 0, "data": map[string]any{"doc_id": "doc-1", "status": phase, "chunks": []any{}}})
 	}))
 	defer server.Close()
-	config := KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: server.Client(), DocumentSourceProvider: "verdent_knowledge"}
+	config := KnowledgeConfig{BaseURL: server.URL, APIKey: "private-key", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", Client: server.Client(), DocumentSourceProvider: "verdent_knowledge", DocumentSourceID: "verdent-main"}
 	read, err := newKnowledgeWithOfficialAdapter(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := knowledgeAuthority()
 	raw := bytes.Repeat([]byte{0, 0xff, 0x80, 1}, 65536)
-	content := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw), Source: &agentsdk.KnowledgeDocumentIndexSource{Title: "季度费用", PageID: "kpage-safe-1", PageVersion: 3, LibraryKind: "shared", ContentType: "document"}}
+	content := agentsdk.KnowledgeDocumentIndexContent{DocumentID: "doc-1", Filename: "费用.pdf", Bytes: int64(len(raw)), SHA256: testContentHash(raw), Content: bytes.NewReader(raw), Source: &agentsdk.KnowledgeDocumentIndexSource{Title: "季度费用", PageID: "kpage-safe-1", PageVersion: 3, LibraryKind: "shared", ContentType: "document", Breadcrumbs: []agentsdk.KnowledgePageBreadcrumb{{PageID: "kpage-parent-1", Title: "研发空间"}, {PageID: "kpage-safe-1", Title: "季度费用"}}}}
 	if err := read.PutKnowledgeDocument(t.Context(), content, a); err == nil {
 		t.Fatal("retrieval config granted writes")
 	}

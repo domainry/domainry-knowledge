@@ -37,7 +37,7 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 	var documentSource *httpapi.PutDocumentSource
 	provider := strings.TrimSpace(k.config.DocumentSourceProvider)
 	if provider != "" {
-		documentSource = &httpapi.PutDocumentSource{Provider: provider}
+		documentSource = &httpapi.PutDocumentSource{Provider: provider, SourceID: strings.TrimSpace(k.config.DocumentSourceID)}
 	}
 	if in.Source != nil {
 		if documentSource == nil {
@@ -46,6 +46,14 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 		documentSource.Title, documentSource.PageID = in.Source.Title, in.Source.PageID
 		documentSource.PageVersion, documentSource.LibraryKind = in.Source.PageVersion, in.Source.LibraryKind
 		documentSource.ContentType = in.Source.ContentType
+		documentSource.PathSegments = make([]httpapi.PutDocumentPathSegment, len(in.Source.Breadcrumbs))
+		for index, breadcrumb := range in.Source.Breadcrumbs {
+			kind := "folder"
+			if index == len(in.Source.Breadcrumbs)-1 {
+				kind = "document"
+			}
+			documentSource.PathSegments[index] = httpapi.PutDocumentPathSegment{ID: breadcrumb.PageID, Title: breadcrumb.Title, Kind: kind}
+		}
 	}
 	maximum := httpapi.MaximumInlineDocumentBytesForFilename(filename)
 	if in.Content == nil || in.Bytes < 1 || maximum < 1 || in.Bytes > maximum || !connector.ValidSHA256(in.SHA256) {

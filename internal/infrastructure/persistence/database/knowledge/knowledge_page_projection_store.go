@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"time"
 
 	"github.com/domainry/domainry-foundation/entityid"
@@ -134,13 +135,19 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		if sourceID == "" {
 			return conversationError("unavailable", "document_management_unavailable")
 		}
+		publishedPage := page
+		publishedPage.Title, publishedPage.ParentPageID, publishedPage.Rank = version.Title, version.ParentPageID, version.Rank
+		breadcrumbs, err := s.pageBreadcrumbs(ctx, tx, publishedPage, true, lease.Actor)
+		if err != nil {
+			return err
+		}
 		documentID, err := knowledgePageProjectionDocumentID(lease.Actor, lease.PageID)
 		if err != nil {
 			return err
 		}
 		origin := persistence.KnowledgePageProjectionOrigin{
 			PageID: lease.PageID, Version: lease.Version, AccessRevision: lease.AccessRevision, PermissionID: lease.PermissionID,
-			Title: version.Title, ContentType: version.ContentType, LibraryKind: library.Kind,
+			Title: version.Title, ContentType: version.ContentType, LibraryKind: library.Kind, Breadcrumbs: breadcrumbs,
 		}
 		var record persistence.KnowledgeDocumentRecord
 		found, err := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(lease.Actor, documentID), &record)
@@ -183,7 +190,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				if err = s.saveDocumentRecord(ctx, tx, &record, revision); err != nil {
 					return err
 				}
-			} else if record.PageProjection.Version == lease.Version && record.PageProjection.AccessRevision == lease.AccessRevision && record.PageProjection.PermissionID == lease.PermissionID && record.Document.SHA256 == sha256 {
+			} else if reflect.DeepEqual(*record.PageProjection, origin) && record.Document.SHA256 == sha256 {
 				// An acknowledgement may have been lost after the document intent
 				// was committed. Treat only a live source-owned projection as
 				// idempotent. A deleted record with the same page version is a

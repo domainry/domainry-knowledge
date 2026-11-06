@@ -558,8 +558,108 @@ func TestKnowledgePageTreeCommentsAndHiddenProjection(t *testing.T) {
 	record, err := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
 	if err != nil || record.Document.ProjectionKind != "page" || record.Document.OriginPageID != root.Page.ID || record.Document.OriginPageVersion != 1 ||
 		record.PageProjection == nil || record.PageProjection.PageID != root.Page.ID || record.PageProjection.Version != 1 ||
-		record.PageProjection.Title != work.Version.Title || record.PageProjection.ContentType != root.Page.ContentType || record.PageProjection.LibraryKind != library.Kind {
+		record.PageProjection.Title != work.Version.Title || record.PageProjection.ContentType != root.Page.ContentType || record.PageProjection.LibraryKind != library.Kind ||
+		len(record.PageProjection.Breadcrumbs) != 1 || record.PageProjection.Breadcrumbs[0].PageID != root.Page.ID {
 		t.Fatalf("page projection origin missing: %+v err=%v", record, err)
+	}
+}
+
+func TestKnowledgePageProjectionCarriesDeepBreadcrumbsAndRequeuesDescendantsOnAncestorRename(t *testing.T) {
+	store, db := openSubjectKnowledgeStore(t)
+	authority := agentsdk.Authority{Known: true, RuntimeID: "path-runtime", WorkspaceID: "path-workspace", UserID: "alice", RoleKey: "editor"}
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "path-library", Kind: "shared", Name: "路径资料库"}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "path-root", Title: "根目录", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = savePageFixture(t, store, authority, library, root, "path-root-save", "根目录", "根正文")
+	root = publishPageFixture(t, store, authority, library, root, "path-root-publish")
+	child, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "path-child", ParentPageID: root.Page.ID, Title: "子目录", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child = savePageFixture(t, store, authority, library, child, "path-child-save", "子目录", "子正文")
+	child = publishPageFixture(t, store, authority, library, child, "path-child-publish")
+	deep, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "path-deep", ParentPageID: child.Page.ID, Title: "深层文档", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deep = savePageFixture(t, store, authority, library, deep, "path-deep-save", "深层文档", "深层正文")
+	deep = publishPageFixture(t, store, authority, library, deep, "path-deep-publish")
+	if err = store.ActivateKnowledgeDocumentSource(t.Context(), agentsdk.KnowledgeDocumentStorageScope{RuntimeID: authority.RuntimeID, WorkspaceID: authority.WorkspaceID, LibraryID: library.ID}, conversationHash([]string{"path-source", library.ID})); err != nil {
+		t.Fatal(err)
+	}
+
+	expectedDepth := map[string]int{root.Page.ID: 1, child.Page.ID: 2, deep.Page.ID: 3}
+	for range expectedDepth {
+		work, found, claimErr := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "path-worker", time.Now().UTC().Add(time.Second), time.Minute)
+		if claimErr != nil || !found {
+			t.Fatalf("initial path projection not claimable: found=%t err=%v", found, claimErr)
+		}
+		content := []byte("# " + work.Version.Title + "\n\n" + work.Version.Body.PlainText)
+		digest := sha256.Sum256(content)
+		if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://"+work.Page.ID, int64(len(content)), hex.EncodeToString(digest[:]), work.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+			t.Fatal(err)
+		}
+		documentID, idErr := knowledgePageProjectionDocumentID(authority, work.Page.ID)
+		if idErr != nil {
+			t.Fatal(idErr)
+		}
+		record, readErr := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
+		if readErr != nil || record.PageProjection == nil || len(record.PageProjection.Breadcrumbs) != expectedDepth[work.Page.ID] || record.PageProjection.Breadcrumbs[len(record.PageProjection.Breadcrumbs)-1].PageID != work.Page.ID {
+			t.Fatalf("page %s breadcrumbs=%+v err=%v", work.Page.ID, record.PageProjection, readErr)
+		}
+		record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+		record.PutStarted, record.PutAcknowledged, record.IndexObserved = true, true, true
+		record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+		record.Document.SecurityStatus, record.Document.IndexStatus = "clean", "INDEXED"
+		saveRetryFixture(t, db, record, authority)
+		markPageProjectionReady(t, store, library.ID, work.Page.ID, authority)
+	}
+
+	root, err = store.KnowledgePage(t.Context(), library.ID, root.Page.ID, true, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err = store.SaveKnowledgePageDraft(t.Context(), library.ID, root.Page.ID, knowledgesdk.KnowledgePageDraftWrite{
+		ClientID: "path-root-rename", ExpectedDraftRevision: root.Draft.DraftRevision, ExpectedPageRevision: root.Page.Revision,
+		Title: "根目录新版", ParentPageID: root.Page.ParentPageID, Rank: root.Page.Rank,
+		ContentSchemaVersion: knowledgesdk.PageContentSchemaVersion, Content: root.Draft.Body.Content,
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = publishPageFixture(t, store, authority, library, root, "path-root-republish")
+	for _, pageID := range []string{child.Page.ID, deep.Page.ID} {
+		view, readErr := store.KnowledgePage(t.Context(), library.ID, pageID, true, authority)
+		if readErr != nil || view.Page.ProjectionStatus != "queued" || view.Page.AccessStatus != "queued" {
+			t.Fatalf("descendant %s did not fail closed during ancestor path update: page=%+v err=%v", pageID, view.Page, readErr)
+		}
+	}
+
+	seen := map[string]bool{}
+	for range expectedDepth {
+		work, found, claimErr := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "path-worker-rename", time.Now().UTC().Add(time.Second), time.Minute)
+		if claimErr != nil || !found {
+			t.Fatalf("renamed subtree projection not claimable: found=%t err=%v", found, claimErr)
+		}
+		seen[work.Page.ID] = true
+		content := []byte("# " + work.Version.Title + "\n\n" + work.Version.Body.PlainText)
+		digest := sha256.Sum256(content)
+		if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://rename/"+work.Page.ID, int64(len(content)), hex.EncodeToString(digest[:]), work.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+			t.Fatal(err)
+		}
+		documentID, _ := knowledgePageProjectionDocumentID(authority, work.Page.ID)
+		record, readErr := store.KnowledgeDocumentRecord(t.Context(), documentID, authority)
+		if readErr != nil || record.Replacement == nil || record.Reindex == nil || len(record.Replacement.PageProjection.Breadcrumbs) != expectedDepth[work.Page.ID] || record.Replacement.PageProjection.Breadcrumbs[0].Title != "根目录新版" || record.Document.ID != documentID {
+			t.Fatalf("page %s did not create stable-identity path shadow generation: %+v err=%v", work.Page.ID, record, readErr)
+		}
+	}
+	if len(seen) != 3 || !seen[root.Page.ID] || !seen[child.Page.ID] || !seen[deep.Page.ID] {
+		t.Fatalf("renamed subtree jobs=%v", seen)
 	}
 }
 

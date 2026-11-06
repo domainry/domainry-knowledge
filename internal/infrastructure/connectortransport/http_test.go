@@ -50,7 +50,7 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(target, data)); err != nil {
 		t.Fatal(err)
 	}
-	managedTarget := target + "&source=verdent_knowledge"
+	managedTarget := target + "&source=verdent_knowledge&source_id=verdent-main"
 	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(managedTarget, data)); err != nil {
 		t.Fatal("managed Knowledge file was rejected", err)
 	}

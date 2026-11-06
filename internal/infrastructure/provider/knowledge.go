@@ -93,6 +93,9 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 	if c.BaseURL == "" || c.APIKey == "" || c.TeamID == "" || c.KBID == "" || c.WorkspaceID == "" {
 		return nil, fmt.Errorf("knowledge API origin, API key, team ID, knowledge base ID and Knowledge workspace ID are required")
 	}
+	if c.DocumentSourceProvider != "" && (strings.TrimSpace(c.DocumentSourceProvider) != "verdent_knowledge" || !validKnowledgeSourceID(c.DocumentSourceID)) {
+		return nil, fmt.Errorf("document management requires a stable Verdent Knowledge source ID")
+	}
 	if c.TopK == 0 {
 		c.TopK = 5
 	}
@@ -147,6 +150,20 @@ func NewKnowledge(c KnowledgeConfig, adapterFactory knowledgeprovider.AdapterFac
 		return nil, fmt.Errorf("invalid knowledge provider configuration")
 	}
 	return k, nil
+}
+
+func validKnowledgeSourceID(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || index > 0 && (character == '.' || character == '_' || character == '-') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validKnowledgeRecordKind(value string) bool {

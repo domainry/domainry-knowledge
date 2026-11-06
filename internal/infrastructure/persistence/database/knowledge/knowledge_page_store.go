@@ -1115,6 +1115,98 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 	return
 }
 
+// queuePublishedPathDescendants fails the published subtree closed while an
+// ancestor rename or move is projected. A descendant's own page version does
+// not change when its ancestor changes, but its complete breadcrumb path does.
+// Reusing the ordinary projection job keeps document identity stable while the
+// provider creates a new index generation containing the current path.
+func (s *Store) queuePublishedPathDescendants(ctx context.Context, tx *sql.Tx, libraryID, rootPageID string, changedAt time.Time, a agentsdk.Authority) error {
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).
+		Columns("payload_json", "published_parent_page_id").
+		Where(query.And(libraryPredicate(a, libraryID), query.Equal("state", "active"))).
+		OrderBy(query.Ascending("page_id")).
+		Limit(knowledgeLibraryMaximumPages + 1).
+		Build()
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	type publishedPathPage struct {
+		page     knowledgesdk.KnowledgePage
+		parentID string
+	}
+	children := map[string][]publishedPathPage{}
+	count := 0
+	for rows.Next() {
+		var raw []byte
+		var parentID string
+		if err = rows.Scan(&raw, &parentID); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		var page knowledgesdk.KnowledgePage
+		if err = unmarshalDurableJSON(raw, &page); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		count++
+		if count > knowledgeLibraryMaximumPages {
+			_ = rows.Close()
+			return conversationError("unavailable", "page_tree_limit")
+		}
+		if page.PublishedVersion > 0 {
+			children[parentID] = append(children[parentID], publishedPathPage{page: page, parentID: parentID})
+		}
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	queue := append([]publishedPathPage(nil), children[rootPageID]...)
+	seen := map[string]bool{rootPageID: true}
+	for len(queue) != 0 {
+		item := queue[0]
+		queue = queue[1:]
+		if seen[item.page.ID] {
+			return conversationError("conflict", "page_tree_cycle")
+		}
+		seen[item.page.ID] = true
+		queue = append(queue, children[item.page.ID]...)
+
+		access, accessErr := s.knowledgePageAccessPolicy(ctx, tx, libraryID, item.page.ID, a)
+		if accessErr != nil {
+			return accessErr
+		}
+		access.ProjectionStatus, access.UpdatedAt, access.UpdatedByUserID = "queued", changedAt, a.UserID
+		q, args, err = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageAccessTable).
+			Set("projection_status", access.ProjectionStatus).
+			Set("updated_at", access.UpdatedAt.UnixMilli()).
+			Set("payload_json", conversationJSON(access)).
+			Where(query.And(pageScope(a, item.page.ID), query.Equal("revision", access.Revision))).
+			Build()
+		if err = conversationCAS(ctx, tx, q, args, err); err != nil {
+			return err
+		}
+		if err = s.queueCurrentPageProjection(ctx, tx, &item.page, access.Revision, a); err != nil {
+			return err
+		}
+		q, args, err = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageTable).
+			Set("payload_json", conversationJSON(item.page)).
+			Where(query.And(pageScope(a, item.page.ID), query.Equal("revision", item.page.Revision))).
+			Build()
+		if err = conversationCAS(ctx, tx, q, args, err); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePagePublish, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
 	if in.ExpectedPageRevision < 1 || in.ExpectedDraftRevision < 1 || !executionText(in.PublishNote, 2048, false) {
 		return out, conversationError("bad_request", "page_publish_invalid")
@@ -1169,6 +1261,14 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 		if e = s.validatePublishedPageParent(ctx, tx, libraryID, pageID, draft.ParentPageID, a); e != nil {
 			return out, e
 		}
+		pathChanged := false
+		if page.PublishedVersion > 0 {
+			currentVersion, versionErr := s.pageVersion(ctx, tx, pageID, page.PublishedVersion, a)
+			if versionErr != nil {
+				return out, versionErr
+			}
+			pathChanged = currentVersion.Title != draft.Title || currentVersion.ParentPageID != draft.ParentPageID
+		}
 		versionNumber := page.PublishedVersion + 1
 		version := knowledgesdk.KnowledgePageVersion{PageID: pageID, LibraryID: libraryID, Version: versionNumber, Title: draft.Title, ContentType: page.ContentType, ParentPageID: draft.ParentPageID, Rank: draft.Rank, Body: draft.Body, PublishedByUserID: a.UserID, PublishedAt: time.Now().UTC().Truncate(time.Millisecond), PublishNote: in.PublishNote}
 		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgePageVersionTable).Columns("scope_key", "page_id", "version", "library_id", "published_at", "payload_json").Values(libraryScope(a), pageID, versionNumber, libraryID, version.PublishedAt.UnixMilli(), conversationJSON(version)).Build()
@@ -1209,6 +1309,11 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 		q, args, e = query.NewInsertBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Columns("scope_key", "page_id", "library_id", "runtime_id", "version", "not_before", "lease_until", "fence", "payload_json").Values(libraryScope(a), pageID, libraryID, a.RuntimeID, versionNumber, page.UpdatedAt.UnixMilli(), 0, 0, conversationJSON(job)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e
+		}
+		if pathChanged {
+			if e = s.queuePublishedPathDescendants(ctx, tx, libraryID, pageID, page.UpdatedAt, a); e != nil {
+				return out, e
+			}
 		}
 		if e = s.reconcileFilePageAttachments(ctx, tx, page, a); e != nil {
 			return out, e

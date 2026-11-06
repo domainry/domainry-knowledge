@@ -126,7 +126,7 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 	}))
 	defer upstream.Close()
 	ids := []string{"z:read", "a:read", "z:read"}
-	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentSourceProvider: "verdent_knowledge", DocumentPermissionIDs: ids}
+	c := KnowledgeConfig{BaseURL: upstream.URL, APIKey: "fixture", TeamID: "team", KBID: "kb", WorkspaceID: "workspace", DocumentManagement: true, DocumentSourceProvider: "verdent_knowledge", DocumentSourceID: "verdent-main", DocumentPermissionIDs: ids}
 	k, err := newKnowledgeWithOfficialAdapter(c)
 	if err != nil {
 		t.Fatal(err)
