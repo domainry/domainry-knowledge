@@ -485,52 +485,29 @@ func (s *Store) KnowledgePagePermissionTokens(ctx context.Context, libraryID str
 }
 
 func (s *Store) restrictedSubtreeExists(ctx context.Context, db conversationDB, libraryID, rootID string, a agentsdk.Authority) (int, bool, string, error) {
-	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Columns("payload_json").Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID))).Limit(knowledgeLibraryMaximumPages + 1).Build()
+	root, err := s.pageRecord(ctx, db, libraryID, rootID, a)
 	if err != nil {
 		return 0, false, "", err
 	}
-	rows, err := db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return 0, false, "", err
-	}
-	pages := map[string]knowledgesdk.KnowledgePage{}
-	for rows.Next() {
-		var raw []byte
-		var page knowledgesdk.KnowledgePage
-		if err = rows.Scan(&raw); err == nil {
-			err = unmarshalDurableJSON(raw, &page)
-		}
-		if err != nil {
-			_ = rows.Close()
-			return 0, false, "", err
-		}
-		pages[page.ID] = page
-	}
-	if err = rows.Err(); err != nil {
-		_ = rows.Close()
-		return 0, false, "", err
-	}
-	_ = rows.Close()
-	if len(pages) > knowledgeLibraryMaximumPages {
-		return 0, false, "", conversationError("unavailable", "page_limit")
-	}
-	children := map[string][]string{}
-	for _, page := range pages {
-		children[page.ParentPageID] = append(children[page.ParentPageID], page.ID)
-	}
-	stack, count, restricted := []string{rootID}, 0, false
+	count, restricted := 0, false
 	accessState := []any{}
-	for len(stack) > 0 {
-		id := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+	visit := func(page knowledgesdk.KnowledgePage, parentID string) error {
 		count++
-		policy, policyErr := s.knowledgePageAccessPolicy(ctx, db, libraryID, id, a)
+		policy, policyErr := s.knowledgePageAccessPolicy(ctx, db, libraryID, page.ID, a)
 		if policyErr != nil {
-			return 0, false, "", policyErr
+			return policyErr
 		}
 		restricted = restricted || policy.Mode == knowledgesdk.KnowledgePageAccessRestricted
-		accessState = append(accessState, []any{id, pages[id].ParentPageID, policy.Mode, policy.Revision})
-		stack = append(stack, children[id]...)
+		accessState = append(accessState, []any{page.ID, parentID, policy.Mode, policy.Revision})
+		return nil
+	}
+	if err = visit(root, root.ParentPageID); err != nil {
+		return 0, false, "", err
+	}
+	if err = s.visitKnowledgePageDescendants(ctx, db, libraryID, rootID, knowledgePageDescendantQuery{
+		parentColumn: "parent_page_id", activeOnly: true,
+	}, a, visit); err != nil {
+		return 0, false, "", err
 	}
 	sort.Slice(accessState, func(i, j int) bool { return accessState[i].([]any)[0].(string) < accessState[j].([]any)[0].(string) })
 	return count, restricted, conversationHash(accessState), nil

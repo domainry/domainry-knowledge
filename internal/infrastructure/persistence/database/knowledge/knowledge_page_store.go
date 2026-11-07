@@ -1118,90 +1118,35 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 // Reusing the ordinary projection job keeps document identity stable while the
 // provider creates a new index generation containing the current path.
 func (s *Store) queuePublishedPathDescendants(ctx context.Context, tx *sql.Tx, libraryID, rootPageID string, changedAt time.Time, a agentsdk.Authority) error {
-	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).
-		Columns("payload_json", "published_parent_page_id").
-		Where(query.And(libraryPredicate(a, libraryID), query.Equal("state", "active"))).
-		OrderBy(query.Ascending("page_id")).
-		Limit(knowledgeLibraryMaximumPages + 1).
-		Build()
-	if err != nil {
-		return err
-	}
-	rows, err := tx.QueryContext(ctx, q, args...)
-	if err != nil {
-		return err
-	}
-	type publishedPathPage struct {
-		page     knowledgesdk.KnowledgePage
-		parentID string
-	}
-	children := map[string][]publishedPathPage{}
-	count := 0
-	for rows.Next() {
-		var raw []byte
-		var parentID string
-		if err = rows.Scan(&raw, &parentID); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		var page knowledgesdk.KnowledgePage
-		if err = unmarshalDurableJSON(raw, &page); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		count++
-		if count > knowledgeLibraryMaximumPages {
-			_ = rows.Close()
-			return conversationError("unavailable", "page_tree_limit")
-		}
-		if page.PublishedVersion > 0 {
-			children[parentID] = append(children[parentID], publishedPathPage{page: page, parentID: parentID})
-		}
-	}
-	if err = rows.Err(); err != nil {
-		_ = rows.Close()
-		return err
-	}
-	if err = rows.Close(); err != nil {
-		return err
-	}
-	queue := append([]publishedPathPage(nil), children[rootPageID]...)
-	seen := map[string]bool{rootPageID: true}
-	for len(queue) != 0 {
-		item := queue[0]
-		queue = queue[1:]
-		if seen[item.page.ID] {
-			return conversationError("conflict", "page_tree_cycle")
-		}
-		seen[item.page.ID] = true
-		queue = append(queue, children[item.page.ID]...)
-
-		access, accessErr := s.knowledgePageAccessPolicy(ctx, tx, libraryID, item.page.ID, a)
+	return s.visitKnowledgePageDescendants(ctx, tx, libraryID, rootPageID, knowledgePageDescendantQuery{
+		parentColumn: "published_parent_page_id", activeOnly: true, publishedOnly: true,
+	}, a, func(page knowledgesdk.KnowledgePage, _ string) error {
+		access, accessErr := s.knowledgePageAccessPolicy(ctx, tx, libraryID, page.ID, a)
 		if accessErr != nil {
 			return accessErr
 		}
 		access.ProjectionStatus, access.UpdatedAt, access.UpdatedByUserID = "queued", changedAt, a.UserID
-		q, args, err = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageAccessTable).
+		q, args, err := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageAccessTable).
 			Set("projection_status", access.ProjectionStatus).
 			Set("updated_at", access.UpdatedAt.UnixMilli()).
 			Set("payload_json", conversationJSON(access)).
-			Where(query.And(pageScope(a, item.page.ID), query.Equal("revision", access.Revision))).
+			Where(query.And(pageScope(a, page.ID), query.Equal("revision", access.Revision))).
 			Build()
 		if err = conversationCAS(ctx, tx, q, args, err); err != nil {
 			return err
 		}
-		if err = s.queueCurrentPageProjection(ctx, tx, &item.page, access.Revision, a); err != nil {
+		if err = s.queueCurrentPageProjection(ctx, tx, &page, access.Revision, a); err != nil {
 			return err
 		}
 		q, args, err = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageTable).
-			Set("payload_json", conversationJSON(item.page)).
-			Where(query.And(pageScope(a, item.page.ID), query.Equal("revision", item.page.Revision))).
+			Set("payload_json", conversationJSON(page)).
+			Where(query.And(pageScope(a, page.ID), query.Equal("revision", page.Revision))).
 			Build()
 		if err = conversationCAS(ctx, tx, q, args, err); err != nil {
 			return err
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePagePublish, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {

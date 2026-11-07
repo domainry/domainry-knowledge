@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
@@ -15,6 +16,8 @@ const (
 	knowledgeDocumentUploadExpiryBatchSize         = 100
 	knowledgeDocumentUploadExpiryInterval          = time.Minute
 	knowledgeDocumentMaximumAutomaticPutRecoveries = 1
+	knowledgeDocumentWorkerBatchSize               = 8
+	knowledgeDocumentWorkerConcurrency             = 8
 )
 
 func knowledgeDocumentProjectionPermissionIDs(r persistence.KnowledgeDocumentRecord, replacement bool) []string {
@@ -191,6 +194,43 @@ func (s *Service) DocumentWorkerEnabled() bool {
 func (s *Service) DocumentWorkerInterval() time.Duration  { return s.options.DocumentPoll }
 func (s *Service) DocumentWorkerWakeups() <-chan struct{} { return s.documentWake }
 
+type knowledgeDocumentWorkerTask func() error
+
+func runKnowledgeDocumentWorkerTasks(tasks []knowledgeDocumentWorkerTask) error {
+	if len(tasks) == 0 {
+		return nil
+	}
+	workers := knowledgeDocumentWorkerConcurrency
+	if workers > len(tasks) {
+		workers = len(tasks)
+	}
+	queue := make(chan knowledgeDocumentWorkerTask)
+	errorsByTask := make(chan error, len(tasks))
+	var group sync.WaitGroup
+	group.Add(workers)
+	for range workers {
+		go func() {
+			defer group.Done()
+			for task := range queue {
+				if err := task(); err != nil {
+					errorsByTask <- err
+				}
+			}
+		}()
+	}
+	for _, task := range tasks {
+		queue <- task
+	}
+	close(queue)
+	group.Wait()
+	close(errorsByTask)
+	var result error
+	for err := range errorsByTask {
+		result = errors.Join(result, err)
+	}
+	return result
+}
+
 func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickResult, error) {
 	repo, ok := s.repo.(persistence.KnowledgeDocumentRepository)
 	if !ok || s.options.DocumentStorage == nil {
@@ -214,26 +254,55 @@ func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickRe
 			}
 		}
 	}
+	tasks := make([]knowledgeDocumentWorkerTask, 0, knowledgeDocumentWorkerBatchSize)
+	var claimErr error
 	if projections, ok := repo.(knowledgesdk.KnowledgePageProjectionRepository); ok {
-		work, claimed, err := projections.ClaimKnowledgePageProjection(ctx, s.runtimeID, s.owner, now, s.options.DocumentWorkTimeout)
-		if err != nil {
-			return WorkerTickResult{}, err
-		}
-		if claimed {
-			attempt, cancel := context.WithDeadline(ctx, work.Lease.ExpiresAt)
-			err = s.ProcessKnowledgePageProjection(attempt, projections, work)
-			cancel()
-			return WorkerTickResult{Worked: true, ProcessedCount: 1}, err
+		for len(tasks) < knowledgeDocumentWorkerBatchSize {
+			work, claimed, err := projections.ClaimKnowledgePageProjection(ctx, s.runtimeID, s.owner, now, s.options.DocumentWorkTimeout)
+			if err != nil {
+				claimErr = errors.Join(claimErr, err)
+				break
+			}
+			if !claimed {
+				break
+			}
+			claimedWork := work
+			tasks = append(tasks, func() error {
+				attempt, cancel := context.WithDeadline(ctx, claimedWork.Lease.ExpiresAt)
+				defer cancel()
+				return s.ProcessKnowledgePageProjection(attempt, projections, claimedWork)
+			})
 		}
 	}
-	lease, claimed, err := repo.ClaimKnowledgeDocumentWork(ctx, s.runtimeID, s.owner, now, s.options.DocumentWorkTimeout)
-	if err != nil || !claimed {
-		return WorkerTickResult{}, err
+	if claimErr == nil {
+		for len(tasks) < knowledgeDocumentWorkerBatchSize {
+			lease, claimed, err := repo.ClaimKnowledgeDocumentWork(ctx, s.runtimeID, s.owner, now, s.options.DocumentWorkTimeout)
+			if err != nil {
+				claimErr = errors.Join(claimErr, err)
+				break
+			}
+			if !claimed {
+				break
+			}
+			claimedLease := lease
+			tasks = append(tasks, func() error {
+				attempt, cancel := context.WithDeadline(ctx, claimedLease.ExpiresAt)
+				defer cancel()
+				return s.ProcessKnowledgeDocument(attempt, repo, claimedLease)
+			})
+		}
 	}
-	attempt, cancel := context.WithDeadline(ctx, lease.ExpiresAt)
-	err = s.ProcessKnowledgeDocument(attempt, repo, lease)
-	cancel()
-	return WorkerTickResult{Worked: true, ProcessedCount: 1}, err
+	if len(tasks) == 0 {
+		return WorkerTickResult{}, claimErr
+	}
+	workErr := runKnowledgeDocumentWorkerTasks(tasks)
+	if len(tasks) == knowledgeDocumentWorkerBatchSize {
+		// Interrupt the supervisor's normal poll delay while a full batch proves
+		// that more durable work may already be available. The durable claim is
+		// still authoritative; this is only a lossy wake-up hint.
+		s.WakeKnowledgeDocuments()
+	}
+	return WorkerTickResult{Worked: true, ProcessedCount: len(tasks)}, errors.Join(claimErr, workErr)
 }
 
 func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence.KnowledgeDocumentRepository, lease persistence.KnowledgeDocumentLease) (resultErr error) {

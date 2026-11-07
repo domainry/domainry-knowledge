@@ -39,6 +39,62 @@ type uploadExpiryDocumentStorage struct {
 	agentsdk.KnowledgeDocumentStorage
 }
 
+type batchedProjectionRepository struct {
+	persistence.KnowledgeDocumentRepository
+	knowledgesdk.KnowledgePageProjectionRepository
+
+	mu                sync.Mutex
+	remaining         int
+	claimed           int
+	skipped           int
+	active            int
+	maximumConcurrent int
+}
+
+func (repo *batchedProjectionRepository) ClaimKnowledgePageProjection(_ context.Context, runtimeID, owner string, _ time.Time, leaseDuration time.Duration) (knowledgesdk.KnowledgePageProjectionWork, bool, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if repo.remaining == 0 {
+		return knowledgesdk.KnowledgePageProjectionWork{}, false, nil
+	}
+	repo.remaining--
+	repo.claimed++
+	index := repo.claimed
+	actor := agentsdk.Authority{Known: true, RuntimeID: runtimeID, WorkspaceID: "workspace-a", UserID: "user-a"}
+	return knowledgesdk.KnowledgePageProjectionWork{Lease: knowledgesdk.KnowledgePageProjectionLease{
+		RuntimeID: runtimeID, WorkspaceID: actor.WorkspaceID, LibraryID: "library-a",
+		PageID: "page-" + time.Unix(int64(index), 0).UTC().Format("150405"), Owner: owner,
+		Token: int64(index), ExpiresAt: time.Now().UTC().Add(leaseDuration), Actor: actor,
+	}}, true, nil
+}
+
+func (*batchedProjectionRepository) CompleteKnowledgePageProjection(context.Context, knowledgesdk.KnowledgePageProjectionLease, string, int64, string, string, string) error {
+	return nil
+}
+
+func (*batchedProjectionRepository) RetryKnowledgePageProjection(context.Context, knowledgesdk.KnowledgePageProjectionLease, time.Time) error {
+	return nil
+}
+
+func (repo *batchedProjectionRepository) SkipKnowledgePageProjection(context.Context, knowledgesdk.KnowledgePageProjectionLease) error {
+	repo.mu.Lock()
+	repo.active++
+	if repo.active > repo.maximumConcurrent {
+		repo.maximumConcurrent = repo.active
+	}
+	repo.mu.Unlock()
+	time.Sleep(10 * time.Millisecond)
+	repo.mu.Lock()
+	repo.active--
+	repo.skipped++
+	repo.mu.Unlock()
+	return nil
+}
+
+func (*batchedProjectionRepository) ClaimKnowledgeDocumentWork(context.Context, string, string, time.Time, time.Duration) (persistence.KnowledgeDocumentLease, bool, error) {
+	return persistence.KnowledgeDocumentLease{}, false, nil
+}
+
 type deletionDocumentStorage struct {
 	agentsdk.KnowledgeDocumentStorage
 	deleted []string
@@ -221,6 +277,38 @@ func TestKnowledgeDocumentWorkerSweepsIdleUploads(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("document worker did not sweep idle uploads")
+	}
+}
+
+func TestKnowledgeDocumentWorkerUsesFixedBatchAndBoundedConcurrency(t *testing.T) {
+	repository := &batchedProjectionRepository{remaining: knowledgeDocumentWorkerBatchSize + 8}
+	service := NewService(repository, "runtime-a", Options{DocumentStorage: &uploadExpiryDocumentStorage{}}, nil)
+
+	first, err := service.KnowledgeDocumentWorkerTick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Worked || first.ProcessedCount != knowledgeDocumentWorkerBatchSize {
+		t.Fatalf("first batch=%+v", first)
+	}
+	repository.mu.Lock()
+	firstSkipped, firstMaximum := repository.skipped, repository.maximumConcurrent
+	repository.mu.Unlock()
+	if firstSkipped != knowledgeDocumentWorkerBatchSize || firstMaximum < 2 || firstMaximum > knowledgeDocumentWorkerConcurrency {
+		t.Fatalf("first skipped=%d max_concurrent=%d", firstSkipped, firstMaximum)
+	}
+
+	second, err := service.KnowledgeDocumentWorkerTick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.Worked || second.ProcessedCount != 8 {
+		t.Fatalf("second batch=%+v", second)
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if repository.skipped != knowledgeDocumentWorkerBatchSize+8 || repository.remaining != 0 || repository.maximumConcurrent > knowledgeDocumentWorkerConcurrency {
+		t.Fatalf("skipped=%d remaining=%d max_concurrent=%d", repository.skipped, repository.remaining, repository.maximumConcurrent)
 	}
 }
 
