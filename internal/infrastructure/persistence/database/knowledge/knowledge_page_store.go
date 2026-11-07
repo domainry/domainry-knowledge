@@ -451,28 +451,22 @@ func (s *Store) validatePageParent(ctx context.Context, tx *sql.Tx, libraryID, p
 	return nil
 }
 
-func (s *Store) validatePublishedPageParent(ctx context.Context, tx *sql.Tx, libraryID, pageID, parentID string, a agentsdk.Authority) error {
-	seen := map[string]bool{pageID: true}
-	current := parentID
-	for depth := 0; current != "" && depth < knowledgePageMaximumDepth; depth++ {
-		if seen[current] {
-			return conversationError("conflict", "page_tree_cycle")
-		}
-		seen[current] = true
-		parent, err := s.pageRecord(ctx, tx, libraryID, current, a)
-		if err != nil || parent.State != "active" || parent.PublishedVersion == 0 {
-			return conversationError("conflict", "page_parent_unpublished")
-		}
-		version, err := s.pageVersion(ctx, tx, parent.ID, parent.PublishedVersion, a)
-		if err != nil {
-			return err
-		}
-		current = version.ParentPageID
+func (s *Store) publishedPageParentID(ctx context.Context, tx *sql.Tx, libraryID, parentID string, a agentsdk.Authority) (string, error) {
+	if parentID == "" {
+		return "", nil
 	}
-	if current != "" {
-		return conversationError("conflict", "page_tree_depth")
+	parent, err := s.pageRecord(ctx, tx, libraryID, parentID, a)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	// Draft and published hierarchies are separate snapshots. A child may be
+	// published independently; until its direct parent has a published snapshot,
+	// expose the child at the published root instead of creating an unreachable
+	// reader-only branch.
+	if parent.State != "active" || parent.PublishedVersion == 0 {
+		return "", nil
+	}
+	return parent.ID, nil
 }
 
 func (s *Store) CreateKnowledgePage(ctx context.Context, libraryID string, in knowledgesdk.KnowledgePageCreate, a agentsdk.Authority) (out knowledgesdk.KnowledgePageView, err error) {
@@ -1107,6 +1101,9 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 		if e = s.reconcileFilePageAttachments(ctx, tx, out, a); e != nil {
 			return out, e
 		}
+		if e = s.reconcileDocumentPageAttachments(ctx, tx, out, a); e != nil {
+			return out, e
+		}
 		return out, nil
 	}, &out)
 	if err == nil {
@@ -1258,7 +1255,8 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 				return out, e
 			}
 		}
-		if e = s.validatePublishedPageParent(ctx, tx, libraryID, pageID, draft.ParentPageID, a); e != nil {
+		publishedParentID, e := s.publishedPageParentID(ctx, tx, libraryID, draft.ParentPageID, a)
+		if e != nil {
 			return out, e
 		}
 		pathChanged := false
@@ -1267,10 +1265,10 @@ func (s *Store) PublishKnowledgePage(ctx context.Context, libraryID, pageID stri
 			if versionErr != nil {
 				return out, versionErr
 			}
-			pathChanged = currentVersion.Title != draft.Title || currentVersion.ParentPageID != draft.ParentPageID
+			pathChanged = currentVersion.Title != draft.Title || currentVersion.ParentPageID != publishedParentID
 		}
 		versionNumber := page.PublishedVersion + 1
-		version := knowledgesdk.KnowledgePageVersion{PageID: pageID, LibraryID: libraryID, Version: versionNumber, Title: draft.Title, ContentType: page.ContentType, ParentPageID: draft.ParentPageID, Rank: draft.Rank, Body: draft.Body, PublishedByUserID: a.UserID, PublishedAt: time.Now().UTC().Truncate(time.Millisecond), PublishNote: in.PublishNote}
+		version := knowledgesdk.KnowledgePageVersion{PageID: pageID, LibraryID: libraryID, Version: versionNumber, Title: draft.Title, ContentType: page.ContentType, ParentPageID: publishedParentID, Rank: draft.Rank, Body: draft.Body, PublishedByUserID: a.UserID, PublishedAt: time.Now().UTC().Truncate(time.Millisecond), PublishNote: in.PublishNote}
 		q, args, e := query.NewInsertBuilder(s.store.Renderer(), knowledgePageVersionTable).Columns("scope_key", "page_id", "version", "library_id", "published_at", "payload_json").Values(libraryScope(a), pageID, versionNumber, libraryID, version.PublishedAt.UnixMilli(), conversationJSON(version)).Build()
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e

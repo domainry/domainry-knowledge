@@ -155,10 +155,8 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
 				return out, e
 			}
-			if page.ContentType == knowledgePageTypeFile {
-				if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
-					return out, e
-				}
+			if e = s.reconcileKnowledgePageAttachment(ctx, tx, page, documentID, a); e != nil {
+				return out, e
 			}
 			out = prior
 			return out, nil
@@ -169,10 +167,8 @@ func (s *Store) SetKnowledgePageAttachment(ctx context.Context, libraryID, pageI
 		if e = conversationExec(ctx, tx, q, args, e); e != nil {
 			return out, e
 		}
-		if page.ContentType == knowledgePageTypeFile {
-			if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
-				return out, e
-			}
+		if e = s.reconcileKnowledgePageAttachment(ctx, tx, page, documentID, a); e != nil {
+			return out, e
 		}
 		return out, nil
 	}, &out)
@@ -216,10 +212,8 @@ func (s *Store) RemoveKnowledgePageAttachment(ctx context.Context, libraryID, pa
 		if rows != 1 {
 			return receipt, conversationError("not_found", "page_attachment_not_found")
 		}
-		if page.ContentType == knowledgePageTypeFile {
-			if e = s.reconcileFilePageDocumentLifecycle(ctx, tx, libraryID, documentID, a); e != nil {
-				return receipt, e
-			}
+		if e = s.reconcileKnowledgePageAttachment(ctx, tx, page, documentID, a); e != nil {
+			return receipt, e
 		}
 		receipt.Removed = true
 		return receipt, nil

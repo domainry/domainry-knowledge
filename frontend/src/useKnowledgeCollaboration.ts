@@ -2,7 +2,7 @@ import { kt } from "./i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, modifyAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
-import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "./collaboration.ts";
+import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, knowledgeCollaborationFailureIsRetryable, knowledgeCollaborationTitle, mergeKnowledgeYjsUpdates } from "./collaboration.ts";
 import { loadKnowledgeOfflineChange, removeKnowledgeOfflineChange, saveKnowledgeOfflineChange } from "./collaborationOffline.ts";
 import { createKnowledgeCollaborationTransport } from "./collaborationTransport.ts";
 import type { KnowledgeEditorChange, KnowledgeEditorCollaboration } from "./editors/types.ts";
@@ -83,10 +83,16 @@ export function useKnowledgeCollaboration(options: Options) {
   const clientIDRef = useRef<string>(crypto.randomUUID());
   const localUpdatesRef = useRef<Uint8Array[]>([]);
   const appliedCheckpointRef = useRef(-1);
+  const initialDocumentRef = useRef({ pageID: options.pageID, title: "" });
   const callbacksRef = useRef({ onDocument: options.onDocument, onError: options.onError });
   const identityResolversRef = useRef({ resolveUserName: options.resolveUserName, resolveUserColor: options.resolveUserColor });
   callbacksRef.current = { onDocument: options.onDocument, onError: options.onError };
   identityResolversRef.current = { resolveUserName: options.resolveUserName, resolveUserColor: options.resolveUserColor };
+  if (initialDocumentRef.current.pageID !== options.pageID) initialDocumentRef.current = { pageID: options.pageID, title: "" };
+  if (options.active) {
+    const initialTitle = options.initialTitle.trim();
+    if (initialTitle) initialDocumentRef.current.title = initialTitle;
+  }
 
   useEffect(() => {
     const collect = (update: Uint8Array, origin: unknown) => {
@@ -159,6 +165,14 @@ export function useKnowledgeCollaboration(options: Options) {
     if (snapshot.yjs_state || snapshot.yjs_updates?.length) setInitializeFromBody(false);
   }
 
+  function restoreDocumentTitle(snapshotTitle: string) {
+    const title = knowledgeCollaborationTitle(titleText.toString(), snapshotTitle, initialDocumentRef.current.title);
+    if (titleText.length === 0 && title) {
+      document.transact(() => titleText.insert(0, title), "knowledge-title-initial");
+    }
+    return title;
+  }
+
   function applyServerResult(session: KnowledgeCollaborationSession, events: { user_id?: string }[], synced: boolean) {
     sessionRef.current = session;
     setSessionID(session.id);
@@ -173,7 +187,7 @@ export function useKnowledgeCollaboration(options: Options) {
       setMergedUserIDs(remoteUsers);
       setMergeCount(count => count + events.filter(event => event.user_id && event.user_id !== session.user_id).length);
     }
-    const mergedTitle = titleText.toString() || session.snapshot.title;
+    const mergedTitle = restoreDocumentTitle(session.snapshot.title);
     if (pendingRef.current) {
       pendingRef.current.title = mergedTitle;
       persistPending(pendingRef.current);
@@ -219,7 +233,7 @@ export function useKnowledgeCollaboration(options: Options) {
       setMergedUserIDs([event.user_id]);
       setMergeCount(count => count + 1);
     }
-    const mergedTitle = titleText.toString() || next.title;
+    const mergedTitle = restoreDocumentTitle(next.title);
     if (pendingRef.current) {
       pendingRef.current.title = mergedTitle;
       persistPending(pendingRef.current);
@@ -283,7 +297,7 @@ export function useKnowledgeCollaboration(options: Options) {
               client_id: clientIDRef.current,
               update_id: sent.updateID,
               client_created_at: new Date(sent.createdAt).toISOString(),
-              title: title !== confirmed.title ? title : undefined,
+              title: title && title !== confirmed.title ? title : undefined,
               yjs_update: sent.yjsUpdate,
               yjs_state: checkpointDue ? sent.yjsState : undefined,
               content: sent.content,
@@ -320,6 +334,11 @@ export function useKnowledgeCollaboration(options: Options) {
           if (generationRef.current === generation) {
             if (collaborationRevocationCode(failure)) {
               clearRevokedState(failure);
+              return;
+            }
+            if (!knowledgeCollaborationFailureIsRetryable(failure)) {
+              setState("error");
+              callbacksRef.current.onError(failure);
               return;
             }
             syncFailuresRef.current++;
@@ -369,7 +388,7 @@ export function useKnowledgeCollaboration(options: Options) {
       confirmedRef.current = session.snapshot;
       if (!session.snapshot.yjs_state && !session.snapshot.yjs_updates?.length) {
         setInitializeFromBody(true);
-        if (titleText.length === 0 && session.snapshot.title) titleText.insert(0, session.snapshot.title);
+        restoreDocumentTitle(session.snapshot.title);
       }
       applyServerResult(session, [], true);
       if (offline) {
@@ -413,6 +432,11 @@ export function useKnowledgeCollaboration(options: Options) {
               clearRevokedState(failure);
               return;
             }
+            if (!knowledgeCollaborationFailureIsRetryable(failure)) {
+              setState("error");
+              callbacksRef.current.onError(failure);
+              return;
+            }
             failures++;
             setState("reconnecting");
             if (failures >= 5) {
@@ -428,6 +452,11 @@ export function useKnowledgeCollaboration(options: Options) {
       if (!abort.signal.aborted && generationRef.current === generation) {
         if (collaborationRevocationCode(failure)) {
           clearRevokedState(failure);
+          return;
+        }
+        if (!knowledgeCollaborationFailureIsRetryable(failure)) {
+          setState("error");
+          callbacksRef.current.onError(failure);
           return;
         }
         syncFailuresRef.current++;
@@ -469,7 +498,7 @@ export function useKnowledgeCollaboration(options: Options) {
     // local edits. The POST session is still valid while the downlink reconnects,
     // so queue the newest canonical document and let the normal pump submit it.
     if (!confirmed || !ready) return;
-    const requestedTitle = title.trim();
+    const requestedTitle = knowledgeCollaborationTitle(title, titleText.toString(), confirmed.title, initialDocumentRef.current.title);
     if (titleText.toString() !== requestedTitle) {
       document.transact(() => {
         if (titleText.length > 0) titleText.delete(0, titleText.length);
@@ -478,7 +507,7 @@ export function useKnowledgeCollaboration(options: Options) {
     }
     const updateParts = localUpdatesRef.current.splice(0);
     const incremental = mergeKnowledgeYjsUpdates(updateParts);
-    if (!pendingRef.current && title.trim() === confirmed.title && content === confirmed.content) return;
+    if (!pendingRef.current && requestedTitle === confirmed.title && content === confirmed.content) return;
     if (!incremental && !pendingRef.current) return;
     const previousUpdate = pendingRef.current?.yjsUpdate;
     const mergedUpdate = mergeKnowledgeYjsUpdates([previousUpdate, incremental].filter((value): value is string => Boolean(value)).map(decodeCollaborationBinary));

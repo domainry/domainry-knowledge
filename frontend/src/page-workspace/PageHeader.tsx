@@ -13,6 +13,7 @@ export type PageHeaderProps = {
   projectionStatus?: ReactNode;
   metadataSummary?: ReactNode;
   presence?: ReactNode;
+  primaryAction?: ReactNode;
   actionHostRef?: (element: HTMLDivElement | null) => void;
   canEdit: boolean;
   onEdit(): void;
@@ -30,6 +31,7 @@ export function PageHeader(props: PageHeaderProps) {
     <div className="knowledge-page-heading-actions">
       {props.presence}
       {props.actionHostRef && <div ref={props.actionHostRef} className="knowledge-page-header-actions-slot" aria-label={kt("knowledge.auto.56c1660c36f47844")} />}
+      {props.primaryAction}
       {!props.editing && props.canEdit && <Button className="primary knowledge-page-header-action" onClick={props.onEdit}><Pencil size={14} />{kt("knowledge.auto.051836569928a9f9")}</Button>}
     </div>
   </header>;

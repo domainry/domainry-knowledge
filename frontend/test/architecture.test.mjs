@@ -233,6 +233,7 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
   const blockEditor = await readFile(path.join(root, "src", "editors", "BlockNoteEditor.tsx"), "utf8");
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.match(collaboration, /createKnowledgeCollaborationTransport/);
   assert.match(transport, /readonly kind: "post-sse"/);
   assert.match(transport, /streamKnowledgeCollaborationEvents/);
@@ -276,6 +277,10 @@ test("collaboration uses authenticated SSE downlink without retaining the two-se
   assert.match(panel, /\[collaborationFailure, setCollaborationFailure\] = useState\(""\)/);
   assert.match(panel, /onError\(failure\) \{ setCollaborationFailure\(formatError\(failure\)\); \}/);
   assert.match(panel, /collaboration\.state === "connected"\) setCollaborationFailure\(""\)/);
+	assert.match(panel, /\[pageLiveFailure, setPageLiveFailure\] = useState\(""\)/);
+	assert.match(panel, /streamKnowledgePageLiveEvents![\s\S]*reconnectAttempt = 0;[\s\S]*setPageLiveFailure\(""\)/, "a recovered page-event stream must clear its own stale warning and reset backoff");
+	assert.match(panel, /catch \{[\s\S]*setPageLiveFailure\(kt\("knowledge\.auto\.f5db31bf8f125912"\)\)/, "page-event reconnect state must not overwrite unrelated operation notices");
+	assert.match(styles, /\.knowledge-warning \{ color: var\(--knowledge-warning\); background: var\(--knowledge-warning-soft\); \}/);
 });
 
 test("application cards keep only stable references and resolve through the authorized host boundary", async () => {
@@ -1035,4 +1040,24 @@ test("repository-owned selects share the accessible product popover instead of n
   assert.match(components, /dispatchEvent\(new Event\("change", \{ bubbles: true \}\)\)/);
   assert.match(styles, /\.knowledge-select-popover \{/);
   assert.match(styles, /\.knowledge-select-option\[aria-selected="true"\]/);
+});
+
+test("PDF preview is a continuous bounded reader with a fixed complete toolbar", async () => {
+  const viewer = await readFile(path.join(root, "src", "viewers", "BlobViewer.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  assert.match(viewer, /Array\.from\(\{ length: pdf\.numPages \}/);
+  assert.match(viewer, /active=\{Math\.abs\(pageNumber - page\) <= 1\}/);
+  assert.match(viewer, /className="knowledge-pdf-page-slot"[\s\S]*data-page-number=\{pageNumber\}/);
+  assert.match(viewer, /className="knowledge-pdf-toolbar"/);
+  assert.match(viewer, /goToPage\(page - 1\)/);
+  assert.match(viewer, /goToPage\(page \+ 1\)/);
+  assert.match(viewer, /downloadPDF/);
+  assert.match(viewer, /printPDF/);
+  assert.match(viewer, /toggleFullscreen/);
+  assert.match(viewer, /addEventListener\("wheel", handleWheel, \{ passive: false \}\)/);
+  assert.match(styles, /\.knowledge-pdf-toolbar \{[^}]*position: fixed;/);
+  assert.match(styles, /\.knowledge-pdf-viewer \{[^}]*height:/);
+  assert.match(styles, /\.knowledge-file-page > \.knowledge-pdf-viewer \{[^}]*flex: 0 0/);
+  assert.match(styles, /\.knowledge-pdf-pages \{[^}]*flex-direction: column;/);
 });

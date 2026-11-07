@@ -8,6 +8,7 @@ export type PageHeaderProps = {
     projectionStatus?: ReactNode;
     metadataSummary?: ReactNode;
     presence?: ReactNode;
+    primaryAction?: ReactNode;
     actionHostRef?: (element: HTMLDivElement | null) => void;
     canEdit: boolean;
     onEdit(): void;

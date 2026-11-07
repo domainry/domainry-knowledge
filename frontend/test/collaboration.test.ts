@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as Y from "yjs";
-import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, collaborationPresenceUserIDs, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, mergeKnowledgeYjsUpdates } from "../src/collaboration.ts";
+import { applyKnowledgeYjsState, applyKnowledgeYjsUpdate, collaborationContentSHA256, collaborationPositionChanged, collaborationPresenceUserIDs, decodeCollaborationBinary, encodeCollaborationBinary, encodeKnowledgeYjsState, knowledgeCollaborationFailureIsRetryable, knowledgeCollaborationTitle, mergeKnowledgeYjsUpdates } from "../src/collaboration.ts";
 import { knowledgeOfflineCollaborationKey, loadKnowledgeOfflineChange } from "../src/collaborationOffline.ts";
 
 test("collaboration binary codec preserves large Yjs updates", () => {
@@ -71,4 +71,19 @@ test("unchanged collaboration positions do not schedule duplicate presence sync"
   assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "" }, "block-a"), false);
   assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "" }, "block-b"), true);
   assert.equal(collaborationPositionChanged({ cursor: "block-a", selection: "block-b" }, "block-a", "block-c"), true);
+});
+
+test("collaboration title keeps the loaded page title when the realtime snapshot is empty", () => {
+  assert.equal(knowledgeCollaborationTitle("", "", "unnamed document"), "unnamed document");
+  assert.equal(knowledgeCollaborationTitle(" local title ", "snapshot title", "loaded title"), "local title");
+  assert.equal(knowledgeCollaborationTitle("", " snapshot title ", "loaded title"), "snapshot title");
+});
+
+test("collaboration does not reconnect forever on permanent client validation failures", () => {
+  assert.equal(knowledgeCollaborationFailureIsRetryable({ status: 400 }), false);
+  assert.equal(knowledgeCollaborationFailureIsRetryable({ status: 403 }), false);
+  assert.equal(knowledgeCollaborationFailureIsRetryable({ status: 409 }), true);
+  assert.equal(knowledgeCollaborationFailureIsRetryable({ status: 429 }), true);
+  assert.equal(knowledgeCollaborationFailureIsRetryable({ status: 503 }), true);
+  assert.equal(knowledgeCollaborationFailureIsRetryable(new Error("network unavailable")), true);
 });

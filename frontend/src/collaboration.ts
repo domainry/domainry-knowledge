@@ -1,6 +1,22 @@
 import * as Y from "yjs";
 import type { KnowledgeCollaborationPresence } from "./types.ts";
 
+export function knowledgeCollaborationTitle(...candidates: readonly string[]) {
+  for (const candidate of candidates) {
+    const title = candidate.trim();
+    if (title) return title;
+  }
+  return "";
+}
+
+export function knowledgeCollaborationFailureIsRetryable(failure: unknown) {
+  const status = typeof failure === "object" && failure !== null && "status" in failure && typeof failure.status === "number"
+    ? failure.status
+    : 0;
+  if (status === 0) return true;
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
 export function collaborationPresenceUserIDs(presence: readonly KnowledgeCollaborationPresence[]) {
   return [...new Set(presence.map(item => item.user_id).filter(Boolean))].sort();
 }

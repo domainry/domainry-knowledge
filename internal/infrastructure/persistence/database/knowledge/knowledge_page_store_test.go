@@ -1009,6 +1009,58 @@ func TestKnowledgePageAttachmentMutationsHaveDurableIdempotencyReceipts(t *testi
 	}
 }
 
+func TestPublishedDocumentPageAttachmentCreatesPageScopedSearchProjection(t *testing.T) {
+	store, authority, library, page := pageFixture(t)
+	documents, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := reserveSubjectDocument(t, store, documents, library, "document-page-attachment", authority)
+	if _, err = store.SetKnowledgePageAttachment(t.Context(), library.ID, page.Page.ID, document.Document.ID, knowledgesdk.KnowledgePageAttachmentWrite{ClientID: "document-page-attachment-set", Title: document.Document.Filename, Rank: "a"}, authority); err != nil {
+		t.Fatal(err)
+	}
+	projectionID, err := knowledgePageAttachmentProjectionDocumentID(authority, page.Page.ID, document.Document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var projection persistence.KnowledgeDocumentRecord
+	found, err := store.executionRead(t.Context(), store.store.Database(), knowledgeDocumentTable, documentScope(authority, projectionID), &projection)
+	if err != nil || found {
+		t.Fatalf("draft attachment created a searchable projection before publish: found=%t projection=%+v err=%v", found, projection, err)
+	}
+	page = savePageFixture(t, store, authority, library, page, "document-page-attachment-save", "附件页面", "正文")
+	page = publishPageFixture(t, store, authority, library, page, "document-page-attachment-publish")
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "document-page-attachment-worker", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found {
+		t.Fatalf("claim page projection: found=%t err=%v", found, err)
+	}
+	body := []byte("# 附件页面\n\n正文")
+	digest := sha256.Sum256(body)
+	if err = store.CompleteKnowledgePageProjection(t.Context(), work.Lease, "body://document-page-attachment", int64(len(body)), hex.EncodeToString(digest[:]), page.Page.ID+".md", strings.Repeat("a", 64)); err != nil {
+		t.Fatal(err)
+	}
+	projection, err = store.KnowledgeDocumentRecord(t.Context(), projectionID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Document.ProjectionKind != "page_attachment" || projection.PageProjection == nil || projection.DocumentOrigin == nil {
+		t.Fatalf("attachment projection identity missing: %+v", projection)
+	}
+	if projection.PageProjection.PageID != page.Page.ID || projection.PageProjection.Version != page.Page.PublishedVersion || projection.PageProjection.Title != page.Published.Title || projection.PageProjection.PermissionID != knowledgePagePermissionToken(authority, page.Page.ID) {
+		t.Fatalf("attachment projection lost page source metadata: %+v", projection.PageProjection)
+	}
+	if projection.DocumentOrigin.DocumentID != document.Document.ID || projection.BodyRef != document.BodyRef || projection.Document.SHA256 != document.Document.SHA256 || projection.Document.Filename != document.Document.Filename {
+		t.Fatalf("attachment projection did not reuse the immutable original: projection=%+v original=%+v", projection, document)
+	}
+	if err = store.RemoveKnowledgePageAttachment(t.Context(), library.ID, page.Page.ID, document.Document.ID, knowledgesdk.KnowledgePageAttachmentRemove{ClientID: "document-page-attachment-remove"}, authority); err != nil {
+		t.Fatal(err)
+	}
+	projection, err = store.KnowledgeDocumentRecord(t.Context(), projectionID, authority)
+	if err != nil || projection.Document.State != "deleting" {
+		t.Fatalf("removed attachment projection was not retired: projection=%+v err=%v", projection, err)
+	}
+}
+
 func TestKnowledgePageCommentMarksVersionedAnchorChangedAfterPublish(t *testing.T) {
 	store, authority, library, page := pageFixture(t)
 	page = savePageFixture(t, store, authority, library, page, "anchor-v1", "锚点页面", "第一版正文")
@@ -1366,15 +1418,35 @@ func TestKnowledgePageDynamicBusinessBlocksUseStrictStableReferences(t *testing.
 	}
 }
 
-func TestKnowledgePagePublishRequiresPublishedAncestorChain(t *testing.T) {
+func TestKnowledgePagePublishPromotesChildUntilItsParentIsPublished(t *testing.T) {
 	store, authority, library, parent := pageFixture(t)
 	child, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "unpublished-parent-child", ParentPageID: parent.Page.ID, Title: "子页面", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.PublishKnowledgePage(t.Context(), library.ID, child.Page.ID, knowledgesdk.KnowledgePagePublish{ClientID: "child-publish-too-early", ExpectedPageRevision: child.Page.Revision, ExpectedDraftRevision: child.Draft.DraftRevision}, authority); err == nil || !strings.Contains(err.Error(), "page_parent_unpublished") {
-		t.Fatalf("child was published beneath an unpublished ancestor: %v", err)
+	child, err = store.PublishKnowledgePage(t.Context(), library.ID, child.Page.ID, knowledgesdk.KnowledgePagePublish{ClientID: "child-publish-independently", ExpectedPageRevision: child.Page.Revision, ExpectedDraftRevision: child.Draft.DraftRevision}, authority)
+	if err != nil {
+		t.Fatalf("child publish was blocked by an unpublished parent: %v", err)
 	}
+	if child.Published == nil || child.Published.ParentPageID != "" || child.Draft == nil || child.Draft.ParentPageID != parent.Page.ID {
+		t.Fatalf("independent child publish did not separate published and draft hierarchy: %+v", child)
+	}
+
+	library, err = store.SetKnowledgeLibraryMember(t.Context(), library.ID, "bob", agentsdk.KnowledgeLibraryMemberWrite{Role: "reader", ExpectedRevision: library.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob := authority
+	bob.UserID = "bob"
+	roots, err := store.KnowledgePages(t.Context(), library.ID, "", "", 10, false, bob)
+	if err != nil || len(roots.Items) != 1 || roots.Items[0].ID != child.Page.ID {
+		t.Fatalf("independently published child is not discoverable at the published root: %+v err=%v", roots, err)
+	}
+	publishedChild, err := store.KnowledgePage(t.Context(), library.ID, child.Page.ID, false, bob)
+	if err != nil || len(publishedChild.Breadcrumbs) != 1 || publishedChild.Breadcrumbs[0].PageID != child.Page.ID {
+		t.Fatalf("independently published child kept an unpublished breadcrumb: %+v err=%v", publishedChild, err)
+	}
+
 	parent = publishPageFixture(t, store, authority, library, parent, "publish-parent-first")
 	if _, err = store.PublishKnowledgePage(t.Context(), library.ID, child.Page.ID, knowledgesdk.KnowledgePagePublish{ClientID: "child-publish-after-parent", ExpectedPageRevision: child.Page.Revision, ExpectedDraftRevision: child.Draft.DraftRevision}, authority); err != nil {
 		t.Fatalf("child publish failed after its ancestor was published: %v", err)

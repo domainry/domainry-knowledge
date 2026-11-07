@@ -189,6 +189,20 @@ func TestKnowledgeDocumentIndexSourcePreservesPageProjectionMetadata(t *testing.
 	}
 }
 
+func TestKnowledgeDocumentStorageIDUsesOriginalForPageAttachmentProjection(t *testing.T) {
+	attachment := persistence.KnowledgeDocumentRecord{
+		DocumentOrigin: &persistence.KnowledgeDocumentOrigin{DocumentID: "kdoc_original"},
+		Document:       agentsdk.KnowledgeDocument{ID: "kdoc_page_attachment", ProjectionKind: "page_attachment"},
+	}
+	if got := knowledgeDocumentStorageID(attachment); got != "kdoc_original" {
+		t.Fatalf("page attachment opened storage for %q, want immutable original", got)
+	}
+	ordinary := persistence.KnowledgeDocumentRecord{Document: agentsdk.KnowledgeDocument{ID: "kdoc_file", ProjectionKind: "file"}}
+	if got := knowledgeDocumentStorageID(ordinary); got != "kdoc_file" {
+		t.Fatalf("ordinary document opened storage for %q", got)
+	}
+}
+
 func TestKnowledgeDocumentWorkerSweepsIdleUploads(t *testing.T) {
 	repo := &uploadExpiryWorkerRepository{called: make(chan uploadExpirySweep, 1)}
 	service := NewService(repo, "runtime-a", Options{DocumentStorage: &uploadExpiryDocumentStorage{}}, nil)

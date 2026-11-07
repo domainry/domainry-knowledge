@@ -1,5 +1,7 @@
 import * as Y from "yjs";
 import type { KnowledgeCollaborationPresence } from "./types.ts";
+export declare function knowledgeCollaborationTitle(...candidates: readonly string[]): string;
+export declare function knowledgeCollaborationFailureIsRetryable(failure: unknown): boolean;
 export declare function collaborationPresenceUserIDs(presence: readonly KnowledgeCollaborationPresence[]): string[];
 export declare function collaborationPositionChanged(current: {
     cursor: string;

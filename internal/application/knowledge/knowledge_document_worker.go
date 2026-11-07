@@ -43,6 +43,13 @@ func knowledgeDocumentIndexSource(r persistence.KnowledgeDocumentRecord, replace
 	}
 }
 
+func knowledgeDocumentStorageID(r persistence.KnowledgeDocumentRecord) string {
+	if r.Document.ProjectionKind == "page_attachment" && r.DocumentOrigin != nil && r.DocumentOrigin.DocumentID != "" {
+		return r.DocumentOrigin.DocumentID
+	}
+	return r.Document.ID
+}
+
 func inspectKnowledgeDocument(ctx context.Context, source agentsdk.KnowledgeDocumentSource, id string, permissionIDs []string, actor agentsdk.Authority) (agentsdk.KnowledgeDocumentState, error) {
 	if len(permissionIDs) != 0 {
 		if scoped, ok := source.(agentsdk.KnowledgeDocumentPermissionInspectionSource); ok {
@@ -85,7 +92,7 @@ func (s *Service) recoverKnowledgeDocumentPut(ctx context.Context, repo persiste
 		progress.ErrorCode = "document_index_size_unsupported"
 		return true
 	}
-	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, r.BodyRef, r.Document.SHA256, r.Document.Bytes)
+	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), knowledgeDocumentStorageID(r), r.BodyRef, r.Document.SHA256, r.Document.Bytes)
 	if err != nil {
 		progress.ErrorCode = "document_content_mismatch"
 		return true
@@ -133,7 +140,7 @@ func (s *Service) recoverKnowledgeDocumentReindexPut(ctx context.Context, repo p
 		progress.ErrorCode = "document_index_size_unsupported"
 		return true
 	}
-	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, bodyRef, contentSHA256, contentBytes)
+	content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), knowledgeDocumentStorageID(r), bodyRef, contentSHA256, contentBytes)
 	if err != nil {
 		progress.ErrorCode = "document_content_mismatch"
 		return true
@@ -272,7 +279,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 		if scanErr != nil || !started {
 			return
 		}
-		content, openErr := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(startedRecord.Document.LibraryID, startedRecord.Actor), startedRecord.Document.ID, startedRecord.BodyRef, startedRecord.Document.SHA256, startedRecord.Document.Bytes)
+		content, openErr := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(startedRecord.Document.LibraryID, startedRecord.Actor), knowledgeDocumentStorageID(startedRecord), startedRecord.BodyRef, startedRecord.Document.SHA256, startedRecord.Document.Bytes)
 		if openErr != nil {
 			progress.ErrorCode = "document_content_mismatch"
 			return
@@ -386,7 +393,7 @@ func (s *Service) ProcessKnowledgeDocument(ctx context.Context, repo persistence
 			progress.ErrorCode = "document_upload_access_denied"
 			return
 		}
-		content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, r.BodyRef, r.Document.SHA256, r.Document.Bytes)
+		content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), knowledgeDocumentStorageID(r), r.BodyRef, r.Document.SHA256, r.Document.Bytes)
 		if err != nil {
 			progress.ErrorCode = "document_content_mismatch"
 			return
@@ -526,7 +533,7 @@ func (s *Service) processKnowledgeDocumentReindex(ctx context.Context, repo pers
 			progress.ErrorCode = "document_remote_conflict"
 			return
 		}
-		content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), r.Document.ID, bodyRef, contentSHA256, contentBytes)
+		content, err := s.options.DocumentStorage.OpenKnowledgeDocumentContent(ctx, DocumentStorageScope(r.Document.LibraryID, r.Actor), knowledgeDocumentStorageID(r), bodyRef, contentSHA256, contentBytes)
 		if err != nil {
 			progress.ErrorCode = "document_content_mismatch"
 			return

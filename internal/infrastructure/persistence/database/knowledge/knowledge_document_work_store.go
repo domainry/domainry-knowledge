@@ -485,7 +485,7 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 				r.Document.ProcessingStage = "delete"
 				r.Document.ErrorCode = ""
 				done = false
-			} else if page.State == "active" && page.PublishedVersion == r.PageProjection.Version && r.Document.State == "ready" && r.Reindex == nil && r.RetiredRemoteID == "" {
+			} else if r.Document.ProjectionKind == "page" && page.State == "active" && page.PublishedVersion == r.PageProjection.Version && r.Document.State == "ready" && r.Reindex == nil && r.RetiredRemoteID == "" {
 				if e = s.setPageProjectionStatus(ctx, tx, page, "ready", r.PageProjection.AccessRevision, r.Actor); e != nil {
 					return e
 				}

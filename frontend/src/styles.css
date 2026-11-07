@@ -195,9 +195,10 @@ body[data-knowledge-theme="dark"] .knowledge-page-actions-menu {
 .knowledge-workspace input[type="checkbox"]:disabled, .knowledge-pages input[type="checkbox"]:disabled, .knowledge-modal-backdrop input[type="checkbox"]:disabled { background-color: var(--knowledge-surface-subtle); cursor: not-allowed; }
 .knowledge-actions, .knowledge-pagination, .knowledge-file-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .knowledge-subtle { color: var(--knowledge-muted); font-size: 12px; line-height: 1.6; }
-.knowledge-error, .knowledge-notice { margin: 0 0 12px; padding: 9px 11px; border-left: 3px solid currentColor; font-size: 12px; line-height: 1.55; }
+.knowledge-error, .knowledge-notice, .knowledge-warning { margin: 0 0 12px; padding: 9px 11px; border-left: 3px solid currentColor; font-size: 12px; line-height: 1.55; }
 .knowledge-error { color: var(--knowledge-danger); background: var(--knowledge-danger-soft); }
 .knowledge-notice { color: var(--knowledge-success); background: var(--knowledge-success-soft); }
+.knowledge-warning { color: var(--knowledge-warning); background: var(--knowledge-warning-soft); }
 .knowledge-confirm { display: grid; gap: 10px; padding: 12px 14px; color: var(--knowledge-warning); background: var(--knowledge-warning-soft); border-left: 3px solid var(--knowledge-warning); }
 .knowledge-confirm p { margin: 0; color: inherit; font-size: 12px; line-height: 1.6; }
 .knowledge-page-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 250px; padding: 36px; color: var(--knowledge-faint); text-align: center; }
@@ -509,10 +510,27 @@ body[data-knowledge-theme="dark"] .knowledge-page-actions-menu {
 .knowledge-file-toolbar .knowledge-select-trigger, .knowledge-file-toolbar input { min-height: 34px; }
 .knowledge-file-toolbar input { width: 88px; }
 .knowledge-file-viewer { display: flex; flex: 1; flex-direction: column; gap: 10px; min-width: 0; min-height: 0; }
-.knowledge-word-frame, .knowledge-pdf-canvas, .knowledge-image-scroll, .knowledge-sheet-scroll, .knowledge-presentation { flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--knowledge-surface-subtle); border: 1px solid var(--knowledge-border); }
+.knowledge-word-frame, .knowledge-pdf-scroll, .knowledge-image-scroll, .knowledge-sheet-scroll, .knowledge-presentation { flex: 1; min-width: 0; min-height: 0; overflow: auto; background: var(--knowledge-surface-subtle); border: 1px solid var(--knowledge-border); }
 .knowledge-word-frame { width: 100%; }
-.knowledge-pdf-canvas { padding: 16px; }
-.knowledge-pdf-canvas canvas { display: block; max-width: none; margin: 0 auto; background: var(--knowledge-surface); box-shadow: 0 2px 14px var(--knowledge-shadow-color); }
+.knowledge-pdf-viewer { position: relative; gap: 0; height: max(620px, calc(100dvh - 250px)); overflow: hidden; isolation: isolate; }
+.knowledge-pdf-viewer:fullscreen { width: 100vw; height: 100dvh; max-height: none; min-height: 0; background: var(--knowledge-surface-subtle); }
+.knowledge-pdf-scroll { position: relative; padding: 0; overscroll-behavior: contain; scrollbar-gutter: stable both-edges; }
+.knowledge-pdf-pages { display: flex; flex-direction: column; align-items: center; gap: 16px; width: max-content; min-width: 100%; padding: 16px 16px 84px; }
+.knowledge-pdf-page-slot, .knowledge-pdf-page { flex: 0 0 auto; }
+.knowledge-pdf-page { position: relative; overflow: hidden; background: var(--knowledge-authored-paper); box-shadow: 0 2px 14px var(--knowledge-shadow-color); }
+.knowledge-pdf-page canvas { display: block; max-width: none; opacity: 0; transition: opacity .14s ease; }
+.knowledge-pdf-page canvas[data-rendered="true"] { opacity: 1; }
+.knowledge-pdf-toolbar { position: fixed; z-index: 80; bottom: 18px; display: flex; align-items: center; gap: 3px; max-width: calc(100vw - 24px); min-height: 48px; padding: 6px 8px; color: var(--knowledge-text); background: color-mix(in srgb, var(--knowledge-surface-elevated) 90%, transparent); border: 1px solid color-mix(in srgb, var(--knowledge-border-strong) 72%, transparent); border-radius: 14px; box-shadow: 0 10px 30px color-mix(in srgb, var(--knowledge-shadow-color) 82%, transparent); backdrop-filter: blur(14px); transform: translateX(-50%); }
+.knowledge-pdf-toolbar button { display: grid; place-items: center; flex: 0 0 34px; width: 34px; height: 34px; padding: 0; color: var(--knowledge-muted); background: transparent; border: 0; border-radius: 9px; cursor: pointer; }
+.knowledge-pdf-toolbar button:hover:not(:disabled) { color: var(--knowledge-primary); background: var(--knowledge-surface-hover); }
+.knowledge-pdf-toolbar button:focus-visible { outline: 3px solid var(--knowledge-focus); outline-offset: 1px; }
+.knowledge-pdf-toolbar button:disabled { opacity: .34; cursor: default; }
+.knowledge-pdf-page-control { display: flex; align-items: center; gap: 5px; padding: 0 5px; color: var(--knowledge-muted); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.knowledge-pdf-page-control input { width: 38px; height: 30px; padding: 0 5px; color: var(--knowledge-text); background: var(--knowledge-surface); border: 1px solid var(--knowledge-border); border-radius: 7px; font: inherit; text-align: center; }
+.knowledge-pdf-page-control input:focus { border-color: var(--knowledge-primary); outline: 3px solid var(--knowledge-focus); }
+.knowledge-pdf-page-control input::-webkit-outer-spin-button, .knowledge-pdf-page-control input::-webkit-inner-spin-button { margin: 0; appearance: none; }
+.knowledge-pdf-toolbar-divider { flex: 0 0 1px; width: 1px; height: 22px; margin: 0 4px; background: var(--knowledge-border); }
+.knowledge-pdf-zoom-value { min-width: 46px; color: var(--knowledge-muted); font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; text-align: center; }
 .knowledge-image-scroll img { display: block; max-width: none; }
 .knowledge-media-viewer { align-items: center; justify-content: center; }
 .knowledge-media-viewer video { width: min(100%, 1080px); max-height: calc(100dvh - 230px); background: var(--knowledge-primary); }
@@ -684,6 +702,7 @@ body[data-knowledge-theme="dark"] .knowledge-page-actions-menu {
 .knowledge-page-export-actions { display: flex; align-items: center; gap: 8px; }
 .knowledge-page-header-actions-slot .knowledge-document-transfer { position: relative; inset: auto; }
 .knowledge-page-heading-actions .knowledge-page-header-action { display: flex; flex: 0 0 76px; align-items: center; justify-content: center; width: 76px; height: 36px; padding: 0 12px; border-radius: 6px; font-size: 13px; font-weight: 650; line-height: 1; gap: 7px; }
+.knowledge-page-heading-actions .knowledge-page-publish-action { flex-basis: auto; width: auto; min-width: 110px; white-space: nowrap; }
 .knowledge-page-presence-summary { display: flex; align-items: center; gap: 8px; min-height: 34px; color: var(--knowledge-muted); font-size: 11px; white-space: nowrap; }
 .knowledge-avatar-stack { display: flex; padding-left: 7px; }
 .knowledge-avatar-stack > span { display: grid; place-items: center; width: 28px; height: 28px; margin-left: -7px; color: var(--knowledge-on-dark); background: var(--collaborator-color); border: 2px solid var(--knowledge-background); border-radius: 50%; font-size: 10px; font-weight: 750; }
@@ -1762,6 +1781,8 @@ span.knowledge-callout-tone { cursor: default; }
 .knowledge-file-page-summary dt { color: var(--knowledge-faint); font-size: 10px; font-weight: 620; }
 .knowledge-file-page-summary dd { margin: 0; color: var(--knowledge-muted); font-family: var(--knowledge-font-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
 .knowledge-file-page > .knowledge-file-viewer, .knowledge-file-page > .knowledge-preview-unsupported { flex: 1; min-height: 520px; }
+.knowledge-file-page > .knowledge-pdf-viewer { flex: 0 0 max(620px, calc(100dvh - 250px)); height: max(620px, calc(100dvh - 250px)); min-height: 620px; }
+.knowledge-file-page > .knowledge-pdf-viewer:fullscreen { flex-basis: auto; width: 100vw; height: 100dvh; min-height: 0; }
 .knowledge-file-page > .knowledge-error, .knowledge-file-page > .knowledge-file-preview-loading { margin: 0; padding: 18px; }
 .knowledge-file-page.is-loading, .knowledge-file-page.is-unavailable { display: grid; place-items: center; align-content: center; gap: 10px; min-height: 460px; padding: 28px; text-align: center; }
 .knowledge-file-page.is-unavailable { color: var(--knowledge-muted); background: var(--knowledge-surface-subtle); border: 1px dashed var(--knowledge-border-strong); border-radius: 8px; }
@@ -2121,6 +2142,10 @@ button.knowledge-comment-anchor:hover { border-color: var(--knowledge-primary); 
   .knowledge-file-toolbar button { min-height: 40px; padding: 6px 9px; }
   .knowledge-file-toolbar .knowledge-select, .knowledge-file-toolbar input { max-width: 180px; }
   .knowledge-file-toolbar .knowledge-select-trigger, .knowledge-file-toolbar input { font-size: 16px; }
+  .knowledge-pdf-pages { gap: 12px; padding: 12px 12px 76px; }
+  .knowledge-pdf-toolbar { bottom: 12px; min-height: 46px; }
+  .knowledge-pdf-toolbar-divider { margin: 0 2px; }
+  .knowledge-pdf-zoom-value { min-width: 40px; }
   .knowledge-presentation { grid-template-columns: 116px minmax(0, 1fr); }
   .knowledge-presentation article { width: 94%; padding: 24px; }
   .knowledge-pages-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 280px) minmax(0, 1fr); min-height: 0; overflow: hidden; }
@@ -2230,6 +2255,7 @@ button.knowledge-comment-anchor:hover { border-color: var(--knowledge-primary); 
 
 @media (prefers-reduced-motion: reduce) {
   .knowledge-button { transition: none; }
+  .knowledge-pdf-page canvas, .knowledge-pdf-toolbar { transition: none; }
   .knowledge-spin, .knowledge-pulse, .knowledge-comment-drawer, [data-node-type="blockContainer"].knowledge-block-deep-link-target { animation: none; }
 }
 .knowledge-print-blocked::before {
@@ -2280,6 +2306,7 @@ button.knowledge-comment-anchor:hover { border-color: var(--knowledge-primary); 
 [dir="rtl"] .knowledge-block-callout,
 [dir="rtl"] .knowledge-error,
 [dir="rtl"] .knowledge-notice,
+[dir="rtl"] .knowledge-warning,
 [dir="rtl"] .knowledge-confirm,
 [dir="rtl"] .knowledge-access-preview,
 [dir="rtl"] .knowledge-conflict,

@@ -216,6 +216,9 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 		if err = s.setPageProjectionStatus(ctx, tx, page, "queued", lease.AccessRevision, lease.Actor); err != nil {
 			return err
 		}
+		if err = s.reconcileDocumentPageAttachments(ctx, tx, page, lease.Actor); err != nil {
+			return err
+		}
 		q, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Where(query.And(pageScope(lease.Actor, lease.PageID), query.Equal("fence", lease.Token))).Build()
 		return conversationExec(ctx, tx, q, args, buildErr)
 	})
