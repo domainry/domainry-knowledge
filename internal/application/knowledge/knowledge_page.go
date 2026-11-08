@@ -380,9 +380,14 @@ func (s *Service) SetKnowledgePageArchived(ctx context.Context, libraryID, pageI
 		if !archived {
 			eventType = "knowledge.page.restored"
 		}
+		after := map[string]string{"state": result.State, "include_descendants": strconv.FormatBool(input.IncludeDescendants)}
+		if input.ParentPageID != nil {
+			after["parent_page_id"] = *input.ParentPageID
+			after["rank"] = result.Rank
+		}
 		s.appendKnowledgeAudit(ctx, action, eventType, libraryID, pageID, pageID, input.ClientID, result.Revision, map[string]string{
 			"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10),
-		}, map[string]string{"state": result.State}, a)
+		}, after, a)
 	}
 	return result, err
 }

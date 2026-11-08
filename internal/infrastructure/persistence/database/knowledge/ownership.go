@@ -34,6 +34,12 @@ var schemaOwnership = []schemaownership.Table{
 		DeletionPolicy:   "page archival retains metadata and versions; library deletion or subject erasure removes the page after projection cleanup",
 	},
 	{
+		Name: knowledgePageArchiveMemberTable, Owner: MigrationOwner, Kind: schemaownership.KindState, WorkspaceScope: schemaownership.ScopeExplicitMixed,
+		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"id"},
+		BoundedQueryPath: "knowledge scope/library/archive-root/page identity for exact subtree restoration",
+		DeletionPolicy:   "restoring a page or deleting its library removes the transient archive membership",
+	},
+	{
 		Name: knowledgePageMetadataTable, Owner: MigrationOwner, Kind: schemaownership.KindDependent, WorkspaceScope: schemaownership.ScopeExplicitMixed,
 		RetentionClass: schemaownership.RetentionUserErase, PrimaryKey: []string{"id"},
 		BoundedQueryPath: "knowledge scope/page metadata identity with revision compare-and-set and bounded owner/status/review indexes",

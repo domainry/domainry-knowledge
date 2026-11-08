@@ -121,7 +121,7 @@ func TestKnowledgeSchemaOwnershipMatchesFreshPhysicalPrimaryKeys(t *testing.T) {
 	if err := schemaownership.ValidateAll(tables); err != nil {
 		t.Fatal(err)
 	}
-	if len(tables) != 43 || len(OwnedTables()) != len(tables) {
+	if len(tables) != 44 || len(OwnedTables()) != len(tables) {
 		t.Fatalf("Knowledge ownership=%+v names=%v", tables, OwnedTables())
 	}
 	database, dialect := openDatabase(t, "knowledge-ownership")

@@ -951,7 +951,7 @@ export interface KnowledgeClient {
   authorizePageShareContentOperation?(shareID: string, pageID: string, operation: "copy" | "print" | "export", signal: AbortSignal): Promise<KnowledgePageContentDecision>;
   copyPage(libraryID: string, pageID: string, request: { client_id: string; parent_page_id?: string; rank?: string; title?: string }, signal: AbortSignal): Promise<KnowledgePageView>;
   reorderPages(libraryID: string, request: { client_id: string; parent_page_id?: string; items: { page_id: string; expected_revision: number }[] }, signal: AbortSignal): Promise<KnowledgePagePage>;
-  setPageArchived(libraryID: string, pageID: string, archived: boolean, request: { client_id: string; expected_revision: number }, signal: AbortSignal): Promise<KnowledgePage>;
+  setPageArchived(libraryID: string, pageID: string, archived: boolean, request: { client_id: string; expected_revision: number; include_descendants?: boolean; parent_page_id?: string; rank?: string }, signal: AbortSignal): Promise<KnowledgePage>;
   publishPage(libraryID: string, pageID: string, request: { client_id: string; expected_page_revision: number; expected_draft_revision: number; publish_note?: string }, signal: AbortSignal): Promise<KnowledgePageView>;
   connectKnowledgeCollaboration?(libraryID: string, pageID: string, request: { client_id: string }, signal: AbortSignal): Promise<KnowledgeCollaborationSession>;
   syncKnowledgeCollaboration?(libraryID: string, pageID: string, request: KnowledgeCollaborationSync, signal: AbortSignal): Promise<KnowledgeCollaborationSyncResult>;

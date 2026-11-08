@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -561,6 +562,85 @@ func TestKnowledgePageTreeCommentsAndHiddenProjection(t *testing.T) {
 		record.PageProjection.Title != work.Version.Title || record.PageProjection.ContentType != root.Page.ContentType || record.PageProjection.LibraryKind != library.Kind ||
 		len(record.PageProjection.Breadcrumbs) != 1 || record.PageProjection.Breadcrumbs[0].PageID != root.Page.ID {
 		t.Fatalf("page projection origin missing: %+v err=%v", record, err)
+	}
+}
+
+func TestKnowledgePageSubtreeArchiveRestoresExactBatchUnderNewPublishedParent(t *testing.T) {
+	store, authority, library, sourceParent := pageFixture(t)
+	sourceParent = savePageFixture(t, store, authority, library, sourceParent, "archive-source-parent", "来源目录", "来源目录正文")
+	sourceParent = publishPageFixture(t, store, authority, library, sourceParent, "archive-source-parent-publish")
+
+	targetParent, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "archive-target-parent", Title: "目标目录", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetParent = savePageFixture(t, store, authority, library, targetParent, "archive-target-parent-draft", "目标目录", "目标目录正文")
+	targetParent = publishPageFixture(t, store, authority, library, targetParent, "archive-target-parent-publish")
+
+	root, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "archive-subtree-root", ParentPageID: sourceParent.Page.ID, Rank: "m", Title: "待归档父页面", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root = savePageFixture(t, store, authority, library, root, "archive-subtree-root-draft", "待归档父页面", "父页面正文")
+	root = publishPageFixture(t, store, authority, library, root, "archive-subtree-root-publish")
+
+	child, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "archive-subtree-child", ParentPageID: root.Page.ID, Rank: "a", Title: "批次内子页面", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child = savePageFixture(t, store, authority, library, child, "archive-subtree-child-draft", "批次内子页面", "批次内正文")
+	child = publishPageFixture(t, store, authority, library, child, "archive-subtree-child-publish")
+
+	preArchived, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "archive-preexisting-child", ParentPageID: root.Page.ID, Rank: "z", Title: "原本已归档子页面", ContentType: knowledgesdk.KnowledgePageTypeDocument}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preArchived = savePageFixture(t, store, authority, library, preArchived, "archive-preexisting-child-draft", "原本已归档子页面", "不应随批次恢复")
+	preArchived = publishPageFixture(t, store, authority, library, preArchived, "archive-preexisting-child-publish")
+	preArchivedPage, err := store.SetKnowledgePageArchived(t.Context(), library.ID, preArchived.Page.ID, true, knowledgesdk.KnowledgePageStateWrite{ClientID: "archive-preexisting-child-state", ExpectedRevision: preArchived.Page.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	archivedRoot, err := store.SetKnowledgePageArchived(t.Context(), library.ID, root.Page.ID, true, knowledgesdk.KnowledgePageStateWrite{ClientID: "archive-subtree", ExpectedRevision: root.Page.Revision, IncludeDescendants: true}, authority)
+	if err != nil || archivedRoot.State != "archived" {
+		t.Fatalf("archive subtree root: page=%+v err=%v", archivedRoot, err)
+	}
+	archivedChild, err := store.KnowledgePage(t.Context(), library.ID, child.Page.ID, true, authority)
+	if err != nil || archivedChild.Page.State != "archived" {
+		t.Fatalf("archive subtree child: page=%+v err=%v", archivedChild.Page, err)
+	}
+
+	targetParentID := targetParent.Page.ID
+	restoredRoot, err := store.SetKnowledgePageArchived(t.Context(), library.ID, root.Page.ID, false, knowledgesdk.KnowledgePageStateWrite{
+		ClientID: "restore-subtree-new-parent", ExpectedRevision: archivedRoot.Revision, IncludeDescendants: true,
+		ParentPageID: &targetParentID, Rank: "n",
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredRoot.State != "active" || restoredRoot.ParentPageID != targetParent.Page.ID || restoredRoot.Rank != "n" || restoredRoot.PublishedVersion != root.Page.PublishedVersion+1 {
+		t.Fatalf("restored root did not atomically relocate its published snapshot: %+v", restoredRoot)
+	}
+	restoredChild, err := store.KnowledgePage(t.Context(), library.ID, child.Page.ID, false, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredChild.Page.State != "active" || restoredChild.Page.ParentPageID != root.Page.ID || len(restoredChild.Breadcrumbs) != 3 || restoredChild.Breadcrumbs[0].PageID != targetParent.Page.ID || restoredChild.Breadcrumbs[1].PageID != root.Page.ID {
+		t.Fatalf("restored child did not resolve only through the new parent path: %+v", restoredChild)
+	}
+	stillArchived, err := store.KnowledgePage(t.Context(), library.ID, preArchived.Page.ID, true, authority)
+	if err != nil || stillArchived.Page.State != "archived" || stillArchived.Page.Revision != preArchivedPage.Revision {
+		t.Fatalf("page archived before the subtree batch was restored accidentally: page=%+v err=%v", stillArchived.Page, err)
+	}
+	var members []string
+	err = store.transaction(t.Context(), func(tx *sql.Tx) error {
+		var readErr error
+		members, readErr = store.knowledgePageArchiveMemberIDs(t.Context(), tx, library.ID, root.Page.ID, authority)
+		return readErr
+	})
+	if err != nil || len(members) != 0 {
+		t.Fatalf("restored archive batch membership was not cleared: members=%v err=%v", members, err)
 	}
 }
 

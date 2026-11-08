@@ -13,7 +13,7 @@ const MigrationOwner = "knowledge"
 // KnowledgeSchemaVersion identifies the complete pre-release Knowledge schema.
 // Any statement change must increment this version so an already-recorded
 // Runtime migration can never be reinterpreted with a different checksum.
-const KnowledgeSchemaVersion uint = 19
+const KnowledgeSchemaVersion uint = 20
 
 type MigrationRegistrar interface {
 	ApplyOwnedMigrations(context.Context, string, []modulehost.SchemaMigration) error

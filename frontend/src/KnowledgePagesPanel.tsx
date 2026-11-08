@@ -1782,7 +1782,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
         else if (dirty) await saveDraft();
         setMode("read");
       }
-      await client.setPageArchived(library.id, page.id, page.state !== "archived", { client_id: crypto.randomUUID(), expected_revision: page.revision }, AbortSignal.timeout(30_000));
+      await client.setPageArchived(library.id, page.id, page.state !== "archived", { client_id: crypto.randomUUID(), expected_revision: page.revision, include_descendants: true }, AbortSignal.timeout(30_000));
       viewRef.current = null; setView(null); setSelectedID(""); setError("");
       await loadChildren(page.parent_page_id || "");
       if (navigationSection !== "all") await refreshCollection(navigationSection);

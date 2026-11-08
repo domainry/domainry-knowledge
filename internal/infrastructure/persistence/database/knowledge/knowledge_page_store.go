@@ -13,7 +13,6 @@ import (
 	"github.com/domainry/domainry-foundation/entityid"
 	agentsdk "github.com/domainry/domainry-knowledge-sdk"
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
-	"github.com/domainry/domainry-knowledge-sdk/persistence"
 	"github.com/domainry/domainry-orm/query"
 )
 
@@ -986,12 +985,17 @@ func (s *Store) CopyKnowledgePage(ctx context.Context, libraryID, pageID string,
 }
 
 func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID string, archived bool, in knowledgesdk.KnowledgePageStateWrite, a agentsdk.Authority) (out knowledgesdk.KnowledgePage, err error) {
-	if in.ExpectedRevision < 1 {
-		return out, conversationError("bad_request", "page_revision_invalid")
+	if in.ExpectedRevision < 1 || in.Rank != "" && !validPageRank(in.Rank, true) || archived && (in.ParentPageID != nil || in.Rank != "") || !archived && in.ParentPageID == nil && in.Rank != "" {
+		return out, conversationError("bad_request", "page_state_invalid")
 	}
-	if _, err = pageRequestKey("state", libraryID, pageID, in.ClientID, a); err != nil {
+	requestKey, err := pageRequestKey("state", libraryID, pageID, in.ClientID, a)
+	if err != nil {
 		return out, err
 	}
+	requestHash := conversationHash(struct {
+		Archived bool
+		Input    knowledgesdk.KnowledgePageStateWrite
+	}{archived, in})
 	action := knowledgesdk.ActionPagesArchive
 	if !archived {
 		action = knowledgesdk.ActionPagesRestore
@@ -1011,19 +1015,74 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 		if e != nil {
 			return out, e
 		}
-		want := "active"
+		if out.Revision != in.ExpectedRevision {
+			return out, conversationError("conflict", "page_revision_conflict")
+		}
 		if archived {
-			want = "archived"
-			q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).Projections(query.Project(query.CountAll())).Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID), query.Or(query.Equal("parent_page_id", pageID), query.Equal("published_parent_page_id", pageID)), query.Equal("state", "active"))).Build()
-			if buildErr != nil {
-				return out, buildErr
+			if out.State == "archived" {
+				return out, nil
 			}
-			var children int
-			if e = tx.QueryRowContext(ctx, q, args...).Scan(&children); e != nil {
+			pages := []knowledgesdk.KnowledgePage{out}
+			if in.IncludeDescendants {
+				pages, e = s.activeKnowledgePageSubtree(ctx, tx, libraryID, out, a)
+				if e != nil {
+					return out, e
+				}
+			} else {
+				q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageTable).
+					Projections(query.Project(query.CountAll())).
+					Where(query.And(query.Equal("scope_key", libraryScope(a)), query.Equal("library_id", libraryID), query.Or(query.Equal("parent_page_id", pageID), query.Equal("published_parent_page_id", pageID)), query.Equal("state", "active"))).Build()
+				if buildErr != nil {
+					return out, buildErr
+				}
+				var children int
+				if e = tx.QueryRowContext(ctx, q, args...).Scan(&children); e != nil {
+					return out, e
+				}
+				if children > 0 {
+					return out, conversationError("conflict", "page_has_active_children")
+				}
+				if e = s.requireKnowledgePageStateWrite(ctx, tx, libraryID, out.ID, a); e != nil {
+					return out, e
+				}
+			}
+			archivedAt := time.Now().UTC().Truncate(time.Millisecond)
+			if e = s.replaceKnowledgePageArchiveMembers(ctx, tx, libraryID, pageID, pages, archivedAt, a); e != nil {
 				return out, e
 			}
-			if children > 0 {
-				return out, conversationError("conflict", "page_has_active_children")
+			for _, page := range pages {
+				page, e = s.archiveKnowledgePageRecord(ctx, tx, page, a)
+				if e != nil {
+					return out, e
+				}
+				if page.ID == pageID {
+					out = page
+				}
+			}
+			return out, nil
+		}
+
+		relocate := in.ParentPageID != nil
+		parentPageID, rank := out.ParentPageID, out.Rank
+		if relocate {
+			parentPageID = *in.ParentPageID
+			if in.Rank != "" {
+				rank = in.Rank
+			}
+			if out.State == "active" && (out.ParentPageID != parentPageID || out.Rank != rank) {
+				return out, conversationError("conflict", "page_not_archived")
+			}
+			if e = s.validatePageParent(ctx, tx, libraryID, pageID, parentPageID, a); e != nil {
+				return out, e
+			}
+			if parentPageID != "" {
+				targetAccess, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, libraryID, parentPageID, a)
+				if accessErr != nil || !targetAccess.Allowed || roleLevel(targetAccess.Role) < roleLevel("editor") {
+					return out, conversationError("not_found", "page_not_found")
+				}
+			}
+			if out.ParentPageID != parentPageID && library.Role != "manager" {
+				return out, conversationError("forbidden", "library_manage_required")
 			}
 		} else if out.ParentPageID != "" {
 			parent, parentErr := s.pageRecord(ctx, tx, libraryID, out.ParentPageID, a)
@@ -1031,78 +1090,50 @@ func (s *Store) SetKnowledgePageArchived(ctx context.Context, libraryID, pageID 
 				return out, conversationError("conflict", "page_parent_archived")
 			}
 		}
-		if out.State == want {
-			if out.Revision != in.ExpectedRevision {
-				return out, conversationError("conflict", "page_revision_conflict")
-			}
+		if out.State == "active" && !in.IncludeDescendants {
 			return out, nil
 		}
-		out.State = want
-		if archived {
-			out.ProjectionStatus = "none"
-		} else if out.PublishedVersion > 0 {
-			out.ProjectionStatus = "queued"
-			out.AccessStatus = "queued"
-		}
-		if e = s.updatePage(ctx, tx, &out, in.ExpectedRevision, a); e != nil {
-			return out, e
-		}
-		if e = s.setKnowledgePageArchiveGovernance(ctx, tx, out, archived, out.UpdatedAt, a); e != nil {
-			return out, e
-		}
-		if archived {
-			if e = s.resetKnowledgeCollaborationState(ctx, tx, pageID, a); e != nil {
+		memberIDs := []string{pageID}
+		if in.IncludeDescendants {
+			memberIDs, e = s.knowledgePageArchiveMemberIDs(ctx, tx, libraryID, pageID, a)
+			if e != nil {
 				return out, e
 			}
-			documentID, readErr := knowledgePageProjectionDocumentID(a, pageID)
+			if len(memberIDs) == 0 {
+				return out, conversationError("conflict", "page_archive_batch_missing")
+			}
+		}
+		ordered := make([]string, 0, len(memberIDs))
+		ordered = append(ordered, pageID)
+		for _, memberID := range memberIDs {
+			if memberID != pageID {
+				ordered = append(ordered, memberID)
+			}
+		}
+		for _, memberID := range ordered {
+			page, readErr := s.pageRecord(ctx, tx, libraryID, memberID, a)
 			if readErr != nil {
 				return out, readErr
 			}
-			var projection persistence.KnowledgeDocumentRecord
-			found, readErr := s.executionRead(ctx, tx, knowledgeDocumentTable, documentScope(a, documentID), &projection)
-			if readErr != nil {
-				return out, readErr
-			}
-			if found && projection.Document.State != "deleted" {
-				if e = s.queueDocumentWork(ctx, tx, projection); e != nil {
+			if page.State == "active" {
+				if e = s.deleteKnowledgePageArchiveMember(ctx, tx, page.ID, a); e != nil {
 					return out, e
 				}
+				continue
 			}
-			q, args, buildErr := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Where(pageScope(a, pageID)).Build()
-			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
+			if e = s.requireKnowledgePageStateWrite(ctx, tx, libraryID, page.ID, a); e != nil {
 				return out, e
 			}
-		} else if out.PublishedVersion > 0 {
-			access, accessErr := s.knowledgePageAccessPolicy(ctx, tx, libraryID, pageID, a)
-			if accessErr != nil {
-				return out, accessErr
-			}
-			access.ProjectionStatus = "queued"
-			access.UpdatedAt = out.UpdatedAt
-			access.UpdatedByUserID = a.UserID
-			q, args, buildErr := query.NewUpdateBuilder(s.store.Renderer(), knowledgePageAccessTable).Set("projection_status", access.ProjectionStatus).Set("updated_at", access.UpdatedAt.UnixMilli()).Set("payload_json", conversationJSON(access)).Where(query.And(pageScope(a, pageID), query.Equal("revision", access.Revision))).Build()
-			if e = conversationCAS(ctx, tx, q, args, buildErr); e != nil {
+			page, e = s.restoreKnowledgePageRecord(ctx, tx, page, page.ID == pageID && relocate, parentPageID, rank, requestKey, requestHash, a)
+			if e != nil {
 				return out, e
 			}
-			version, versionErr := s.pageVersion(ctx, tx, pageID, out.PublishedVersion, a)
-			if versionErr != nil {
-				return out, versionErr
-			}
-			job := pageProjectionJob{PageID: pageID, LibraryID: libraryID, Version: out.PublishedVersion, ContentSHA256: version.Body.ContentSHA256, AccessRevision: access.Revision, Actor: a, NotBefore: out.UpdatedAt}
-			q, args, buildErr = query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Where(pageScope(a, pageID)).Build()
-			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
+			if e = s.deleteKnowledgePageArchiveMember(ctx, tx, page.ID, a); e != nil {
 				return out, e
 			}
-			q, args, buildErr = query.NewInsertBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Columns("scope_key", "page_id", "library_id", "runtime_id", "version", "not_before", "lease_until", "fence", "payload_json").Values(libraryScope(a), pageID, libraryID, a.RuntimeID, out.PublishedVersion, out.UpdatedAt.UnixMilli(), 0, 0, conversationJSON(job)).Build()
-			if e = conversationExec(ctx, tx, q, args, buildErr); e != nil {
-				return out, e
+			if page.ID == pageID {
+				out = page
 			}
-		}
-		if e = s.reconcileFilePageAttachments(ctx, tx, out, a); e != nil {
-			return out, e
-		}
-		if e = s.reconcileDocumentPageAttachments(ctx, tx, out, a); e != nil {
-			return out, e
 		}
 		return out, nil
 	}, &out)
