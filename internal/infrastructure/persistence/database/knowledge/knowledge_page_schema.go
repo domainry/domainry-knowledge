@@ -52,10 +52,6 @@ func knowledgePageSchema(d modulehost.Dialect) ([]string, error) {
 			required("revision", ormschema.BigInt()), required("published_version", ormschema.BigInt()), required("updated_at", ormschema.BigInt()),
 			required("request_key", ormschema.TextKey(64)), required("request_hash", ormschema.TextKey(64)), required("payload_json", ormschema.LongText()),
 		).PrimaryKey("id").Unique("page_id").Unique("scope_key", "page_id").Unique("scope_key", "request_key"),
-		ormschema.NewTableWithRequiredColumns(d, knowledgePageArchiveMemberTable, physicalID()).IfNotExists().Columns(
-			required("scope_key", ormschema.TextKey(64)), required("library_id", ormschema.TextKey(96)), required("root_page_id", ormschema.TextKey(96)),
-			required("page_id", ormschema.TextKey(96)), required("archived_at", ormschema.BigInt()),
-		).PrimaryKey("id").Unique("scope_key", "page_id"),
 		ormschema.NewTableWithRequiredColumns(d, knowledgePageDraftTable, physicalID()).IfNotExists().Columns(
 			required("scope_key", ormschema.TextKey(64)), required("page_id", ormschema.TextKey(96)), required("library_id", ormschema.TextKey(96)),
 			required("base_published_version", ormschema.BigInt()), required("draft_revision", ormschema.BigInt()), required("updated_at", ormschema.BigInt()),
@@ -237,7 +233,6 @@ func knowledgePageSchema(d modulehost.Dialect) ([]string, error) {
 		ormschema.NewIndex(d, "idx_knowledge_pages_tree", knowledgePageTable).Columns("scope_key", "library_id", "parent_page_id", "state", "rank", "page_id"),
 		ormschema.NewIndex(d, "idx_knowledge_pages_published_tree", knowledgePageTable).Columns("scope_key", "library_id", "published_parent_page_id", "state", "published_rank", "page_id"),
 		ormschema.NewIndex(d, "idx_knowledge_pages_library", knowledgePageTable).Columns("scope_key", "library_id", "state", "page_id"),
-		ormschema.NewIndex(d, "idx_knowledge_page_archive_members_root", knowledgePageArchiveMemberTable).Columns("scope_key", "library_id", "root_page_id", "page_id"),
 		ormschema.NewIndex(d, "idx_knowledge_page_versions_desc", knowledgePageVersionTable).Columns("scope_key", "page_id", "version"),
 		ormschema.NewIndex(d, "idx_knowledge_page_comments_thread", knowledgePageCommentTable).Columns("scope_key", "page_id", "resolved", "parent_comment_id", "comment_id"),
 		ormschema.NewIndex(d, "idx_knowledge_page_comments_author", knowledgePageCommentTable).Columns("scope_key", "author_user_id", "page_id", "comment_id"),
@@ -295,4 +290,20 @@ func knowledgePageSchema(d modulehost.Dialect) ([]string, error) {
 		statements = append(statements, statement)
 	}
 	return statements, nil
+}
+
+func knowledgePageArchiveSchema(d modulehost.Dialect) ([]string, error) {
+	archiveMembers, _, err := ormschema.NewTableWithRequiredColumns(d, knowledgePageArchiveMemberTable, physicalID()).IfNotExists().Columns(
+		required("scope_key", ormschema.TextKey(64)), required("library_id", ormschema.TextKey(96)), required("root_page_id", ormschema.TextKey(96)),
+		required("page_id", ormschema.TextKey(96)), required("archived_at", ormschema.BigInt()),
+	).PrimaryKey("id").Unique("scope_key", "page_id").Build()
+	if err != nil {
+		return nil, err
+	}
+	archiveRoot, _, err := ormschema.NewIndex(d, "idx_knowledge_page_archive_members_root", knowledgePageArchiveMemberTable).
+		Columns("scope_key", "library_id", "root_page_id", "page_id").Build()
+	if err != nil {
+		return nil, err
+	}
+	return []string{archiveMembers, archiveRoot}, nil
 }

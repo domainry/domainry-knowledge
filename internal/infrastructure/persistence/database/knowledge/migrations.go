@@ -10,9 +10,11 @@ import (
 
 const MigrationOwner = "knowledge"
 
-// KnowledgeSchemaVersion identifies the complete pre-release Knowledge schema.
-// Any statement change must increment this version so an already-recorded
-// Runtime migration can never be reinterpreted with a different checksum.
+const knowledgeBaseSchemaVersion uint = 19
+
+// KnowledgeSchemaVersion identifies the latest append-only Knowledge schema.
+// Applied migrations are immutable; new physical schema is added as a new
+// migration instead of replaying the complete base schema under a new version.
 const KnowledgeSchemaVersion uint = 20
 
 type MigrationRegistrar interface {
@@ -38,15 +40,24 @@ func EnsureSchema(ctx context.Context, backend Backend, migrations MigrationRegi
 	return nil
 }
 
-// SchemaMigrations is the only source of the fresh Knowledge-owned schema.
+// SchemaMigrations is the only source of the fresh and upgrade Knowledge schema.
 func SchemaMigrations(d modulehost.Dialect) ([]modulehost.SchemaMigration, error) {
-	final := modulehost.SchemaMigration{Version: KnowledgeSchemaVersion, Name: "create_knowledge_schema"}
+	base := modulehost.SchemaMigration{Version: knowledgeBaseSchemaVersion, Name: "create_knowledge_schema"}
 	for _, build := range []func(modulehost.Dialect) ([]string, error){knowledgeLibrarySchema, knowledgePageSchema, knowledgeDocumentSchema} {
 		statements, err := build(d)
 		if err != nil {
 			return nil, err
 		}
-		final.Statements = append(final.Statements, statements...)
+		base.Statements = append(base.Statements, statements...)
 	}
-	return []modulehost.SchemaMigration{final}, nil
+	archiveStatements, err := knowledgePageArchiveSchema(d)
+	if err != nil {
+		return nil, err
+	}
+	archive := modulehost.SchemaMigration{
+		Version:    KnowledgeSchemaVersion,
+		Name:       "create_page_archive_members",
+		Statements: archiveStatements,
+	}
+	return []modulehost.SchemaMigration{base, archive}, nil
 }
