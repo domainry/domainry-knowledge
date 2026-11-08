@@ -486,16 +486,28 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 		if r.PageProjection != nil {
 			page, pageErr := s.pageRecord(ctx, tx, r.Document.LibraryID, r.PageProjection.PageID, r.Actor)
 			if pageErr != nil {
-				return pageErr
-			}
-			if page.State == "archived" && r.Reindex == nil && r.RetiredRemoteID == "" && r.Document.State != "deleted" {
-				r.Document.State = "deleting"
-				r.Document.ProcessingStage = "delete"
-				r.Document.ErrorCode = ""
-				done = false
-			} else if r.Document.ProjectionKind == "page" && page.State == "active" && page.PublishedVersion == r.PageProjection.Version && r.Document.State == "ready" && r.Reindex == nil && r.RetiredRemoteID == "" {
-				if e = s.setPageProjectionStatus(ctx, tx, page, "ready", r.PageProjection.AccessRevision, r.Actor); e != nil {
-					return e
+				// A cross-Library move changes the page owner before the old remote
+				// generation is durably deleted. The source projection must finish
+				// deletion without updating the target page's projection status.
+				var current agentsdk.KnowledgePage
+				found, readErr := s.executionRead(ctx, tx, knowledgePageTable, pageScope(r.Actor, r.PageProjection.PageID), &current)
+				if readErr != nil {
+					return readErr
+				}
+				relocated := found && current.LibraryID != r.Document.LibraryID
+				if !relocated || r.Document.State != "deleting" && r.Document.State != "deleted" {
+					return pageErr
+				}
+			} else {
+				if page.State == "archived" && r.Reindex == nil && r.RetiredRemoteID == "" && r.Document.State != "deleted" {
+					r.Document.State = "deleting"
+					r.Document.ProcessingStage = "delete"
+					r.Document.ErrorCode = ""
+					done = false
+				} else if r.Document.ProjectionKind == "page" && page.State == "active" && page.PublishedVersion == r.PageProjection.Version && r.Document.State == "ready" && r.Reindex == nil && r.RetiredRemoteID == "" {
+					if e = s.setPageProjectionStatus(ctx, tx, page, "ready", r.PageProjection.AccessRevision, r.Actor); e != nil {
+						return e
+					}
 				}
 			}
 		}

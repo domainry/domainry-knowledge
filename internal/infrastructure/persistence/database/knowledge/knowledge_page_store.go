@@ -711,7 +711,11 @@ func (s *Store) SaveKnowledgePageDraft(ctx context.Context, libraryID, pageID st
 }
 
 func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMove, a agentsdk.Authority) (out knowledgesdk.KnowledgePage, err error) {
-	if !validPageRank(in.Rank, true) || in.ExpectedRevision < 1 {
+	targetLibraryID := in.TargetLibraryID
+	if targetLibraryID == "" {
+		targetLibraryID = libraryID
+	}
+	if !validPageRank(in.Rank, true) || in.ExpectedRevision < 1 || !validLibraryID(targetLibraryID) {
 		return out, conversationError("bad_request", "page_move_invalid")
 	}
 	if _, err = pageRequestKey("move", libraryID, pageID, in.ClientID, a); err != nil {
@@ -724,6 +728,32 @@ func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string,
 		}
 		if e = requirePageWriting(library); e != nil {
 			return out, e
+		}
+		if targetLibraryID != libraryID {
+			if library.Role != "manager" {
+				return out, conversationError("forbidden", "library_manage_required")
+			}
+			targetLibrary, targetErr := s.libraryRecord(ctx, tx, targetLibraryID, a)
+			if targetErr != nil {
+				return out, targetErr
+			}
+			if targetLibrary.Role != "manager" {
+				return out, conversationError("forbidden", "library_manage_required")
+			}
+			if targetErr = requirePageWriting(targetLibrary); targetErr != nil {
+				return out, targetErr
+			}
+			if targetErr = s.validatePageParent(ctx, tx, targetLibraryID, "", in.ParentPageID, a); targetErr != nil {
+				return out, targetErr
+			}
+			impact, impactErr := s.pageMoveImpact(ctx, tx, libraryID, pageID, knowledgesdk.KnowledgePageMovePreview{TargetLibraryID: targetLibraryID, ParentPageID: in.ParentPageID, Rank: in.Rank}, a)
+			if impactErr != nil {
+				return out, impactErr
+			}
+			if in.AccessImpactToken == "" || in.AccessImpactToken != impact.Token {
+				return out, conversationError("conflict", "page_move_access_confirmation_required")
+			}
+			return s.transferKnowledgePage(ctx, tx, libraryID, targetLibraryID, pageID, in, impact, a)
 		}
 		out, e = s.pageRecord(ctx, tx, libraryID, pageID, a)
 		if e != nil {
@@ -741,7 +771,7 @@ func (s *Store) MoveKnowledgePage(ctx context.Context, libraryID, pageID string,
 				return out, conversationError("not_found", "page_not_found")
 			}
 		}
-		impact, impactErr := s.pageMoveImpact(ctx, tx, libraryID, pageID, knowledgesdk.KnowledgePageMovePreview{ParentPageID: in.ParentPageID, Rank: in.Rank}, a)
+		impact, impactErr := s.pageMoveImpact(ctx, tx, libraryID, pageID, knowledgesdk.KnowledgePageMovePreview{TargetLibraryID: targetLibraryID, ParentPageID: in.ParentPageID, Rank: in.Rank}, a)
 		if impactErr != nil {
 			return out, impactErr
 		}

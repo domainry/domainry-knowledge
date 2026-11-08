@@ -231,19 +231,29 @@ func (s *Service) ExecuteKnowledgeGridAutomation(ctx context.Context, libraryID,
 }
 
 func (s *Service) MoveKnowledgePage(ctx context.Context, libraryID, pageID string, input knowledgesdk.KnowledgePageMove, a agentsdk.Authority) (knowledgesdk.KnowledgePage, error) {
+	targetLibraryID := input.TargetLibraryID
+	if targetLibraryID == "" {
+		targetLibraryID = libraryID
+	}
 	repository, _, err := s.pageItemAccess(ctx, libraryID, pageID, knowledgesdk.ActionPagesMove, a)
+	if err != nil && targetLibraryID != libraryID {
+		// A successful cross-Library move removes the page from the source. An
+		// idempotent replay must therefore authorize the now-current target page
+		// before the repository can return the original operation receipt.
+		repository, _, err = s.pageItemAccess(ctx, targetLibraryID, pageID, knowledgesdk.ActionPagesMove, a)
+	}
 	if err != nil {
 		return knowledgesdk.KnowledgePage{}, err
 	}
 	result, err := repository.MoveKnowledgePage(ctx, libraryID, pageID, input, a)
 	if err == nil {
-		err = s.recheckPageItemAction(ctx, libraryID, pageID, knowledgesdk.ActionPagesMove, a)
+		err = s.recheckPageItemAction(ctx, targetLibraryID, pageID, knowledgesdk.ActionPagesMove, a)
 	}
 	if err == nil {
-		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPagesMove, "knowledge.page.moved", libraryID, pageID, pageID, input.ClientID, result.Revision, map[string]string{
-			"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10),
+		s.appendKnowledgeAudit(ctx, knowledgesdk.ActionPagesMove, "knowledge.page.moved", targetLibraryID, pageID, pageID, input.ClientID, result.Revision, map[string]string{
+			"expected_revision": strconv.FormatInt(input.ExpectedRevision, 10), "source_library_id": libraryID,
 		}, map[string]string{
-			"parent_page_id": result.ParentPageID, "rank": result.Rank,
+			"target_library_id": targetLibraryID, "parent_page_id": result.ParentPageID, "rank": result.Rank,
 		}, a)
 	}
 	return result, err

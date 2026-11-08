@@ -166,7 +166,7 @@ func (s *Store) KnowledgeDocumentByRemoteID(ctx context.Context, library, source
 		if _, e := s.libraryRecord(ctx, tx, library, a); e != nil {
 			return e
 		}
-		found, e := s.executionRead(ctx, tx, knowledgeDocumentTable, query.And(libraryPredicate(a, library), query.Equal("source_key", source), query.Equal("remote_id", remote)), &out)
+		found, e := s.executionRead(ctx, tx, knowledgeDocumentTable, query.And(libraryPredicate(a, library), query.Equal("source_key", source), query.Equal("remote_id", remote), query.NotEqual("state", "deleted")), &out)
 		if e == nil && !found {
 			e = conversationError("not_found", "document_not_found")
 		}
@@ -183,6 +183,28 @@ func (s *Store) saveDocumentRecord(ctx context.Context, tx *sql.Tx, r *persisten
 	q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeDocumentTable).Set("remote_id", r.RemoteID).Set("projection_kind", r.Document.ProjectionKind).Set("state", r.Document.State).Set("revision", r.Document.Revision).Set("bytes", r.Document.Bytes).Set("updated_at", r.Document.UpdatedAt.UnixMilli()).Set("payload_json", conversationJSON(r)).Where(query.And(documentScope(r.Actor, r.Document.ID), query.Equal("revision", expected))).Build()
 	if e = conversationCAS(ctx, tx, q, args, e); e != nil {
 		return e
+	}
+	return nil
+}
+
+// saveRelocatedPageProjection is the only path that changes the Library/source
+// owner of an existing physical page projection. It is valid only after the
+// previous remote generation reached the durable deleted state; this prevents
+// one document row from naming a target Library while the source remote is
+// still readable.
+func (s *Store) saveRelocatedPageProjection(ctx context.Context, tx *sql.Tx, r *persistence.KnowledgeDocumentRecord, expected int64) error {
+	if expected < 1 || r.Document.Revision != expected || r.Document.ProjectionKind != "page" || r.PageProjection == nil || r.Document.State != "queued" || !validLibraryID(r.Document.LibraryID) || !validArtifactSHA(r.SourceID) {
+		return conversationError("conflict", "page_projection_identity_conflict")
+	}
+	r.Document.Revision++
+	r.Document.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
+	q, args, err := query.NewUpdateBuilder(s.store.Renderer(), knowledgeDocumentTable).
+		Set("library_id", r.Document.LibraryID).Set("source_key", r.SourceID).Set("remote_id", r.RemoteID).
+		Set("projection_kind", r.Document.ProjectionKind).Set("state", r.Document.State).Set("revision", r.Document.Revision).
+		Set("bytes", r.Document.Bytes).Set("updated_at", r.Document.UpdatedAt.UnixMilli()).Set("payload_json", conversationJSON(r)).
+		Where(query.And(documentScope(r.Actor, r.Document.ID), query.Equal("revision", expected), query.Equal("state", "deleted"))).Build()
+	if err = conversationCAS(ctx, tx, q, args, err); err != nil {
+		return err
 	}
 	return nil
 }

@@ -518,6 +518,45 @@ type knowledgePageSubjectRole struct {
 	Role    string                              `json:"role"`
 }
 
+func (s *Store) libraryMemberState(ctx context.Context, db conversationDB, libraryID string, a agentsdk.Authority) (map[string]knowledgePageSubjectRole, string, error) {
+	members := map[string]knowledgePageSubjectRole{}
+	q, args, err := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryMemberTable).
+		Columns("subject_type", "subject_id", "role").
+		Where(libraryPredicate(a, libraryID)).
+		OrderBy(query.Ascending("subject_type"), query.Ascending("subject_id")).
+		Limit(knowledgeLibraryMaximumPages + 1).
+		Build()
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	state := make([]any, 0)
+	for rows.Next() {
+		var subjectType, subjectID, role string
+		if err = rows.Scan(&subjectType, &subjectID, &role); err != nil {
+			_ = rows.Close()
+			return nil, "", err
+		}
+		subject := knowledgesdk.KnowledgeAccessSubject{Type: subjectType, ID: subjectID}
+		members[knowledgeAccessSubjectKey(subject)] = knowledgePageSubjectRole{Subject: subject, Role: role}
+		state = append(state, []string{subjectType, subjectID, role})
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, "", err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, "", err
+	}
+	if len(state) > knowledgeLibraryMaximumPages {
+		return nil, "", conversationError("unavailable", "library_member_limit")
+	}
+	return members, conversationHash(state), nil
+}
+
 func (s *Store) ancestorSubtreeGrantSubjects(ctx context.Context, db conversationDB, libraryID, parentID string, a agentsdk.Authority) (map[string]knowledgePageSubjectRole, error) {
 	out := map[string]knowledgePageSubjectRole{}
 	current := parentID
@@ -564,12 +603,68 @@ func (s *Store) pageMoveImpact(ctx context.Context, tx *sql.Tx, libraryID, pageI
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
 	}
-	if err = s.validatePageParent(ctx, tx, libraryID, pageID, in.ParentPageID, a); err != nil {
+	targetLibraryID := in.TargetLibraryID
+	if targetLibraryID == "" {
+		targetLibraryID = libraryID
+	}
+	if !validLibraryID(targetLibraryID) {
+		return knowledgesdk.KnowledgePageMoveImpact{}, conversationError("bad_request", "page_move_invalid")
+	}
+	crossLibrary := targetLibraryID != libraryID
+	targetLibrary, err := s.libraryRecord(ctx, tx, targetLibraryID, a)
+	if err != nil {
+		return knowledgesdk.KnowledgePageMoveImpact{}, err
+	}
+	if crossLibrary && targetLibrary.Role != "manager" {
+		return knowledgesdk.KnowledgePageMoveImpact{}, conversationError("forbidden", "library_manage_required")
+	}
+	cyclePageID := pageID
+	if crossLibrary {
+		cyclePageID = ""
+	}
+	if err = s.validatePageParent(ctx, tx, targetLibraryID, cyclePageID, in.ParentPageID, a); err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
 	}
 	count, restricted, subtreeAccessHash, err := s.restrictedSubtreeExists(ctx, tx, libraryID, pageID, a)
 	if err != nil {
 		return knowledgesdk.KnowledgePageMoveImpact{}, err
+	}
+	if crossLibrary {
+		sourceMembers, sourceMemberHash, memberErr := s.libraryMemberState(ctx, tx, libraryID, a)
+		if memberErr != nil {
+			return knowledgesdk.KnowledgePageMoveImpact{}, memberErr
+		}
+		targetMembers, targetMemberHash, memberErr := s.libraryMemberState(ctx, tx, targetLibraryID, a)
+		if memberErr != nil {
+			return knowledgesdk.KnowledgePageMoveImpact{}, memberErr
+		}
+		changedByKey := map[string]knowledgesdk.KnowledgeAccessSubject{}
+		for key, sourceMember := range sourceMembers {
+			if targetMembers[key].Role != sourceMember.Role {
+				changedByKey[key] = sourceMember.Subject
+			}
+		}
+		for key, targetMember := range targetMembers {
+			if sourceMembers[key].Role != targetMember.Role {
+				changedByKey[key] = targetMember.Subject
+			}
+		}
+		changed := make([]knowledgesdk.KnowledgeAccessSubject, 0, len(changedByKey))
+		for _, subject := range changedByKey {
+			changed = append(changed, subject)
+		}
+		sort.Slice(changed, func(i, j int) bool {
+			if changed[i].Type == changed[j].Type {
+				return changed[i].ID < changed[j].ID
+			}
+			return changed[i].Type < changed[j].Type
+		})
+		token := conversationHash([]any{"page-cross-library-impact.v1", pageID, libraryID, targetLibraryID, page.ParentPageID, in.ParentPageID, in.Rank, page.Revision, count, subtreeAccessHash, sourceMemberHash, targetMemberHash})
+		return knowledgesdk.KnowledgePageMoveImpact{
+			PageID: pageID, SourceLibraryID: libraryID, TargetLibraryID: targetLibraryID,
+			ParentPageID: in.ParentPageID, AffectedPages: count, ChangedSubjects: changed,
+			RequiresConfirm: true, Token: token,
+		}, nil
 	}
 	oldSubjects, err := s.ancestorSubtreeGrantSubjects(ctx, tx, libraryID, page.ParentPageID, a)
 	if err != nil {
@@ -603,7 +698,7 @@ func (s *Store) pageMoveImpact(ctx context.Context, tx *sql.Tx, libraryID, pageI
 		return changed[i].Type < changed[j].Type
 	})
 	token := conversationHash([]any{"page-move-impact.v2", pageID, page.ParentPageID, in.ParentPageID, in.Rank, page.Revision, count, subtreeAccessHash, oldSubjects, newSubjects})
-	return knowledgesdk.KnowledgePageMoveImpact{PageID: pageID, ParentPageID: in.ParentPageID, AffectedPages: count, ChangedSubjects: changed, RequiresConfirm: len(changed) > 0, Token: token}, nil
+	return knowledgesdk.KnowledgePageMoveImpact{PageID: pageID, SourceLibraryID: libraryID, TargetLibraryID: targetLibraryID, ParentPageID: in.ParentPageID, AffectedPages: count, ChangedSubjects: changed, RequiresConfirm: len(changed) > 0, Token: token}, nil
 }
 
 func (s *Store) PreviewKnowledgePageMove(ctx context.Context, libraryID, pageID string, in knowledgesdk.KnowledgePageMovePreview, a agentsdk.Authority) (out knowledgesdk.KnowledgePageMoveImpact, err error) {

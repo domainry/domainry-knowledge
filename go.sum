@@ -75,6 +75,8 @@ github.com/domainry/domainry-knowledge-sdk v0.1.41 h1:7UBKXuPdSgV/FpEsfjD5r27lv+
 github.com/domainry/domainry-knowledge-sdk v0.1.41/go.mod h1:AhvruMSY6uNcRJlZUwPBl6ZDNzSLoSoI03m07LtotkA=
 github.com/domainry/domainry-knowledge-sdk v0.1.42 h1:wEiXh0FjAUnvg8fUJHTs9guFOTFsPWFjRb4xrGPHijs=
 github.com/domainry/domainry-knowledge-sdk v0.1.42/go.mod h1:AhvruMSY6uNcRJlZUwPBl6ZDNzSLoSoI03m07LtotkA=
+github.com/domainry/domainry-knowledge-sdk v0.1.43 h1:O/8xkbGI2ExSNXIOTL+hbq2lbDw5gY07Bba4FRX3XJg=
+github.com/domainry/domainry-knowledge-sdk v0.1.43/go.mod h1:AhvruMSY6uNcRJlZUwPBl6ZDNzSLoSoI03m07LtotkA=
 github.com/domainry/domainry-metadata v0.1.40 h1:jD9bD3YSqqDF1dl1RbgRI/8dHHnHh7QS7rR8cdTOB9c=
 github.com/domainry/domainry-metadata v0.1.40/go.mod h1:8MBellOKHt7t+e+ux3hCX1JgzHsKBJ9CJadzpK1euCY=
 github.com/domainry/domainry-metadata-sdk v0.1.20 h1:SMWmvH1PwwzRdqOZ88kNw8lBng49CYvrcZc5oKU/98E=

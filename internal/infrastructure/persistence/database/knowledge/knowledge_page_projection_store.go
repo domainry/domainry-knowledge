@@ -215,7 +215,7 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				return execErr
 			}
 		} else {
-			if record.Document.ProjectionKind != "page" || record.PageProjection == nil || record.PageProjection.PageID != lease.PageID || record.SourceID != sourceID {
+			if record.Document.ProjectionKind != "page" || record.PageProjection == nil || record.PageProjection.PageID != lease.PageID {
 				return conversationError("conflict", "page_projection_identity_conflict")
 			}
 			if record.Document.State == "deleted" {
@@ -223,7 +223,10 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				remoteID := knowledgePageProjectionRemoteID(sourceID, lease.Actor, lease.PageID, lease.Version, lease.AccessRevision, generation, sha256)
 				revision := record.Document.Revision
 				record.PageProjection, record.Replacement = &origin, nil
+				relocated := record.Document.LibraryID != lease.LibraryID || record.SourceID != sourceID
 				record.Actor, record.BodyRef, record.RemoteID = lease.Actor, bodyRef, remoteID
+				record.Document.LibraryID, record.SourceID = lease.LibraryID, sourceID
+				record.AccessPolicySHA256 = accessPolicySHA256
 				record.RequestSHA256 = conversationHash([]any{origin, sha256})
 				record.PutRequestID = knowledgeDocumentPutRequestID(record)
 				record.PutStarted, record.PutAcknowledged, record.IndexObserved, record.DeleteStarted, record.DeleteAcknowledged = false, false, false, false, false
@@ -234,9 +237,17 @@ func (s *Store) CompleteKnowledgePageProjection(ctx context.Context, lease knowl
 				record.Document.State, record.Document.ProcessingStage, record.Document.SecurityStatus = "queued", "parse", "clean"
 				record.Document.IndexGeneration, record.Document.IndexStatus, record.Document.Reindexing = generation, "", false
 				record.Document.SecurityScanner, record.Document.SecurityReportSHA256, record.Document.ErrorCode = "knowledge-page-schema", sha256, ""
-				if err = s.saveDocumentRecord(ctx, tx, &record, revision); err != nil {
+				if relocated {
+					if err = s.saveRelocatedPageProjection(ctx, tx, &record, revision); err != nil {
+						return err
+					}
+				} else if err = s.saveDocumentRecord(ctx, tx, &record, revision); err != nil {
 					return err
 				}
+			} else if record.Document.LibraryID != lease.LibraryID || record.SourceID != sourceID {
+				// The old Library generation must finish durable deletion before a
+				// stable page projection identity can be claimed by the target.
+				return conversationError("conflict", "page_projection_busy")
 			} else if reflect.DeepEqual(*record.PageProjection, origin) && record.Document.SHA256 == sha256 {
 				// An acknowledgement may have been lost after the document intent
 				// was committed. Treat only a live source-owned projection as

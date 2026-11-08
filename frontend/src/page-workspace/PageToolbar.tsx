@@ -1,6 +1,6 @@
 import { kt } from "../i18n/runtime.ts";
 import { Menu, MenuButton, MenuItem, MenuProvider, MenuSeparator } from "@ariakit/react";
-import { Activity, Archive, ArchiveRestore, Bell, BookOpen, Clock3, Copy, Ellipsis, GitPullRequest, Link2, ListTree, MessageSquare, Network, Pencil, Pin, ScanSearch, Search, Share2, ShieldCheck, Sparkles, Star, Tags, UserRoundCog } from "lucide-react";
+import { Activity, Archive, ArchiveRestore, Bell, BookOpen, Clock3, Copy, Ellipsis, FolderInput, GitPullRequest, Link2, ListTree, MessageSquare, Network, Pencil, Pin, ScanSearch, Search, Share2, ShieldCheck, Sparkles, Star, Tags, UserRoundCog } from "lucide-react";
 import { Button } from "../components.tsx";
 import type { KnowledgePagePersonalState } from "../types.ts";
 
@@ -21,6 +21,7 @@ export type PageToolbarProps = {
   canManagePermissions: boolean;
   canManageShares: boolean;
   canReviewGovernance: boolean;
+  canTransfer: boolean;
   archived: boolean;
   onModeChange(mode: PageWorkspaceMode): void;
   onOpenSuggestions(): void;
@@ -30,6 +31,7 @@ export type PageToolbarProps = {
   onToggleShortcut(): void;
   onOpenAI(): void;
   onCopy(): void;
+  onTransfer(): void;
   onArchive(): void;
 };
 
@@ -65,6 +67,7 @@ export function PageToolbar(props: PageToolbarProps) {
           {(props.isManager || props.canReviewGovernance) && <MenuItem data-selected={props.mode === "governance" || undefined} onClick={() => props.onModeChange("governance")}><ShieldCheck size={15} />{kt("knowledge.auto.0c4ab1ae758a60c4")}</MenuItem>}
           {props.canWrite && <>
             <MenuSeparator />
+            {props.canTransfer && <MenuItem onClick={props.onTransfer}><FolderInput size={15} />{kt("knowledge.auto.fc6bb436b8caf08b")}</MenuItem>}
             <MenuItem onClick={props.onCopy}><Copy size={15} />{kt("knowledge.auto.12f008adad5c79c4")}</MenuItem>
             <MenuItem className={props.archived ? undefined : "is-danger"} onClick={props.onArchive}>{props.archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}{props.archived ? kt("knowledge.auto.d89a000da895d46b") : kt("knowledge.auto.7ab258e99c1e9382")}</MenuItem>
           </>}

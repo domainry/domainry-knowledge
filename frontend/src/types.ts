@@ -488,6 +488,8 @@ export type KnowledgePageSharePage = { items: KnowledgePageShare[]; next_after?:
 export type KnowledgePageSharedView = { share: KnowledgePageShare; view: KnowledgePageView };
 export type KnowledgePageMoveImpact = {
   page_id: string;
+  source_library_id: string;
+  target_library_id: string;
   parent_page_id?: string;
   affected_pages: number;
   changed_subjects: KnowledgeAccessSubject[];
@@ -936,8 +938,8 @@ export interface KnowledgeClient {
   savePageDraft(libraryID: string, pageID: string, request: { client_id: string; expected_draft_revision: number; expected_page_revision: number; title: string; parent_page_id?: string; rank: string; content_schema_version: number; content: string; content_sha256: string }, signal: AbortSignal): Promise<KnowledgePageView>;
   applyPageNativeOperations?(libraryID: string, pageID: string, request: { client_id: string; base_draft_revision: number; operations: KnowledgePageNativeOperation[] }, signal: AbortSignal): Promise<KnowledgePageNativeOperationResult>;
   executeGridAutomation?(libraryID: string, pageID: string, request: KnowledgeGridAutomationExecute, signal: AbortSignal): Promise<KnowledgeGridAutomationResult>;
-  previewPageMove?(libraryID: string, pageID: string, request: { parent_page_id?: string; rank: string }, signal: AbortSignal): Promise<KnowledgePageMoveImpact>;
-  movePage(libraryID: string, pageID: string, request: { client_id: string; expected_revision: number; parent_page_id?: string; rank: string; access_impact_token?: string }, signal: AbortSignal): Promise<KnowledgePage>;
+  previewPageMove?(libraryID: string, pageID: string, request: { target_library_id?: string; parent_page_id?: string; rank: string }, signal: AbortSignal): Promise<KnowledgePageMoveImpact>;
+  movePage(libraryID: string, pageID: string, request: { client_id: string; expected_revision: number; target_library_id?: string; parent_page_id?: string; rank: string; access_impact_token?: string }, signal: AbortSignal): Promise<KnowledgePage>;
   getPageAccess?(libraryID: string, pageID: string, signal: AbortSignal): Promise<KnowledgePageAccessPolicy>;
   setPageAccess?(libraryID: string, pageID: string, request: { client_id: string; expected_revision: number; mode: "inherit" | "restricted"; grants: KnowledgePageAccessGrant[] }, signal: AbortSignal): Promise<KnowledgePageAccessPolicy>;
   getPageContentPolicy?(libraryID: string, pageID: string, signal: AbortSignal): Promise<KnowledgePageContentPolicy>;
