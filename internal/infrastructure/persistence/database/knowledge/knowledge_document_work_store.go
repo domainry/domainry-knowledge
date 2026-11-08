@@ -19,6 +19,14 @@ var knowledgeErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,127}$`)
 func documentLeaseAuthority(l persistence.KnowledgeDocumentLease) agentsdk.Authority {
 	return agentsdk.Authority{Known: true, RuntimeID: l.RuntimeID, WorkspaceID: l.WorkspaceID, UserID: "_worker"}
 }
+
+func releasedKnowledgeDocumentLease(l persistence.KnowledgeDocumentLease) persistence.KnowledgeDocumentLease {
+	released := l
+	released.Owner = ""
+	released.ExpiresAt = time.Time{}
+	return released
+}
+
 func (s *Store) queueDocumentWork(ctx context.Context, tx *sql.Tx, r persistence.KnowledgeDocumentRecord) error {
 	l := persistence.KnowledgeDocumentLease{RuntimeID: r.Actor.RuntimeID, WorkspaceID: r.Actor.WorkspaceID, LibraryID: r.Document.LibraryID, DocumentID: r.Document.ID}
 	b := query.NewInsertBuilder(s.store.Renderer(), knowledgeDocumentJobTable).Columns("scope_key", "document_id", "runtime_id", "not_before", "lease_until", "fence", "payload_json").Values(libraryScope(r.Actor), r.Document.ID, r.Actor.RuntimeID, 0, 0, 0, conversationJSON(l))
@@ -501,9 +509,12 @@ func (s *Store) ApplyKnowledgeDocumentProgress(ctx context.Context, l persistenc
 			q, args, e := query.NewDeleteBuilder(s.store.Renderer(), knowledgeDocumentJobTable).Where(predicate).Build()
 			return conversationExec(ctx, tx, q, args, e)
 		}
-		l.Owner = ""
-		l.ExpiresAt = time.Time{}
-		q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeDocumentJobTable).Set("lease_until", 0).Set("not_before", in.RetryAt.UnixMilli()).Set("payload_json", conversationJSON(l)).Where(predicate).Build()
+		// transaction retries the closure after a transient PostgreSQL error.
+		// Keep the authoritative input lease immutable across attempts: mutating l
+		// here made a retry observe an empty owner and falsely report
+		// document_lease_lost while the durable lease remained held until expiry.
+		released := releasedKnowledgeDocumentLease(l)
+		q, args, e := query.NewUpdateBuilder(s.store.Renderer(), knowledgeDocumentJobTable).Set("lease_until", 0).Set("not_before", in.RetryAt.UnixMilli()).Set("payload_json", conversationJSON(released)).Where(predicate).Build()
 		return conversationCAS(ctx, tx, q, args, e)
 	})
 }

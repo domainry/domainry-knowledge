@@ -22,6 +22,26 @@ func saveRetryFixture(t *testing.T, db interface {
 	}
 }
 
+func TestReleasedKnowledgeDocumentLeasePreservesRetryInput(t *testing.T) {
+	expiresAt := time.Now().UTC().Add(time.Minute)
+	lease := persistence.KnowledgeDocumentLease{
+		RuntimeID:   "runtime",
+		WorkspaceID: "workspace",
+		LibraryID:   "library",
+		DocumentID:  "document",
+		Owner:       "worker",
+		Token:       7,
+		ExpiresAt:   expiresAt,
+	}
+	released := releasedKnowledgeDocumentLease(lease)
+	if released.Owner != "" || !released.ExpiresAt.IsZero() {
+		t.Fatalf("released lease retained ownership: %+v", released)
+	}
+	if lease.Owner != "worker" || !lease.ExpiresAt.Equal(expiresAt) || lease.Token != 7 {
+		t.Fatalf("release mutated fenced retry input: %+v", lease)
+	}
+}
+
 func TestKnowledgeDocumentRetryResetsOnlySafeStage(t *testing.T) {
 	store, db := openSubjectKnowledgeStore(t)
 	storage, err := documentstorage.NewFiles(filepath.Join(t.TempDir(), "documents"))
