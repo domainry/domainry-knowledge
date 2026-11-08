@@ -194,9 +194,33 @@ func (s *Service) DocumentWorkerEnabled() bool {
 func (s *Service) DocumentWorkerInterval() time.Duration  { return s.options.DocumentPoll }
 func (s *Service) DocumentWorkerWakeups() <-chan struct{} { return s.documentWake }
 
-type knowledgeDocumentWorkerTask func() error
+type knowledgeDocumentWorkerTask struct {
+	key string
+	run func() error
+}
+
+func uniqueKnowledgeDocumentWorkerTasks(tasks []knowledgeDocumentWorkerTask) []knowledgeDocumentWorkerTask {
+	if len(tasks) < 2 {
+		return tasks
+	}
+	unique := make([]knowledgeDocumentWorkerTask, 0, len(tasks))
+	indexByKey := make(map[string]int, len(tasks))
+	for _, task := range tasks {
+		if index, found := indexByKey[task.key]; found {
+			// A later fenced lease is authoritative if a repository ever returns
+			// the same durable entity twice in one batch. Replace the pending task
+			// instead of executing two lifecycle transitions concurrently.
+			unique[index] = task
+			continue
+		}
+		indexByKey[task.key] = len(unique)
+		unique = append(unique, task)
+	}
+	return unique
+}
 
 func runKnowledgeDocumentWorkerTasks(tasks []knowledgeDocumentWorkerTask) error {
+	tasks = uniqueKnowledgeDocumentWorkerTasks(tasks)
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -212,7 +236,7 @@ func runKnowledgeDocumentWorkerTasks(tasks []knowledgeDocumentWorkerTask) error 
 		go func() {
 			defer group.Done()
 			for task := range queue {
-				if err := task(); err != nil {
+				if err := task.run(); err != nil {
 					errorsByTask <- err
 				}
 			}
@@ -236,6 +260,11 @@ func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickRe
 	if !ok || s.options.DocumentStorage == nil {
 		return WorkerTickResult{}, nil
 	}
+	// A service may be exposed through more than one lifecycle adapter. Keep the
+	// durable claim-and-run cycle single-flight per process so two supervisors or
+	// an operational tick cannot overlap work for the same fenced entity.
+	s.documentWorkerTickMu.Lock()
+	defer s.documentWorkerTickMu.Unlock()
 	now := time.Now().UTC()
 	if uploads, ok := repo.(knowledgeDocumentUploadRepository); ok {
 		s.workerMu.Lock()
@@ -267,10 +296,13 @@ func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickRe
 				break
 			}
 			claimedWork := work
-			tasks = append(tasks, func() error {
-				attempt, cancel := context.WithDeadline(ctx, claimedWork.Lease.ExpiresAt)
-				defer cancel()
-				return s.ProcessKnowledgePageProjection(attempt, projections, claimedWork)
+			tasks = append(tasks, knowledgeDocumentWorkerTask{
+				key: "page:" + claimedWork.Lease.RuntimeID + ":" + claimedWork.Lease.WorkspaceID + ":" + claimedWork.Lease.LibraryID + ":" + claimedWork.Lease.PageID,
+				run: func() error {
+					attempt, cancel := context.WithDeadline(ctx, claimedWork.Lease.ExpiresAt)
+					defer cancel()
+					return s.ProcessKnowledgePageProjection(attempt, projections, claimedWork)
+				},
 			})
 		}
 	}
@@ -285,18 +317,23 @@ func (s *Service) KnowledgeDocumentWorkerTick(ctx context.Context) (WorkerTickRe
 				break
 			}
 			claimedLease := lease
-			tasks = append(tasks, func() error {
-				attempt, cancel := context.WithDeadline(ctx, claimedLease.ExpiresAt)
-				defer cancel()
-				return s.ProcessKnowledgeDocument(attempt, repo, claimedLease)
+			tasks = append(tasks, knowledgeDocumentWorkerTask{
+				key: "document:" + claimedLease.RuntimeID + ":" + claimedLease.WorkspaceID + ":" + claimedLease.LibraryID + ":" + claimedLease.DocumentID,
+				run: func() error {
+					attempt, cancel := context.WithDeadline(ctx, claimedLease.ExpiresAt)
+					defer cancel()
+					return s.ProcessKnowledgeDocument(attempt, repo, claimedLease)
+				},
 			})
 		}
 	}
 	if len(tasks) == 0 {
 		return WorkerTickResult{}, claimErr
 	}
+	claimedCount := len(tasks)
+	tasks = uniqueKnowledgeDocumentWorkerTasks(tasks)
 	workErr := runKnowledgeDocumentWorkerTasks(tasks)
-	if len(tasks) == knowledgeDocumentWorkerBatchSize {
+	if claimedCount == knowledgeDocumentWorkerBatchSize {
 		// Interrupt the supervisor's normal poll delay while a full batch proves
 		// that more durable work may already be available. The durable claim is
 		// still authoritative; this is only a lossy wake-up hint.

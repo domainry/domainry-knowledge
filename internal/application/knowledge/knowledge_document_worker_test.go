@@ -51,6 +51,74 @@ type batchedProjectionRepository struct {
 	maximumConcurrent int
 }
 
+type batchedDocumentRepository struct {
+	persistence.KnowledgeDocumentRepository
+
+	mu        sync.Mutex
+	remaining []persistence.KnowledgeDocumentLease
+	processed map[string]int
+}
+
+func (repo *batchedDocumentRepository) ClaimKnowledgeDocumentWork(_ context.Context, _, owner string, _ time.Time, leaseDuration time.Duration) (persistence.KnowledgeDocumentLease, bool, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if len(repo.remaining) == 0 {
+		return persistence.KnowledgeDocumentLease{}, false, nil
+	}
+	lease := repo.remaining[0]
+	repo.remaining = repo.remaining[1:]
+	lease.Owner = owner
+	lease.ExpiresAt = time.Now().UTC().Add(leaseDuration)
+	return lease, true, nil
+}
+
+func (repo *batchedDocumentRepository) KnowledgeDocumentWorkRecord(_ context.Context, lease persistence.KnowledgeDocumentLease) (persistence.KnowledgeDocumentRecord, error) {
+	repo.mu.Lock()
+	repo.processed[lease.DocumentID]++
+	repo.mu.Unlock()
+	return persistence.KnowledgeDocumentRecord{
+		Actor:    agentsdk.Authority{Known: true, RuntimeID: lease.RuntimeID, WorkspaceID: lease.WorkspaceID, UserID: "user-a"},
+		Document: agentsdk.KnowledgeDocument{ID: lease.DocumentID, LibraryID: lease.LibraryID, State: "deleting"},
+	}, nil
+}
+
+func (*batchedDocumentRepository) ApplyKnowledgeDocumentProgress(context.Context, persistence.KnowledgeDocumentLease, persistence.KnowledgeDocumentProgress) error {
+	return nil
+}
+
+type batchedDocumentStorage struct {
+	agentsdk.KnowledgeDocumentStorage
+}
+
+func (*batchedDocumentStorage) DeleteKnowledgeDocumentContent(context.Context, agentsdk.KnowledgeDocumentStorageScope, string) error {
+	return nil
+}
+
+type serialTickRepository struct {
+	persistence.KnowledgeDocumentRepository
+
+	mu                sync.Mutex
+	active            int
+	maximumConcurrent int
+	entered           chan struct{}
+	release           chan struct{}
+}
+
+func (repo *serialTickRepository) ClaimKnowledgeDocumentWork(context.Context, string, string, time.Time, time.Duration) (persistence.KnowledgeDocumentLease, bool, error) {
+	repo.mu.Lock()
+	repo.active++
+	if repo.active > repo.maximumConcurrent {
+		repo.maximumConcurrent = repo.active
+	}
+	repo.mu.Unlock()
+	repo.entered <- struct{}{}
+	<-repo.release
+	repo.mu.Lock()
+	repo.active--
+	repo.mu.Unlock()
+	return persistence.KnowledgeDocumentLease{}, false, nil
+}
+
 func (repo *batchedProjectionRepository) ClaimKnowledgePageProjection(_ context.Context, runtimeID, owner string, _ time.Time, leaseDuration time.Duration) (knowledgesdk.KnowledgePageProjectionWork, bool, error) {
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
@@ -309,6 +377,84 @@ func TestKnowledgeDocumentWorkerUsesFixedBatchAndBoundedConcurrency(t *testing.T
 	defer repository.mu.Unlock()
 	if repository.skipped != knowledgeDocumentWorkerBatchSize+8 || repository.remaining != 0 || repository.maximumConcurrent > knowledgeDocumentWorkerConcurrency {
 		t.Fatalf("skipped=%d remaining=%d max_concurrent=%d", repository.skipped, repository.remaining, repository.maximumConcurrent)
+	}
+}
+
+func TestKnowledgeDocumentWorkerProcessesEveryClaimedDocumentOnce(t *testing.T) {
+	repository := &batchedDocumentRepository{processed: map[string]int{}}
+	for index := range knowledgeDocumentWorkerBatchSize {
+		repository.remaining = append(repository.remaining, persistence.KnowledgeDocumentLease{
+			RuntimeID: "runtime-a", WorkspaceID: "workspace-a", LibraryID: "library-a",
+			DocumentID: "document-" + time.Unix(int64(index), 0).UTC().Format("150405"), Token: int64(index + 1),
+		})
+	}
+	service := NewService(repository, "runtime-a", Options{DocumentStorage: &batchedDocumentStorage{}}, nil)
+
+	result, err := service.KnowledgeDocumentWorkerTick(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Worked || result.ProcessedCount != knowledgeDocumentWorkerBatchSize {
+		t.Fatalf("batch=%+v", result)
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if len(repository.processed) != knowledgeDocumentWorkerBatchSize {
+		t.Fatalf("processed documents=%v", repository.processed)
+	}
+	for documentID, count := range repository.processed {
+		if count != 1 {
+			t.Fatalf("document %s processed %d times", documentID, count)
+		}
+	}
+}
+
+func TestKnowledgeDocumentWorkerDeduplicatesDurableEntityWithinBatch(t *testing.T) {
+	runs := 0
+	tasks := []knowledgeDocumentWorkerTask{
+		{key: "document:runtime:workspace:library:document", run: func() error { runs += 100; return nil }},
+		{key: "document:runtime:workspace:library:document", run: func() error { runs++; return nil }},
+	}
+	if err := runKnowledgeDocumentWorkerTasks(tasks); err != nil {
+		t.Fatal(err)
+	}
+	if runs != 1 {
+		t.Fatalf("duplicate durable entity ran %d weighted times", runs)
+	}
+}
+
+func TestKnowledgeDocumentWorkerSerializesConcurrentTicks(t *testing.T) {
+	repository := &serialTickRepository{entered: make(chan struct{}, 2), release: make(chan struct{}, 2)}
+	service := NewService(repository, "runtime-a", Options{DocumentStorage: &uploadExpiryDocumentStorage{}}, nil)
+	errors := make(chan error, 2)
+	go func() { _, err := service.KnowledgeDocumentWorkerTick(t.Context()); errors <- err }()
+	select {
+	case <-repository.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first worker tick did not enter repository")
+	}
+	go func() { _, err := service.KnowledgeDocumentWorkerTick(t.Context()); errors <- err }()
+	select {
+	case <-repository.entered:
+		t.Fatal("second worker tick entered repository before first completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	repository.release <- struct{}{}
+	select {
+	case <-repository.entered:
+	case <-time.After(time.Second):
+		t.Fatal("second worker tick did not enter after first completed")
+	}
+	repository.release <- struct{}{}
+	for range 2 {
+		if err := <-errors; err != nil {
+			t.Fatal(err)
+		}
+	}
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	if repository.maximumConcurrent != 1 {
+		t.Fatalf("maximum concurrent repository claims=%d", repository.maximumConcurrent)
 	}
 }
 

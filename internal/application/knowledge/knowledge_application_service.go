@@ -38,6 +38,7 @@ type Service struct {
 	aiWake                        chan struct{}
 	applicationCards              *agentsdk.KnowledgeApplicationCardRegistry
 	workerMu                      sync.Mutex
+	documentWorkerTickMu          sync.Mutex
 	nextDocumentUploadExpirySweep time.Time
 }
 
