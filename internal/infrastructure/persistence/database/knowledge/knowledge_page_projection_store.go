@@ -86,13 +86,25 @@ func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, own
 			if readErr != nil {
 				return readErr
 			}
-			if access.Revision > job.AccessRevision || access.Revision == job.AccessRevision && (access.ProjectionStatus == "ready" || access.ProjectionStatus == "none") {
+			if access.Revision > job.AccessRevision {
 				if discardErr := s.discardKnowledgePageProjectionJob(ctx, tx, rowID, rowFence, rowVersion, rowNotBefore, rowLeaseUntil, job); discardErr != nil {
 					return discardErr
 				}
 				continue
 			}
-			if access.Revision != job.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
+			if access.Revision != job.AccessRevision {
+				return conversationError("conflict", "page_projection_access_stale")
+			}
+			if access.ProjectionStatus == "ready" || access.ProjectionStatus == "none" {
+				// A durable row is the unfinished projection intent. An older document
+				// generation may have marked the same access revision ready while a
+				// newer path-only projection was waiting in the queue. Requeue that
+				// intent instead of dropping the path update.
+				if statusErr := s.setPageProjectionStatus(ctx, tx, page, "queued", job.AccessRevision, job.Actor); statusErr != nil {
+					return statusErr
+				}
+				page.ProjectionStatus, page.AccessStatus = "queued", "queued"
+			} else if !knowledgePageProjectionRetryable(access.ProjectionStatus) {
 				return conversationError("conflict", "page_projection_access_stale")
 			}
 			permissionID := knowledgePagePermissionToken(job.Actor, job.PageID)
