@@ -25,62 +25,97 @@ func knowledgePageProjectionRetryable(status string) bool {
 	return status == "queued" || status == "failed"
 }
 
+func (s *Store) discardKnowledgePageProjectionJob(ctx context.Context, tx *sql.Tx, rowID, fence, version, notBefore, leaseUntil int64, job pageProjectionJob) error {
+	q, args, err := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).
+		Where(query.And(
+			query.Equal("id", rowID),
+			pageScope(job.Actor, job.PageID),
+			query.Equal("fence", fence),
+			query.Equal("version", version),
+			query.Equal("not_before", notBefore),
+			query.Equal("lease_until", leaseUntil),
+		)).Build()
+	return conversationCAS(ctx, tx, q, args, err)
+}
+
 func (s *Store) ClaimKnowledgePageProjection(ctx context.Context, runtimeID, owner string, now time.Time, ttl time.Duration) (out knowledgesdk.KnowledgePageProjectionWork, found bool, err error) {
 	if !executionText(runtimeID, 255, true) || !personalMemoryKey(owner) || ttl < 100*time.Millisecond || ttl > knowledgeDocumentMaximumLease {
 		return out, false, conversationError("bad_request", "page_projection_lease_invalid")
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
-		q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Columns("payload_json").Where(query.And(query.Equal("runtime_id", runtimeID), query.LessThanOrEqual("not_before", now.UnixMilli()), query.LessThanOrEqual("lease_until", now.UnixMilli()))).OrderBy(query.Ascending("not_before"), query.Ascending("scope_key"), query.Ascending("page_id")).Limit(1).Build()
-		if buildErr != nil {
-			return buildErr
-		}
-		var raw []byte
-		if scanErr := tx.QueryRowContext(ctx, q, args...).Scan(&raw); scanErr == sql.ErrNoRows {
+		for {
+			q, args, buildErr := query.NewSelectBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).
+				Columns("id", "fence", "version", "not_before", "lease_until", "payload_json").
+				Where(query.And(query.Equal("runtime_id", runtimeID), query.LessThanOrEqual("not_before", now.UnixMilli()), query.LessThanOrEqual("lease_until", now.UnixMilli()))).
+				OrderBy(query.Ascending("not_before"), query.Ascending("scope_key"), query.Ascending("page_id")).Limit(1).Build()
+			if buildErr != nil {
+				return buildErr
+			}
+			var rowID, rowFence, rowVersion, rowNotBefore, rowLeaseUntil int64
+			var raw []byte
+			if scanErr := tx.QueryRowContext(ctx, q, args...).Scan(&rowID, &rowFence, &rowVersion, &rowNotBefore, &rowLeaseUntil, &raw); scanErr == sql.ErrNoRows {
+				return nil
+			} else if scanErr != nil {
+				return scanErr
+			}
+			var job pageProjectionJob
+			if decodeErr := unmarshalDurableJSON(raw, &job); decodeErr != nil {
+				return decodeErr
+			}
+			if job.Actor.RuntimeID != runtimeID || conversationAuthority(job.Actor) != nil || !validKnowledgePageID(job.PageID) || !validLibraryID(job.LibraryID) || job.Version < 1 || job.AccessRevision < 1 || job.Fence != rowFence || job.Version != rowVersion || job.NotBefore.UnixMilli() != rowNotBefore {
+				return conversationError("unavailable", "page_projection_lease_invalid")
+			}
+			page, readErr := s.pageRecord(ctx, tx, job.LibraryID, job.PageID, job.Actor)
+			if readErr != nil {
+				return readErr
+			}
+			if page.State != "active" || page.PublishedVersion != job.Version {
+				if discardErr := s.discardKnowledgePageProjectionJob(ctx, tx, rowID, rowFence, rowVersion, rowNotBefore, rowLeaseUntil, job); discardErr != nil {
+					return discardErr
+				}
+				continue
+			}
+			version, readErr := s.pageVersion(ctx, tx, job.PageID, job.Version, job.Actor)
+			if readErr != nil || version.Body.ContentSHA256 != job.ContentSHA256 {
+				if readErr != nil {
+					return readErr
+				}
+				return conversationError("unavailable", "page_projection_version_invalid")
+			}
+			access, readErr := s.knowledgePageAccessPolicy(ctx, tx, job.LibraryID, job.PageID, job.Actor)
+			if readErr != nil {
+				return readErr
+			}
+			if access.Revision > job.AccessRevision || access.Revision == job.AccessRevision && (access.ProjectionStatus == "ready" || access.ProjectionStatus == "none") {
+				if discardErr := s.discardKnowledgePageProjectionJob(ctx, tx, rowID, rowFence, rowVersion, rowNotBefore, rowLeaseUntil, job); discardErr != nil {
+					return discardErr
+				}
+				continue
+			}
+			if access.Revision != job.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
+				return conversationError("conflict", "page_projection_access_stale")
+			}
+			permissionID := knowledgePagePermissionToken(job.Actor, job.PageID)
+			job.Fence = rowFence + 1
+			job.LeaseUntil = now.UTC().Add(ttl).Truncate(time.Millisecond)
+			lease := knowledgesdk.KnowledgePageProjectionLease{RuntimeID: runtimeID, WorkspaceID: job.Actor.WorkspaceID, LibraryID: job.LibraryID, PageID: job.PageID, Version: job.Version, AccessRevision: job.AccessRevision, PermissionID: permissionID, Owner: owner, Token: job.Fence, ExpiresAt: job.LeaseUntil, Actor: job.Actor}
+			q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).
+				Set("fence", job.Fence).Set("lease_until", job.LeaseUntil.UnixMilli()).Set("payload_json", conversationJSON(job)).
+				Where(query.And(
+					query.Equal("id", rowID),
+					pageScope(job.Actor, job.PageID),
+					query.Equal("fence", rowFence),
+					query.Equal("version", rowVersion),
+					query.Equal("not_before", rowNotBefore),
+					query.Equal("lease_until", rowLeaseUntil),
+				)).Build()
+			if casErr := conversationCAS(ctx, tx, q, args, buildErr); casErr != nil {
+				return casErr
+			}
+			out = knowledgesdk.KnowledgePageProjectionWork{Lease: lease, Page: page, Version: version}
+			found = true
 			return nil
-		} else if scanErr != nil {
-			return scanErr
 		}
-		var job pageProjectionJob
-		if decodeErr := unmarshalDurableJSON(raw, &job); decodeErr != nil {
-			return decodeErr
-		}
-		if job.Actor.RuntimeID != runtimeID || conversationAuthority(job.Actor) != nil || !validKnowledgePageID(job.PageID) || !validLibraryID(job.LibraryID) || job.Version < 1 || job.AccessRevision < 1 {
-			return conversationError("unavailable", "page_projection_lease_invalid")
-		}
-		page, readErr := s.pageRecord(ctx, tx, job.LibraryID, job.PageID, job.Actor)
-		if readErr != nil {
-			return readErr
-		}
-		if page.State != "active" || page.PublishedVersion != job.Version {
-			deleteQuery, deleteArgs, deleteErr := query.NewDeleteBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Where(pageScope(job.Actor, job.PageID)).Build()
-			return conversationExec(ctx, tx, deleteQuery, deleteArgs, deleteErr)
-		}
-		version, readErr := s.pageVersion(ctx, tx, job.PageID, job.Version, job.Actor)
-		if readErr != nil || version.Body.ContentSHA256 != job.ContentSHA256 {
-			if readErr != nil {
-				return readErr
-			}
-			return conversationError("unavailable", "page_projection_version_invalid")
-		}
-		access, readErr := s.knowledgePageAccessPolicy(ctx, tx, job.LibraryID, job.PageID, job.Actor)
-		if readErr != nil || access.Revision != job.AccessRevision || !knowledgePageProjectionRetryable(access.ProjectionStatus) {
-			if readErr != nil {
-				return readErr
-			}
-			return conversationError("conflict", "page_projection_access_stale")
-		}
-		permissionID := knowledgePagePermissionToken(job.Actor, job.PageID)
-		priorFence := job.Fence
-		job.Fence++
-		job.LeaseUntil = now.UTC().Add(ttl).Truncate(time.Millisecond)
-		lease := knowledgesdk.KnowledgePageProjectionLease{RuntimeID: runtimeID, WorkspaceID: job.Actor.WorkspaceID, LibraryID: job.LibraryID, PageID: job.PageID, Version: job.Version, AccessRevision: job.AccessRevision, PermissionID: permissionID, Owner: owner, Token: job.Fence, ExpiresAt: job.LeaseUntil, Actor: job.Actor}
-		q, args, buildErr = query.NewUpdateBuilder(s.store.Renderer(), knowledgePageProjectionJobTable).Set("fence", job.Fence).Set("lease_until", job.LeaseUntil.UnixMilli()).Set("payload_json", conversationJSON(job)).Where(query.And(pageScope(job.Actor, job.PageID), query.Equal("fence", priorFence), query.LessThanOrEqual("lease_until", now.UnixMilli()))).Build()
-		if casErr := conversationCAS(ctx, tx, q, args, buildErr); casErr != nil {
-			return casErr
-		}
-		out = knowledgesdk.KnowledgePageProjectionWork{Lease: lease, Page: page, Version: version}
-		found = true
-		return nil
 	})
 	return out, found, err
 }
