@@ -20,7 +20,7 @@ require (
 require (
 	github.com/aws/smithy-go v1.28.1
 	github.com/domainry/domainry-audit-sdk v0.1.22
-	github.com/domainry/domainry-foundation v0.2.21
+	github.com/domainry/domainry-foundation v0.2.22
 	github.com/domainry/domainry-identity-sdk v0.1.45
 	github.com/domainry/domainry-knowledge-sdk v0.1.41
 	go.opentelemetry.io/otel v1.45.0
