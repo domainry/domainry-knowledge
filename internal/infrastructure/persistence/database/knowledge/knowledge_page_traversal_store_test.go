@@ -48,6 +48,9 @@ func TestKnowledgePageDescendantTraversalPagesOnlySelectedSubtree(t *testing.T) 
 		return store.visitKnowledgePageDescendants(t.Context(), tx, library.ID, root.Page.ID, knowledgePageDescendantQuery{
 			parentColumn: "parent_page_id", activeOnly: true,
 		}, authority, func(page knowledgesdk.KnowledgePage, _ string) error {
+			if _, accessErr := store.knowledgePageAccessPolicy(t.Context(), tx, library.ID, page.ID, authority); accessErr != nil {
+				return accessErr
+			}
 			visited[page.ID] = true
 			return nil
 		})

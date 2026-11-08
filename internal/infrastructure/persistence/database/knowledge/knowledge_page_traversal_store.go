@@ -74,7 +74,11 @@ func (s *Store) visitKnowledgePageDescendants(
 				if err != nil {
 					return err
 				}
-				pageCount := 0
+				type descendant struct {
+					page     knowledgesdk.KnowledgePage
+					parentID string
+				}
+				batch := make([]descendant, 0, knowledgePageTraversalBatchSize)
 				for rows.Next() {
 					var raw []byte
 					var parentID, pageID string
@@ -101,13 +105,8 @@ func (s *Store) visitKnowledgePageDescendants(
 						_ = rows.Close()
 						return conversationError("unavailable", "page_tree_limit")
 					}
-					if err = visit(page, parentID); err != nil {
-						_ = rows.Close()
-						return err
-					}
-					next = append(next, page.ID)
+					batch = append(batch, descendant{page: page, parentID: parentID})
 					afterPageID = page.ID
-					pageCount++
 				}
 				if err = rows.Err(); err != nil {
 					_ = rows.Close()
@@ -116,7 +115,16 @@ func (s *Store) visitKnowledgePageDescendants(
 				if err = rows.Close(); err != nil {
 					return err
 				}
-				if pageCount < knowledgePageTraversalBatchSize {
+				// PostgreSQL transactions own one connection. Finish and close the
+				// page cursor before a visitor loads access policy, versions, or any
+				// other state on that same transaction.
+				for _, item := range batch {
+					if err = visit(item.page, item.parentID); err != nil {
+						return err
+					}
+					next = append(next, item.page.ID)
+				}
+				if len(batch) < knowledgePageTraversalBatchSize {
 					break
 				}
 			}

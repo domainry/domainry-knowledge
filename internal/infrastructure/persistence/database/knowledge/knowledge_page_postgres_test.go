@@ -67,6 +67,20 @@ func TestKnowledgePageNavigationPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	publishPageFixture(t, store, actor, library, child, "pg-publish-child")
+	visited := 0
+	if err = store.transaction(t.Context(), func(tx *sql.Tx) error {
+		return store.visitKnowledgePageDescendants(t.Context(), tx, library.ID, parent.Page.ID, knowledgePageDescendantQuery{
+			parentColumn: "published_parent_page_id", activeOnly: true, publishedOnly: true,
+		}, actor, func(page knowledgesdk.KnowledgePage, _ string) error {
+			if _, accessErr := store.knowledgePageAccessPolicy(t.Context(), tx, library.ID, page.ID, actor); accessErr != nil {
+				return accessErr
+			}
+			visited++
+			return nil
+		})
+	}); err != nil || visited != 1 {
+		t.Fatalf("postgres descendant visitor with nested state reads: visited=%d err=%v", visited, err)
+	}
 	checkList := func(a knowledgesdk.Authority) {
 		t.Helper()
 		roots, err := store.KnowledgePages(t.Context(), library.ID, "", "", 10, false, a)
