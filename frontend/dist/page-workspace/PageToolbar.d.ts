@@ -15,6 +15,7 @@ export type PageToolbarProps = {
     canManagePermissions: boolean;
     canManageShares: boolean;
     canReviewGovernance: boolean;
+    canTransfer: boolean;
     archived: boolean;
     onModeChange(mode: PageWorkspaceMode): void;
     onOpenSuggestions(): void;
@@ -24,6 +25,7 @@ export type PageToolbarProps = {
     onToggleShortcut(): void;
     onOpenAI(): void;
     onCopy(): void;
+    onTransfer(): void;
     onArchive(): void;
 };
 export declare function PageToolbar(props: PageToolbarProps): import("react").JSX.Element;

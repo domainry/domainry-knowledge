@@ -608,6 +608,8 @@ export type KnowledgePageSharedView = {
 };
 export type KnowledgePageMoveImpact = {
     page_id: string;
+    source_library_id: string;
+    target_library_id: string;
     parent_page_id?: string;
     affected_pages: number;
     changed_subjects: KnowledgeAccessSubject[];
@@ -1228,12 +1230,14 @@ export interface KnowledgeClient {
     }, signal: AbortSignal): Promise<KnowledgePageNativeOperationResult>;
     executeGridAutomation?(libraryID: string, pageID: string, request: KnowledgeGridAutomationExecute, signal: AbortSignal): Promise<KnowledgeGridAutomationResult>;
     previewPageMove?(libraryID: string, pageID: string, request: {
+        target_library_id?: string;
         parent_page_id?: string;
         rank: string;
     }, signal: AbortSignal): Promise<KnowledgePageMoveImpact>;
     movePage(libraryID: string, pageID: string, request: {
         client_id: string;
         expected_revision: number;
+        target_library_id?: string;
         parent_page_id?: string;
         rank: string;
         access_impact_token?: string;
@@ -1291,6 +1295,9 @@ export interface KnowledgeClient {
     setPageArchived(libraryID: string, pageID: string, archived: boolean, request: {
         client_id: string;
         expected_revision: number;
+        include_descendants?: boolean;
+        parent_page_id?: string;
+        rank?: string;
     }, signal: AbortSignal): Promise<KnowledgePage>;
     publishPage(libraryID: string, pageID: string, request: {
         client_id: string;

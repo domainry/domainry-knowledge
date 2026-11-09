@@ -1,0 +1,1 @@
+import{j as a}from"./index-D2PL96Wi.js";import{r as e}from"./styles-DzOpK-zb.js";function i({host:t,children:o}){if(!o)return null;const r=a.jsx("div",{className:"knowledge-page-export-actions",children:o});return t?e.createPortal(r,t):r}export{i as P};

@@ -1,14 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { BookOpenText, Eye, EyeOff, LockKeyhole, LogIn, LogOut, Search, ShieldCheck, UserRound, UsersRound } from "lucide-react";
-import { KnowledgeWorkspace } from "../src/KnowledgeWorkspace.tsx";
-import { KnowledgeSharedPage } from "../src/KnowledgeSharedPage.tsx";
 import { parseKnowledgePageShareLocation } from "../src/knowledge-share-links.ts";
-import "../src/styles.css";
-import { knowledgeClient } from "../src/client.ts";
-import { changePassword, formatError, loadConfig, loadProductSession, login, logout, refreshSession, type ProductConfig, type ProductSession } from "../src/session.ts";
+import { APIError, changePassword, loadConfig, loadProductSession, login, logout, refreshSession, type ProductConfig, type ProductSession } from "../src/identity-session.ts";
 import "./product.css";
+
+const KnowledgeWorkspaceRoute = lazy(() => import("./workspace-route.tsx"));
+const KnowledgeSharedRoute = lazy(() => import("./shared-route.tsx"));
 
 (window as Window & { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH = "/";
 
@@ -27,7 +26,7 @@ function ProductApp() {
       if (abort.signal.aborted) return;
       setConfig(value);
       if (await refreshSession() && !abort.signal.aborted) setSession(await loadProductSession(abort.signal));
-    }).catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); }).finally(() => { if (!abort.signal.aborted) setReady(true); });
+    }).catch(failure => { if (!abort.signal.aborted) setError(formatAuthError(failure)); }).finally(() => { if (!abort.signal.aborted) setReady(true); });
     return () => abort.abort();
   }, []);
 
@@ -37,7 +36,7 @@ function ProductApp() {
     try {
       await login(config.workspace_id, loginID, password);
       setSession(await loadProductSession());
-    } catch (failure) { setError(formatError(failure)); }
+    } catch (failure) { setError(formatAuthError(failure)); }
     finally { setBusy(false); }
   }
 
@@ -47,7 +46,7 @@ function ProductApp() {
     try {
       await changePassword(currentPassword, newPassword, idempotencyKey);
       setSession(await loadProductSession());
-    } catch (failure) { setError(formatError(failure)); }
+    } catch (failure) { setError(formatAuthError(failure)); }
     finally { setBusy(false); }
   }
 
@@ -57,8 +56,21 @@ function ProductApp() {
   if (session.must_change_password) return <PasswordChangeView busy={busy} error={error} onSubmit={rotatePassword} />;
   return <div className="product-shell">
     <header className="product-header"><div className="product-brand"><strong>Knowledge</strong><span>知识库</span></div><div className="product-header-actions">{!sharedLocation && <div className="product-header-search" ref={setHeaderSearchHost} aria-label="知识库搜索" />}<div className="product-user"><span className="product-avatar" role="img" aria-label={`当前账号：${session.name || session.user_id}`} title={session.name || session.user_id}><UserRound size={18} aria-hidden="true" /></span><button className="product-logout" aria-label="退出登录" title="退出登录" onClick={() => void logout().then(() => setSession(null))}><LogOut size={17} aria-hidden="true" /></button></div></div></header>
-    {sharedLocation ? <KnowledgeSharedPage client={knowledgeClient} shareID={sharedLocation.shareID} pageID={sharedLocation.pageID} formatError={formatError} /> : <KnowledgeWorkspace client={knowledgeClient} currentUserID={session.user_id} formatError={formatError} headerSearchHost={headerSearchHost} />}
+    <Suspense fallback={<div className="product-centered"><div className="product-loading">正在加载知识库工作区…</div></div>}>
+      {sharedLocation ? <KnowledgeSharedRoute shareID={sharedLocation.shareID} pageID={sharedLocation.pageID} /> : <KnowledgeWorkspaceRoute currentUserID={session.user_id} headerSearchHost={headerSearchHost} />}
+    </Suspense>
   </div>;
+}
+
+function formatAuthError(error: unknown) {
+  if (error instanceof DOMException && error.name === "AbortError") return "请求已取消。";
+  if (error instanceof APIError) {
+    if (error.code === "auth.invalid_credentials") return "账号或密码错误。";
+    if (error.code === "auth.refresh_token_required") return "登录已过期，请重新登录。";
+    if (error.code === "identity.challenge_required") return "当前账号需要完成额外身份验证。";
+    return error.message || "认证服务暂时不可用。";
+  }
+  return error instanceof Error ? error.message : "认证服务暂时不可用。";
 }
 
 function LoginView({ busy, error, onSubmit }: { busy: boolean; error: string; onSubmit: (loginID: string, password: string) => Promise<void> }) {
