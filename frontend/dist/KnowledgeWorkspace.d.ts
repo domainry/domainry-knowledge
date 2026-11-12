@@ -7,11 +7,12 @@ export type KnowledgeWorkspaceProps = {
     currentUserID?: string;
     formatError?: (error: unknown) => string;
     headerSearchHost?: HTMLElement | null;
+    showHeaderSearch?: boolean;
     theme?: KnowledgeTheme;
     locale?: KnowledgeHostLocale;
     hostIntegration?: KnowledgeHostIntegration;
 };
-export declare function KnowledgeWorkspace({ client, currentUserID, formatError, headerSearchHost, theme, locale, hostIntegration }: KnowledgeWorkspaceProps): import("react").JSX.Element;
+export declare function KnowledgeWorkspace({ client, currentUserID, formatError, headerSearchHost, showHeaderSearch, theme, locale, hostIntegration }: KnowledgeWorkspaceProps): import("react").JSX.Element;
 export declare function KnowledgeLibraryManager({ client, currentUserID, formatError, initialLibraryID, initialPageID, initialBlockID, initialPageMode, libraryKind, locale, scopeTabs, searchQuery, searchRevision, hostIntegration }: {
     client: KnowledgeClient;
     currentUserID?: string;

@@ -1,5 +1,9 @@
 import type { ButtonHTMLAttributes, PropsWithChildren, SelectHTMLAttributes } from "react";
 export declare function Button({ className, ...props }: ButtonHTMLAttributes<HTMLButtonElement>): import("react").JSX.Element;
+export declare function KnowledgeToast({ message, onDismiss }: {
+    message: string;
+    onDismiss?: (value: string) => void;
+}): import("react").JSX.Element | null;
 /**
  * Product-owned select control. The hidden native element preserves the existing
  * HTML change-event contract while Ariakit owns keyboard, focus and popover behavior.

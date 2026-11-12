@@ -71,6 +71,8 @@ test("product authentication uses the shared editorial design contract", async (
   assert.match(app, /className="product-header-search"/);
   assert.match(app, /headerSearchHost=\{headerSearchHost\}/);
   assert.match(workspace, /createPortal\(searchControl, headerSearchHost\)/);
+  assert.match(workspace, /showHeaderSearch = true/);
+  assert.match(workspace, /showHeaderSearch &&/);
   assert.match(workspace, /knowledge-primary-scope-tabs/);
   assert.match(workspace, /knowledge-header-search-toggle/);
   assert.match(workspace, /setSearchExpanded\(true\)/);
@@ -86,6 +88,21 @@ test("product authentication uses the shared editorial design contract", async (
   assert.doesNotMatch(styles, /radial-gradient/);
   assert.doesNotMatch(app, /product-auth-card/);
   assert.match(design, /Authentication uses a two-region editorial entry shell/);
+});
+
+test("informational feedback uses bounded bottom-right toasts", async () => {
+  const components = await readFile(path.join(root, "src", "components.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  const noticeOwners = await Promise.all([
+    "KnowledgeWorkspace.tsx",
+    "KnowledgePagesPanel.tsx",
+    "KnowledgeDocumentsPanel.tsx",
+  ].map(filename => readFile(path.join(root, "src", filename), "utf8")));
+  assert.match(components, /function KnowledgeToast/);
+  assert.match(components, /window\.setTimeout\([\s\S]*2_000/);
+  assert.match(styles, /\.knowledge-toast \{[^}]*position: fixed;[^}]*right: 20px;[^}]*bottom: 20px;/);
+  assert.match(styles, /\.knowledge-tree-toolbar input \{[^}]*font-size: 12px;/);
+  for (const source of noticeOwners) assert.doesNotMatch(source, /className="knowledge-notice"/);
 });
 
 test("library settings separate everyday configuration from manager-only ingestion operations", async () => {

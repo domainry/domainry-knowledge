@@ -1,11 +1,24 @@
 import { kt, ktf } from "./i18n/runtime.ts";
 import { Select as AriakitSelect, SelectItem as AriakitSelectItem, SelectItemCheck as AriakitSelectItemCheck, SelectPopover as AriakitSelectPopover, SelectProvider as AriakitSelectProvider } from "@ariakit/react";
 import { Check, ChevronDown } from "lucide-react";
-import { Children, isValidElement, useMemo, useRef, useState } from "react";
+import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, OptionHTMLAttributes, PropsWithChildren, ReactNode, SelectHTMLAttributes } from "react";
 
 export function Button({ className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button className={`knowledge-button ${className}`.trim()} {...props} />;
+}
+
+export function KnowledgeToast({ message, onDismiss }: { message: string; onDismiss?: (value: string) => void }) {
+  const [visible, setVisible] = useState(true);
+  useEffect(() => {
+    setVisible(true);
+    const timeout = window.setTimeout(() => {
+      setVisible(false);
+      onDismiss?.("");
+    }, 2_000);
+    return () => window.clearTimeout(timeout);
+  }, [message, onDismiss]);
+  return visible ? <p role="status" className="knowledge-toast">{message}</p> : null;
 }
 
 type ProductSelectOption = { value: string; label: string; disabled: boolean };
