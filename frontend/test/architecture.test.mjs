@@ -100,9 +100,20 @@ test("informational feedback uses bounded bottom-right toasts", async () => {
   ].map(filename => readFile(path.join(root, "src", filename), "utf8")));
   assert.match(components, /function KnowledgeToast/);
   assert.match(components, /window\.setTimeout\([\s\S]*2_000/);
+  assert.match(components, /CheckCircle2/);
   assert.match(styles, /\.knowledge-toast \{[^}]*position: fixed;[^}]*right: 20px;[^}]*bottom: 20px;/);
+  assert.doesNotMatch(styles, /\.knowledge-toast \{[^}]*border: 1px solid var\(--knowledge-success-border\)/);
   assert.match(styles, /\.knowledge-tree-toolbar input \{[^}]*font-size: 12px;/);
   for (const source of noticeOwners) assert.doesNotMatch(source, /className="knowledge-notice"/);
+});
+
+test("page collection menu dismisses outside and restores focus on Escape", async () => {
+  const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  assert.match(panel, /ref=\{pageCollectionMoreRef\}/);
+  assert.match(panel, /document\.addEventListener\("pointerdown", dismissOutside\)/);
+  assert.match(panel, /!details\.contains\(target\)/);
+  assert.match(panel, /event\.key !== "Escape"/);
+  assert.match(panel, /querySelector<HTMLElement>\("summary"\)\?\.focus\(\)/);
 });
 
 test("library settings separate everyday configuration from manager-only ingestion operations", async () => {

@@ -198,8 +198,10 @@ body[data-knowledge-theme="dark"] .knowledge-page-actions-menu {
 .knowledge-error, .knowledge-warning { margin: 0 0 12px; padding: 9px 11px; border-left: 3px solid currentColor; font-size: 12px; line-height: 1.55; }
 .knowledge-error { color: var(--knowledge-danger); background: var(--knowledge-danger-soft); }
 .knowledge-warning { color: var(--knowledge-warning); background: var(--knowledge-warning-soft); }
-.knowledge-toast { position: fixed; z-index: 400; right: 20px; bottom: 20px; width: max-content; max-width: min(360px, calc(100vw - 32px)); margin: 0; padding: 10px 12px; color: var(--knowledge-text); background: var(--knowledge-surface-elevated); border: 1px solid var(--knowledge-success-border); border-radius: 8px; box-shadow: var(--knowledge-shadow-md); font-size: 12px; line-height: 1.5; pointer-events: none; animation: knowledge-toast-enter .16s ease-out; }
-@keyframes knowledge-toast-enter { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.knowledge-toast { position: fixed; z-index: 400; right: 20px; bottom: 20px; display: flex; align-items: flex-start; gap: 8px; width: max-content; max-width: min(336px, calc(100vw - 32px)); margin: 0; padding: 9px 11px; color: var(--knowledge-text); background: var(--knowledge-surface-elevated); border: 1px solid var(--knowledge-border); border-radius: 10px; box-shadow: 0 10px 28px var(--knowledge-shadow-color); font-size: 12px; line-height: 1.5; pointer-events: none; animation: knowledge-toast-enter .16s ease-out; }
+.knowledge-toast > svg { flex: 0 0 auto; margin-top: 1px; color: var(--knowledge-success); }
+.knowledge-toast > span { min-width: 0; overflow-wrap: anywhere; }
+@keyframes knowledge-toast-enter { from { opacity: 0; transform: translateY(5px) scale(.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .knowledge-confirm { display: grid; gap: 10px; padding: 12px 14px; color: var(--knowledge-warning); background: var(--knowledge-warning-soft); border-left: 3px solid var(--knowledge-warning); }
 .knowledge-confirm p { margin: 0; color: inherit; font-size: 12px; line-height: 1.6; }
 .knowledge-page-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 250px; padding: 36px; color: var(--knowledge-faint); text-align: center; }

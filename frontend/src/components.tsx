@@ -1,6 +1,6 @@
 import { kt, ktf } from "./i18n/runtime.ts";
 import { Select as AriakitSelect, SelectItem as AriakitSelectItem, SelectItemCheck as AriakitSelectItemCheck, SelectPopover as AriakitSelectPopover, SelectProvider as AriakitSelectProvider } from "@ariakit/react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, CheckCircle2, ChevronDown } from "lucide-react";
 import { Children, isValidElement, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, OptionHTMLAttributes, PropsWithChildren, ReactNode, SelectHTMLAttributes } from "react";
 
@@ -18,7 +18,7 @@ export function KnowledgeToast({ message, onDismiss }: { message: string; onDism
     }, 2_000);
     return () => window.clearTimeout(timeout);
   }, [message, onDismiss]);
-  return visible ? <p role="status" className="knowledge-toast">{message}</p> : null;
+  return visible ? <div role="status" className="knowledge-toast"><CheckCircle2 size={15} aria-hidden="true" /><span>{message}</span></div> : null;
 }
 
 type ProductSelectOption = { value: string; label: string; disabled: boolean };

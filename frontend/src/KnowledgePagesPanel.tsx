@@ -551,6 +551,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
 	libraryRef.current = library;
 	formatErrorRef.current = formatError;
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
+	const pageCollectionMoreRef = useRef<HTMLDetailsElement | null>(null);
 	const pageFindInputRef = useRef<HTMLInputElement | null>(null), pageFindSurfaceRef = useRef<HTMLElement | null>(null), pageFindRangesRef = useRef<Range[]>([]);
   const tasksRef = useRef<KnowledgePageTask[]>([]), taskCreatesRef = useRef(new Map<string, Promise<KnowledgePageTask>>());
   const pollsRef = useRef<KnowledgePagePollView[]>([]), pollCreatesRef = useRef(new Map<string, Promise<KnowledgePagePollView>>());
@@ -560,6 +561,25 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     video: knowledgeDocumentAcceptForContentType(library, "video/"),
     audio: knowledgeDocumentAcceptForContentType(library, "audio/"),
   }), [library]);
+  useEffect(() => {
+    const details = pageCollectionMoreRef.current;
+    if (!details) return;
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (details.open && target instanceof Node && !details.contains(target)) details.removeAttribute("open");
+    };
+    const dismissWithKeyboard = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || !details.open) return;
+      details.removeAttribute("open");
+      details.querySelector<HTMLElement>("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("keydown", dismissWithKeyboard);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("keydown", dismissWithKeyboard);
+    };
+  }, []);
   const collaboration = useKnowledgeCollaboration({
     active: mode === "edit" && canWrite && !!selectedID && view?.page.id === selectedID && !!view.draft && view.page.content_type === "document",
     client,
@@ -2535,7 +2555,7 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
           <button type="button" aria-pressed={navigationSection === "all"} onClick={() => { setNavigationSection("all"); setLocalFilter(""); }}><BookOpen size={14} /><span>{kt("knowledge.auto.5c55a67935af8f45")}</span></button>
           <button type="button" aria-pressed={navigationSection === "shortcuts"} onClick={() => { setNavigationSection("shortcuts"); setLocalFilter(""); }}><Pin size={14} /><span>{kt("knowledge.auto.d9a8514e981dee1f")}</span></button>
           <button type="button" aria-pressed={navigationSection === "favorites"} onClick={() => { setNavigationSection("favorites"); setLocalFilter(""); }}><Star size={14} /><span>{kt("knowledge.auto.60a53514eb9228a2")}</span></button>
-          <details className="knowledge-page-collection-more">
+          <details ref={pageCollectionMoreRef} className="knowledge-page-collection-more">
             <summary aria-label={kt("knowledge.auto.43a253390190b084")}><span>{["recent_views", "recent_edits", "subscribed", "trash"].includes(navigationSection) ? pageNavigationLabels[navigationSection] : kt("knowledge.auto.38844b135cf70dfc")}</span><ChevronDown size={12} /></summary>
             <div role="menu" aria-label={kt("knowledge.auto.43a253390190b084")}>
               <button type="button" role="menuitemradio" aria-checked={navigationSection === "recent_views"} onClick={event => { setNavigationSection("recent_views"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Clock3 size={14} /><span>{kt("knowledge.auto.de314b445e076e84")}</span></button>
