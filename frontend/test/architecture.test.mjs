@@ -73,13 +73,16 @@ test("product authentication uses the shared editorial design contract", async (
   assert.match(workspace, /createPortal\(searchControl, headerSearchHost\)/);
   assert.match(workspace, /showHeaderSearch = true/);
   assert.match(workspace, /showHeaderSearch &&/);
-  assert.match(workspace, /knowledge-primary-scope-tabs/);
+  assert.match(workspace, /knowledge-primary-scope-menu/);
+  assert.match(workspace, /knowledge-primary-scope-create/);
   assert.match(workspace, /knowledge-header-search-toggle/);
   assert.match(workspace, /setSearchExpanded\(true\)/);
   assert.match(workspace, /scopeTabs=\{scopeNavigation\}/);
+  assert.match(workspace, /navigationQuery=\{navigationQuery\}/);
   assert.match(workspace, /scopeTabsInLibraryRail/);
   assert.match(workspace, /teamLibraries=\{libraryKind === "shared"/);
-  assert.match(pagesPanel, /\{scopeTabs\}/);
+  assert.match(pagesPanel, /scopeTabs\?\.\(createControl\)/);
+  assert.match(pagesPanel, /onNavigationQueryChange\?\.\(event\.target\.value\)/);
   assert.match(pagesPanel, /knowledge-team-library-picker/);
   assert.doesNotMatch(workspace, /headerSearch=|navigationHeader=/);
   assert.match(styles, /\.product-header-search \.knowledge-global-search/);
@@ -107,13 +110,17 @@ test("informational feedback uses bounded bottom-right toasts", async () => {
   for (const source of noticeOwners) assert.doesNotMatch(source, /className="knowledge-notice"/);
 });
 
-test("page collection menu dismisses outside and restores focus on Escape", async () => {
+test("page destinations are first-level navigation and create menus dismiss outside", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
-  assert.match(panel, /ref=\{pageCollectionMoreRef\}/);
-  assert.match(panel, /document\.addEventListener\("pointerdown", dismissOutside\)/);
-  assert.match(panel, /!details\.contains\(target\)/);
-  assert.match(panel, /event\.key !== "Escape"/);
-  assert.match(panel, /querySelector<HTMLElement>\("summary"\)\?\.focus\(\)/);
+  const createMenu = await readFile(path.join(root, "src", "KnowledgeCreateMenu.tsx"), "utf8");
+  assert.doesNotMatch(panel, /knowledge-page-collection-more|pageCollectionMoreRef/);
+  for (const section of ["all", "shortcuts", "favorites", "recent_views", "recent_edits", "subscribed", "trash"]) {
+    assert.match(panel, new RegExp(`navigationSection === "${section}"`));
+  }
+  assert.match(panel, /aria-current=\{navigationSection === "all" \? "page"/);
+  assert.match(createMenu, /document\.addEventListener\("pointerdown", dismissOutside\)/);
+  assert.match(createMenu, /!details\.current\.contains\(target\)/);
+  assert.match(createMenu, /event\.key !== "Escape"/);
 });
 
 test("library settings separate everyday configuration from manager-only ingestion operations", async () => {

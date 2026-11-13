@@ -1,12 +1,12 @@
 import { kt } from "./i18n/runtime.ts";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { BookOpen, Plus, Upload } from "lucide-react";
 import { PageTypeIcon, importPageTypes, pageTypeDefinitions } from "./pageTypeRegistry.ts";
 import type { KnowledgePageContentType } from "./types.ts";
 
 const creatablePageTypes = pageTypeDefinitions.filter(definition => definition.createAction?.kind === "native");
 
-export function KnowledgeCreateMenu({ disabled = false, canCreatePage, onCreatePage, onCreateLibrary, onImportFile, importAccept, importDisabled = false, importing = false }: {
+export function KnowledgeCreateMenu({ disabled = false, canCreatePage, onCreatePage, onCreateLibrary, onImportFile, importAccept, importDisabled = false, importing = false, openRequest = 0 }: {
   disabled?: boolean;
   canCreatePage: boolean;
   onCreatePage?: (contentType: KnowledgePageContentType) => void;
@@ -15,10 +15,23 @@ export function KnowledgeCreateMenu({ disabled = false, canCreatePage, onCreateP
   importAccept?: string;
   importDisabled?: boolean;
   importing?: boolean;
+  openRequest?: number;
 }) {
   const unavailable = disabled || !canCreatePage || !onCreatePage;
   const importInput = useRef<HTMLInputElement>(null);
-  return <details className="knowledge-create-menu" onBlur={event => {
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (openRequest > 0 && !disabled) details.current?.setAttribute("open", "");
+  }, [disabled, openRequest]);
+  useEffect(() => {
+    const dismissOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (details.current?.open && target instanceof Node && !details.current.contains(target)) details.current.removeAttribute("open");
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    return () => document.removeEventListener("pointerdown", dismissOutside);
+  }, []);
+  return <details ref={details} className="knowledge-create-menu" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.removeAttribute("open");
   }} onKeyDown={event => {
     if (event.key !== "Escape") return;

@@ -451,7 +451,7 @@ function currentPageTextRanges(root: HTMLElement, query: string) {
 	return ranges;
 }
 
-export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", locale, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onPageTransferred, onManage, onLibraryAccessRevoked }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; locale?: KnowledgeHostLocale; scopeTabs?: ReactNode; teamLibraries?: KnowledgeLibrary[]; hostIntegration?: KnowledgeHostIntegration; onLibrarySelect?: (libraryID: string) => void; onCreateLibrary?: () => void; onSelectionChange?: (page: { id: string; title: string; mode: "read" | "edit" } | null) => void; onPageTransferred?: (library: KnowledgeLibrary, pageID: string) => void; onManage?: () => void; onLibraryAccessRevoked?: (code: string) => void }) {
+export function KnowledgePagesPanel({ client, library, currentUserID = "", disabled, formatError, embedded = false, initialPageID = "", initialBlockID, initialSearchLocation, initialPageMode = "read", locale, scopeTabs, navigationQuery = "", onNavigationQueryChange, createRequestRevision = 0, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onPageTransferred, onManage, onLibraryAccessRevoked }: { client: KnowledgeClient; library: KnowledgeLibrary; currentUserID?: string; disabled: boolean; formatError(error: unknown): string; embedded?: boolean; initialPageID?: string; initialBlockID?: string; initialSearchLocation?: KnowledgePageSearchLocation; initialPageMode?: "read" | "edit"; locale?: KnowledgeHostLocale; scopeTabs?: (createControl?: ReactNode) => ReactNode; navigationQuery?: string; onNavigationQueryChange?: (query: string) => void; createRequestRevision?: number; teamLibraries?: KnowledgeLibrary[]; hostIntegration?: KnowledgeHostIntegration; onLibrarySelect?: (libraryID: string) => void; onCreateLibrary?: () => void; onSelectionChange?: (page: { id: string; title: string; mode: "read" | "edit" } | null) => void; onPageTransferred?: (library: KnowledgeLibrary, pageID: string) => void; onManage?: () => void; onLibraryAccessRevoked?: (code: string) => void }) {
   const canWrite = !library.archived && (library.role === "editor" || library.role === "manager");
   const writeClipboardText = useCallback((text: string) => writeKnowledgeClipboardText(hostIntegration, text), [hostIntegration]);
   const hasTeamLibraryPicker = library.kind === "shared" && !!teamLibraries?.length && !!onLibrarySelect;
@@ -476,7 +476,8 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
   const [relationshipQuery, setRelationshipQuery] = useState(""), [relationshipResults, setRelationshipResults] = useState<KnowledgePageIdentity[]>([]), [relationshipSearchLoading, setRelationshipSearchLoading] = useState(false);
   const [selectedID, setSelectedID] = useState(initialPageID), [view, setView] = useState<KnowledgePageView | null>(null), [loading, setLoading] = useState(true);
   const [editorEpoch, setEditorEpoch] = useState(0);
-	const [localFilter, setLocalFilter] = useState(""), [error, setError] = useState(""), [notice, setNotice] = useState("");
+	const localFilter = navigationQuery;
+	const [error, setError] = useState(""), [notice, setNotice] = useState("");
 	useClearTransientKnowledgeNotice(setNotice, locale);
 	const passiveRefreshErrorRef = useRef("");
 	const [collaborationFailure, setCollaborationFailure] = useState("");
@@ -551,7 +552,6 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
 	libraryRef.current = library;
 	formatErrorRef.current = formatError;
 	const titleInputRef = useRef<HTMLInputElement | null>(null);
-	const pageCollectionMoreRef = useRef<HTMLDetailsElement | null>(null);
 	const pageFindInputRef = useRef<HTMLInputElement | null>(null), pageFindSurfaceRef = useRef<HTMLElement | null>(null), pageFindRangesRef = useRef<Range[]>([]);
   const tasksRef = useRef<KnowledgePageTask[]>([]), taskCreatesRef = useRef(new Map<string, Promise<KnowledgePageTask>>());
   const pollsRef = useRef<KnowledgePagePollView[]>([]), pollCreatesRef = useRef(new Map<string, Promise<KnowledgePagePollView>>());
@@ -561,25 +561,6 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
     video: knowledgeDocumentAcceptForContentType(library, "video/"),
     audio: knowledgeDocumentAcceptForContentType(library, "audio/"),
   }), [library]);
-  useEffect(() => {
-    const details = pageCollectionMoreRef.current;
-    if (!details) return;
-    const dismissOutside = (event: PointerEvent) => {
-      const target = event.target;
-      if (details.open && target instanceof Node && !details.contains(target)) details.removeAttribute("open");
-    };
-    const dismissWithKeyboard = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || !details.open) return;
-      details.removeAttribute("open");
-      details.querySelector<HTMLElement>("summary")?.focus();
-    };
-    document.addEventListener("pointerdown", dismissOutside);
-    document.addEventListener("keydown", dismissWithKeyboard);
-    return () => {
-      document.removeEventListener("pointerdown", dismissOutside);
-      document.removeEventListener("keydown", dismissWithKeyboard);
-    };
-  }, []);
   const collaboration = useKnowledgeCollaboration({
     active: mode === "edit" && canWrite && !!selectedID && view?.page.id === selectedID && !!view.draft && view.page.content_type === "document",
     client,
@@ -2538,32 +2519,27 @@ export function KnowledgePagesPanel({ client, library, currentUserID = "", disab
       setPageFindQuery("");
     }
   };
+  const createControl = <KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onCreateLibrary={onCreateLibrary} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} openRequest={createRequestRevision} />;
   return <section className={`knowledge-pages${embedded ? " is-embedded" : ""}`} aria-label={kt("knowledge.auto.fba1208c267ba57c")}>
     {!embedded && <header className="knowledge-section-heading">
       <div className="knowledge-section-identity"><span className="knowledge-section-icon" aria-hidden="true"><BookOpen size={18} /></span><span><small>Knowledge workspace</small><h3>{kt("knowledge.auto.fba1208c267ba57c")}</h3><p>{kt("knowledge.auto.854f0c3ecba55d18")}</p></span></div>
     </header>}
     <div className="knowledge-pages-layout" style={{ "--knowledge-page-tree-width": `${pageTreeWidth}px` } as CSSProperties}>
       <aside className="knowledge-page-tree" onDragOver={event => { if (canWrite) event.preventDefault(); }} onDrop={() => { if (dragged && dragged.parent_page_id) void move(dragged, ""); setDragged(null); setTreeDropTarget(null); }}>
-        {scopeTabs}
-        {hasTeamLibraryPicker && <div className="knowledge-team-library-picker"><Select aria-label={kt("knowledge.auto.da80e5bf97c037bf")} value={library.id} disabled={disabled} onChange={event => onLibrarySelect?.(event.target.value)}>{teamLibraries!.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? kt("knowledge.auto.de0931324baa0cab") : ""}</option>)}</Select><KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onCreateLibrary={onCreateLibrary} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} /></div>}
         <div className="knowledge-tree-toolbar">
-          <label><Search size={14} aria-hidden="true" /><input aria-label={ktf("knowledge.auto.c5abb64060320597", { value0: pageNavigationLabels[navigationSection] })} value={localFilter} onChange={event => setLocalFilter(event.target.value)} placeholder={ktf("knowledge.auto.c35a69c818e8575e", { value0: pageNavigationLabels[navigationSection] })} /></label>
-          {canWrite && !hasTeamLibraryPicker && <KnowledgeCreateMenu disabled={disabled} canCreatePage={canWrite} onCreatePage={contentType => void createPage(contentType)} onImportFile={file => void importFilePage(file)} importAccept={knowledgeDocumentAccept(library)} importDisabled={!library.documents_configured} importing={importingFilePage} />}
+          <label><Search size={14} aria-hidden="true" /><input aria-label={ktf("knowledge.auto.c5abb64060320597", { value0: pageNavigationLabels[navigationSection] })} value={localFilter} onChange={event => onNavigationQueryChange?.(event.target.value)} placeholder={ktf("knowledge.auto.c35a69c818e8575e", { value0: pageNavigationLabels[navigationSection] })} /></label>
           {onManage && <Button aria-label={kt("knowledge.auto.9c8670b57bf9f655")} title={kt("knowledge.auto.9c8670b57bf9f655")} disabled={disabled} onClick={onManage}><Settings size={15} /></Button>}
         </div>
+        {scopeTabs?.(createControl)}
+        {hasTeamLibraryPicker && <div className="knowledge-team-library-picker"><Select aria-label={kt("knowledge.auto.da80e5bf97c037bf")} value={library.id} disabled={disabled} onChange={event => onLibrarySelect?.(event.target.value)}>{teamLibraries!.map(item => <option key={item.id} value={item.id}>{item.name}{item.archived ? kt("knowledge.auto.de0931324baa0cab") : ""}</option>)}</Select></div>}
         <nav className="knowledge-page-collections" aria-label={kt("knowledge.auto.297b54190830e020")}>
-          <button type="button" aria-pressed={navigationSection === "all"} onClick={() => { setNavigationSection("all"); setLocalFilter(""); }}><BookOpen size={14} /><span>{kt("knowledge.auto.5c55a67935af8f45")}</span></button>
-          <button type="button" aria-pressed={navigationSection === "shortcuts"} onClick={() => { setNavigationSection("shortcuts"); setLocalFilter(""); }}><Pin size={14} /><span>{kt("knowledge.auto.d9a8514e981dee1f")}</span></button>
-          <button type="button" aria-pressed={navigationSection === "favorites"} onClick={() => { setNavigationSection("favorites"); setLocalFilter(""); }}><Star size={14} /><span>{kt("knowledge.auto.60a53514eb9228a2")}</span></button>
-          <details ref={pageCollectionMoreRef} className="knowledge-page-collection-more">
-            <summary aria-label={kt("knowledge.auto.43a253390190b084")}><span>{["recent_views", "recent_edits", "subscribed", "trash"].includes(navigationSection) ? pageNavigationLabels[navigationSection] : kt("knowledge.auto.38844b135cf70dfc")}</span><ChevronDown size={12} /></summary>
-            <div role="menu" aria-label={kt("knowledge.auto.43a253390190b084")}>
-              <button type="button" role="menuitemradio" aria-checked={navigationSection === "recent_views"} onClick={event => { setNavigationSection("recent_views"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Clock3 size={14} /><span>{kt("knowledge.auto.de314b445e076e84")}</span></button>
-              <button type="button" role="menuitemradio" aria-checked={navigationSection === "recent_edits"} onClick={event => { setNavigationSection("recent_edits"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Pencil size={14} /><span>{kt("knowledge.auto.c18fdf7c840dbd7d")}</span></button>
-              <button type="button" role="menuitemradio" aria-checked={navigationSection === "subscribed"} onClick={event => { setNavigationSection("subscribed"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Bell size={14} /><span>{kt("knowledge.auto.0cbff43b7568dbe0")}</span></button>
-              {canWrite && <><hr /><button type="button" role="menuitemradio" aria-checked={navigationSection === "trash"} onClick={event => { setNavigationSection("trash"); setLocalFilter(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}><Trash2 size={14} /><span>{kt("knowledge.auto.ba35dc23b245e61e")}</span></button></>}
-            </div>
-          </details>
+          <button type="button" aria-current={navigationSection === "all" ? "page" : undefined} onClick={() => setNavigationSection("all")}><BookOpen size={14} /><span>{kt("knowledge.auto.5c55a67935af8f45")}</span></button>
+          <button type="button" aria-current={navigationSection === "shortcuts" ? "page" : undefined} onClick={() => setNavigationSection("shortcuts")}><Pin size={14} /><span>{kt("knowledge.auto.d9a8514e981dee1f")}</span></button>
+          <button type="button" aria-current={navigationSection === "favorites" ? "page" : undefined} onClick={() => setNavigationSection("favorites")}><Star size={14} /><span>{kt("knowledge.auto.60a53514eb9228a2")}</span></button>
+          <button type="button" aria-current={navigationSection === "recent_views" ? "page" : undefined} onClick={() => setNavigationSection("recent_views")}><Clock3 size={14} /><span>{kt("knowledge.auto.de314b445e076e84")}</span></button>
+          <button type="button" aria-current={navigationSection === "recent_edits" ? "page" : undefined} onClick={() => setNavigationSection("recent_edits")}><Pencil size={14} /><span>{kt("knowledge.auto.c18fdf7c840dbd7d")}</span></button>
+          <button type="button" aria-current={navigationSection === "subscribed" ? "page" : undefined} onClick={() => setNavigationSection("subscribed")}><Bell size={14} /><span>{kt("knowledge.auto.0cbff43b7568dbe0")}</span></button>
+          {canWrite && <button type="button" aria-current={navigationSection === "trash" ? "page" : undefined} onClick={() => setNavigationSection("trash")}><Trash2 size={14} /><span>{kt("knowledge.auto.ba35dc23b245e61e")}</span></button>}
         </nav>
         <div className="knowledge-tree-label"><span>{pageNavigationLabels[navigationSection]}</span>{navigationSection !== "all" && <button type="button" aria-label={ktf("knowledge.auto.b9da6aab77e5cdbc", { value0: pageNavigationLabels[navigationSection] })} title={kt("knowledge.auto.aee88743413144a2")} disabled={collectionLoading} onClick={() => void refreshCollection(navigationSection)}><RefreshCw className={collectionLoading ? "knowledge-spin" : undefined} size={12} /></button>}</div>
         {navigationSection === "all" ? <div role="tree" aria-label={kt("knowledge.auto.ab9f749d041b2a91")}>{treeRows.map(({ page, parent, depth, loadMore }, index) => loadMore ? <button key={`more-${parent}-${index}`} className="knowledge-tree-more" style={{ marginInlineStart: `${pageTreeLoadMoreIndent(depth)}px` }} onClick={() => void loadChildren(parent, AbortSignal.timeout(30_000), true)}>{kt("knowledge.auto.af90a08fec8ee28d")}</button> : page && <div key={page.id} className={`knowledge-tree-row${dragged?.id === page.id ? " is-dragging" : ""}${treeDropTarget?.pageID === page.id ? ` is-drop-${treeDropTarget.placement}` : ""}`} style={{ paddingInlineStart: `${pageTreeIndent(depth)}px` }} draggable={canWrite} title={canWrite ? kt("knowledge.auto.9061cb49a6fa8a0e") : undefined} onDragStart={event => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", page.id); setSelectedID(page.id); setDragged(page); setTreeDropTarget(null); }} onDragEnd={() => { setDragged(null); setTreeDropTarget(null); }} onDragOver={event => { if (!canWrite || !dragged || dragged.id === page.id) return; event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move"; setTreeDropTarget({ pageID: page.id, placement: dragPlacement(event, parent) }); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTreeDropTarget(current => current?.pageID === page.id ? null : current); }} onDrop={event => { event.preventDefault(); event.stopPropagation(); const placement = treeDropTarget?.pageID === page.id ? treeDropTarget.placement : dragPlacement(event, parent); if (dragged) void dropTreePage(dragged, page, placement); setDragged(null); setTreeDropTarget(null); }}>
