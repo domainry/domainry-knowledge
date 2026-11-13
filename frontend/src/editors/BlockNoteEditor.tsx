@@ -786,7 +786,7 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
     }
   };
 
-  const emitDocumentSelection = () => {
+  const emitDocumentSelection = useCallback(() => {
     if (!addDocumentSelection) { setDocumentSelection(null); return; }
     try {
       const selection = editor.getSelection();
@@ -798,7 +798,36 @@ function DocumentBlockEditor({ body, readOnly, documentTitle = kt("knowledge.aut
     } catch {
       setDocumentSelection(null);
     }
-  };
+  }, [addDocumentSelection, editor]);
+
+  useEffect(() => {
+    if (!addDocumentSelection || typeof document === "undefined") return;
+    const root = editorRootRef.current;
+    if (!root) return;
+    let frame = 0;
+    const updateSelection = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const selection = window.getSelection();
+        const anchor = selection?.anchorNode;
+        const focus = selection?.focusNode;
+        if (!selection || selection.isCollapsed || !anchor || !focus || !root.contains(anchor) || !root.contains(focus)) {
+          setDocumentSelection(null);
+          return;
+        }
+        emitDocumentSelection();
+      });
+    };
+    document.addEventListener("selectionchange", updateSelection);
+    root.addEventListener("mouseup", updateSelection);
+    root.addEventListener("keyup", updateSelection);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener("selectionchange", updateSelection);
+      root.removeEventListener("mouseup", updateSelection);
+      root.removeEventListener("keyup", updateSelection);
+    };
+  }, [addDocumentSelection, emitDocumentSelection]);
 
   useEffect(() => {
     if (!documentSelection) {

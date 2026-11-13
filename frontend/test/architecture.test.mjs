@@ -1008,6 +1008,8 @@ test("host selection integration is opt-in, bounded, and authorizes outbound con
 	assert.ok(authorization >= 0 && dispatch > authorization, "selection must pass the server copy policy before reaching the host");
   assert.match(editor, /editor\.getSelection\(\)/);
   assert.match(editor, /editor\.getSelectedText\(\)/);
+  assert.match(editor, /document\.addEventListener\("selectionchange", updateSelection\)/);
+  assert.match(editor, /root\.contains\(anchor\).*root\.contains\(focus\)/s);
   assert.match(editor, /boundKnowledgeDocumentSelection/);
   assert.match(editor, /addDocumentSelection && documentSelection/);
   assert.match(host, /slice\(0, KNOWLEDGE_SELECTION_MAX_BLOCKS\)/);
