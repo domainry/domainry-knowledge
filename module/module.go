@@ -14,6 +14,7 @@ import (
 	knowledgeprovider "github.com/domainry/domainry-knowledge-sdk/provider"
 	application "github.com/domainry/domainry-knowledge/internal/application/knowledge"
 	assembly "github.com/domainry/domainry-knowledge/internal/assembly/module"
+	artifactstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/artifactstorage"
 	connectortransport "github.com/domainry/domainry-knowledge/internal/infrastructure/connectortransport"
 	documentstorage "github.com/domainry/domainry-knowledge/internal/infrastructure/documentstorage"
 	store "github.com/domainry/domainry-knowledge/internal/infrastructure/persistence/database/knowledge"
@@ -140,6 +141,17 @@ func NewHTTP(origin string, client *http.Client) (*HTTP, error) {
 type DocumentFiles = documentstorage.Files
 
 func NewDocumentFiles(path string) (*DocumentFiles, error) { return documentstorage.NewFiles(path) }
+
+// DocumentS3 is the deployment-owned object-storage implementation used by
+// embedded Knowledge runtimes. It implements both KnowledgeDocumentStorage
+// and KnowledgeDocumentChunkStorage, including immutable versions, resumable
+// uploads, range reads and a durable deletion fence shared by every replica.
+type DocumentS3 = artifactstorage.S3
+type DocumentS3Config = artifactstorage.S3Config
+
+func NewDocumentS3(ctx context.Context, config DocumentS3Config) (*DocumentS3, error) {
+	return artifactstorage.NewS3(ctx, config)
+}
 
 func NewFactory() knowledgemodulehost.Factory { return assembly.NewFactory() }
 func NewProviderFactory(adapterFactory knowledgeprovider.AdapterFactory) knowledgeprovider.Factory {

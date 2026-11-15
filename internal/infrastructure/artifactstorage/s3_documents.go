@@ -105,7 +105,7 @@ func (store *S3) abortKnowledgeDocumentMultipart(ctx context.Context, key, uploa
 func (store *S3) putKnowledgeDocumentMultipart(ctx context.Context, contentKey, deletedKey, expectedSHA256 string, expectedBytes int64, content io.Reader) error {
 	created, err := store.client.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket: aws.String(store.bucket), Key: aws.String(contentKey), ContentType: aws.String("application/octet-stream"),
-		ServerSideEncryption: types.ServerSideEncryptionAes256,
+		ServerSideEncryption: store.serverSideEncryption,
 		Metadata:             map[string]string{"content-sha256": expectedSHA256},
 	})
 	if err != nil || strings.TrimSpace(aws.ToString(created.UploadId)) == "" {
@@ -199,22 +199,20 @@ func (store *S3) PutKnowledgeDocumentContent(ctx context.Context, scope agentsdk
 	if expectedBytes > knowledgeDocumentMultipartPartBytes {
 		putErr = store.putKnowledgeDocumentMultipart(ctx, contentKey, deletedKey, expectedSHA256, expectedBytes, content)
 	} else {
-		digest := sha256.New()
-		limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
-		body := io.LimitReader(io.TeeReader(limited, digest), expectedBytes)
-		_, putErr = store.client.PutObject(ctx, &s3.PutObjectInput{
-			Bucket: aws.String(store.bucket), Key: aws.String(contentKey), Body: body,
-			ContentLength: aws.Int64(expectedBytes), ContentType: aws.String("application/octet-stream"),
-			ServerSideEncryption: types.ServerSideEncryptionAes256,
-			Metadata:             map[string]string{"content-sha256": expectedSHA256},
-		})
-		if putErr == nil {
-			extra, readErr := io.ReadAll(io.LimitReader(limited, 1))
-			if readErr != nil || limited.N > 1 || len(extra) != 0 || hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
-				store.cleanupKnowledgeDocumentObject(ctx, contentKey)
+		file, spoolErr := spoolKnowledgeS3Content(content, expectedBytes, expectedSHA256)
+		if spoolErr != nil {
+			if errors.Is(spoolErr, errKnowledgeS3ContentMismatch) {
 				return "", knowledgeDocumentStorageError("bad_request", "document_content_mismatch")
 			}
+			return "", knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")
 		}
+		defer cleanupKnowledgeS3TempFile(file)
+		_, putErr = store.client.PutObject(ctx, &s3.PutObjectInput{
+			Bucket: aws.String(store.bucket), Key: aws.String(contentKey), Body: file,
+			ContentLength: aws.Int64(expectedBytes), ContentType: aws.String("application/octet-stream"),
+			ServerSideEncryption: store.serverSideEncryption,
+			Metadata:             map[string]string{"content-sha256": expectedSHA256},
+		})
 	}
 	if putErr != nil {
 		if found, headErr := store.knowledgeDocumentHead(ctx, contentKey, expectedSHA256, expectedBytes); headErr == nil && found {
@@ -373,7 +371,7 @@ func (store *S3) PutKnowledgeDocumentContentChunk(ctx context.Context, scope age
 		_, putErr := store.client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(store.bucket), Key: aws.String(key), Body: bytes.NewReader(payload), IfNoneMatch: aws.String("*"),
 			ContentLength: aws.Int64(chunkBytes), ContentType: aws.String("application/octet-stream"),
-			ServerSideEncryption: types.ServerSideEncryptionAes256,
+			ServerSideEncryption: store.serverSideEncryption,
 			Metadata:             map[string]string{"content-sha256": expectedSHA256, "content-bytes": fmt.Sprint(expectedBytes), "chunk-offset": fmt.Sprint(offset), "chunk-sha256": chunkSHA256},
 		})
 		if putErr != nil {
@@ -474,7 +472,7 @@ func (store *S3) DeleteKnowledgeDocumentContent(ctx context.Context, scope agent
 	}
 	_, err = store.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(store.bucket), Key: aws.String(deletedKey), Body: strings.NewReader("deleted"),
-		ContentLength: aws.Int64(7), ContentType: aws.String("text/plain"), ServerSideEncryption: types.ServerSideEncryptionAes256,
+		ContentLength: aws.Int64(7), ContentType: aws.String("text/plain"), ServerSideEncryption: store.serverSideEncryption,
 	})
 	if err != nil {
 		return knowledgeDocumentStorageError("unavailable", "document_storage_unavailable")

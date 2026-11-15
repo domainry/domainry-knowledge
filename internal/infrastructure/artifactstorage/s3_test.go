@@ -194,6 +194,9 @@ func TestS3SharedStorageSupportsMinIOStyleEndpointAndContentLifecycle(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	if store.serverSideEncryption != types.ServerSideEncryptionAes256 {
+		t.Fatalf("default server-side encryption=%q", store.serverSideEncryption)
+	}
 	raw := []byte("shared attachment")
 	info, err := store.PutImmutable(t.Context(), "workspace-a", "upload-a", raw)
 	if err != nil || info.Size != int64(len(raw)) {
@@ -220,5 +223,8 @@ func TestS3SharedStorageSupportsMinIOStyleEndpointAndContentLifecycle(t *testing
 	}
 	if _, err = newS3(S3Config{Region: "us-east-1", Bucket: "knowledge", Endpoint: "http://minio.example.com"}, backend); err == nil {
 		t.Fatal("non-loopback plaintext endpoint was accepted")
+	}
+	if _, err = newS3(S3Config{Region: "us-east-1", Bucket: "knowledge", Endpoint: "http://minio.example.com", AllowInsecureEndpoint: true}, backend); err != nil {
+		t.Fatalf("explicit trusted plaintext endpoint was rejected: %v", err)
 	}
 }

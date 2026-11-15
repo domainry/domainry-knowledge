@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 
@@ -24,12 +25,21 @@ import (
 
 const defaultS3Prefix = "domainry-knowledge"
 
+var errKnowledgeS3ContentMismatch = errors.New("Knowledge S3 content does not match declared integrity metadata")
+
 type S3Config struct {
 	Region         string
 	Bucket         string
 	Prefix         string
 	Endpoint       string
 	ForcePathStyle bool
+	// AllowInsecureEndpoint must be explicit for trusted local or in-cluster
+	// S3-compatible endpoints that do not terminate TLS.
+	AllowInsecureEndpoint bool
+	// DisableServerSideEncryption is only for S3-compatible deployments whose
+	// storage layer provides encryption and does not implement S3 SSE-AES256.
+	// AWS S3 keeps SSE-AES256 enabled by default.
+	DisableServerSideEncryption bool
 }
 
 type s3Client interface {
@@ -45,9 +55,10 @@ type s3Client interface {
 }
 
 type S3 struct {
-	client s3Client
-	bucket string
-	prefix string
+	client               s3Client
+	bucket               string
+	prefix               string
+	serverSideEncryption types.ServerSideEncryption
 }
 
 func NewS3(ctx context.Context, config S3Config) (*S3, error) {
@@ -55,7 +66,13 @@ func NewS3(ctx context.Context, config S3Config) (*S3, error) {
 		return nil, err
 	}
 	awsHTTPClient := telemetry.InstrumentHTTPClientWithOptions(http.DefaultClient, "domainry.knowledge.s3", telemetry.HTTPClientInstrumentationOptions{DisableDiagnosticContent: true})
-	awsConfiguration, err := awsconfig.LoadDefaultConfig(telemetry.WithHTTPClientOperation(ctx, "knowledge.s3.configure"), awsconfig.WithRegion(strings.TrimSpace(config.Region)), awsconfig.WithHTTPClient(awsHTTPClient))
+	awsConfiguration, err := awsconfig.LoadDefaultConfig(
+		telemetry.WithHTTPClientOperation(ctx, "knowledge.s3.configure"),
+		awsconfig.WithRegion(strings.TrimSpace(config.Region)),
+		awsconfig.WithHTTPClient(awsHTTPClient),
+		awsconfig.WithRequestChecksumCalculation(aws.RequestChecksumCalculationWhenRequired),
+		awsconfig.WithResponseChecksumValidation(aws.ResponseChecksumValidationWhenRequired),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("load Knowledge S3 configuration: %w", err)
 	}
@@ -85,7 +102,14 @@ func newS3(config S3Config, client s3Client) (*S3, error) {
 	if path.Clean(prefix) != prefix || strings.HasPrefix(prefix, "..") {
 		return nil, errors.New("KNOWLEDGE_S3_PREFIX must be a clean relative path")
 	}
-	return &S3{client: diagnosticS3Client{client: client}, bucket: strings.TrimSpace(config.Bucket), prefix: prefix}, nil
+	serverSideEncryption := types.ServerSideEncryptionAes256
+	if config.DisableServerSideEncryption {
+		serverSideEncryption = ""
+	}
+	return &S3{
+		client: diagnosticS3Client{client: client}, bucket: strings.TrimSpace(config.Bucket), prefix: prefix,
+		serverSideEncryption: serverSideEncryption,
+	}, nil
 }
 
 func (config S3Config) validate() error {
@@ -97,7 +121,7 @@ func (config S3Config) validate() error {
 	}
 	if endpoint := strings.TrimSpace(config.Endpoint); endpoint != "" {
 		parsed, err := url.Parse(endpoint)
-		if err != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Scheme != "https" && !loopbackHTTP(parsed) {
+		if err != nil || parsed.Host == "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Scheme != "https" && !config.AllowInsecureEndpoint && !loopbackHTTP(parsed) {
 			return errors.New("KNOWLEDGE_S3_ENDPOINT must be HTTPS unless it targets loopback")
 		}
 	}
@@ -132,22 +156,56 @@ func (store *S3) PutImmutableStream(ctx context.Context, workspaceID, identity, 
 		return sharedartifact.ContentInfo{}, statErr
 	}
 	key := store.objectKey(workspaceHash, reference)
-	digest := sha256.New()
-	limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
+	file, err := spoolKnowledgeS3Content(content, expectedBytes, expectedSHA256)
+	if err != nil {
+		return sharedartifact.ContentInfo{}, err
+	}
+	defer cleanupKnowledgeS3TempFile(file)
 	_, err = store.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(store.bucket), Key: aws.String(key), Body: io.TeeReader(limited, digest),
+		Bucket: aws.String(store.bucket), Key: aws.String(key), Body: file,
 		ContentLength: aws.Int64(expectedBytes), ContentType: aws.String("application/octet-stream"),
-		ServerSideEncryption: types.ServerSideEncryptionAes256,
+		ServerSideEncryption: store.serverSideEncryption,
 		Metadata:             map[string]string{"content-sha256": expectedSHA256, "identity-sha256": hex.EncodeToString(identityHash[:]), "workspace-sha256": workspaceHash},
 	})
 	if err != nil {
 		return sharedartifact.ContentInfo{}, fmt.Errorf("put Knowledge S3 object: %w", err)
 	}
-	if limited.N != 1 || hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
-		_, _ = store.client.DeleteObject(context.WithoutCancel(ctx), &s3.DeleteObjectInput{Bucket: aws.String(store.bucket), Key: aws.String(key)})
-		return sharedartifact.ContentInfo{}, errors.New("shared artifact content does not match declared integrity metadata")
-	}
 	return sharedartifact.ContentInfo{Reference: reference, SHA256: expectedSHA256, Size: expectedBytes}, nil
+}
+
+func spoolKnowledgeS3Content(content io.Reader, expectedBytes int64, expectedSHA256 string) (*os.File, error) {
+	file, err := os.CreateTemp("", "domainry-knowledge-s3-*")
+	if err != nil {
+		return nil, err
+	}
+	keep := false
+	defer func() {
+		if !keep {
+			cleanupKnowledgeS3TempFile(file)
+		}
+	}()
+	digest := sha256.New()
+	limited := &io.LimitedReader{R: content, N: expectedBytes + 1}
+	size, err := io.Copy(io.MultiWriter(file, digest), limited)
+	if err != nil {
+		return nil, err
+	}
+	if size != expectedBytes || hex.EncodeToString(digest.Sum(nil)) != expectedSHA256 {
+		return nil, errKnowledgeS3ContentMismatch
+	}
+	if _, err = file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	keep = true
+	return file, nil
+}
+
+func cleanupKnowledgeS3TempFile(file *os.File) {
+	if file == nil {
+		return
+	}
+	_ = file.Close()
+	_ = os.Remove(file.Name())
 }
 
 func (store *S3) Open(ctx context.Context, workspaceID, reference string) (io.ReadCloser, error) {

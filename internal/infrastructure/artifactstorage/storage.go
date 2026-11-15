@@ -16,12 +16,14 @@ type SharedStorage interface {
 }
 
 type SharedStorageConfig struct {
-	Driver         string
-	Region         string
-	Bucket         string
-	Prefix         string
-	Endpoint       string
-	ForcePathStyle bool
+	Driver                      string
+	Region                      string
+	Bucket                      string
+	Prefix                      string
+	Endpoint                    string
+	ForcePathStyle              bool
+	AllowInsecureEndpoint       bool
+	DisableServerSideEncryption bool
 }
 
 func OpenShared(ctx context.Context, localDirectory string, config SharedStorageConfig) (SharedStorage, error) {
@@ -29,7 +31,11 @@ func OpenShared(ctx context.Context, localDirectory string, config SharedStorage
 	case "", "local":
 		return NewSharedFiles(localDirectory)
 	case "s3":
-		return NewS3(ctx, S3Config{Region: config.Region, Bucket: config.Bucket, Prefix: config.Prefix, Endpoint: config.Endpoint, ForcePathStyle: config.ForcePathStyle})
+		return NewS3(ctx, S3Config{
+			Region: config.Region, Bucket: config.Bucket, Prefix: config.Prefix,
+			Endpoint: config.Endpoint, ForcePathStyle: config.ForcePathStyle,
+			AllowInsecureEndpoint: config.AllowInsecureEndpoint, DisableServerSideEncryption: config.DisableServerSideEncryption,
+		})
 	default:
 		return nil, fmt.Errorf("Knowledge file storage driver must be local or s3")
 	}
