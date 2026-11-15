@@ -60,6 +60,8 @@ func DocumentReadable(record knowledgepersistence.KnowledgeDocumentRecord, libra
 type LibraryKnowledgeBinding = application.LibraryKnowledgeBinding
 type LibraryKnowledgeSource = application.LibraryKnowledgeSource
 
+var _ contract.LibraryKnowledge = (*LibraryKnowledgeSource)(nil)
+
 func NewLibraryKnowledgeSource(repo any, runtimeID string, policy knowledgesdk.KnowledgeLibraryAuthorizer, sourcePolicy knowledgesdk.KnowledgeDocumentSourceAuthorizer, bindings []LibraryKnowledgeBinding, defaultSource Knowledge, catalog knowledgesdk.KnowledgeDatasourceCatalog) (*LibraryKnowledgeSource, error) {
 	return application.NewLibraryKnowledgeSource(repo, runtimeID, policy, sourcePolicy, bindings, defaultSource, catalog)
 }

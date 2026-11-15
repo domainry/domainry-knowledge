@@ -3,8 +3,10 @@ package saas
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	knowledgesdk "github.com/domainry/domainry-knowledge-sdk"
+	knowledgecontract "github.com/domainry/domainry-knowledge-sdk/contract"
 	knowledgefiles "github.com/domainry/domainry-knowledge-sdk/files"
 )
 
@@ -58,6 +60,32 @@ func (server *Server) dispatch(ctx context.Context, operation string, raw json.R
 		return struct{}{}, server.dependencies.Files.Delete(ctx, input.Authority, input.ID)
 	case "runtime.activate":
 		return struct{}{}, nil
+	case knowledgecontract.SaaSLibrarySearchOperation:
+		var input knowledgecontract.SaaSLibrarySearchRequest
+		if err := decodeInput(raw, &input); err != nil {
+			return nil, err
+		}
+		if err := server.validateLibraryAuthority(input.LibraryID, input.Authority); err != nil {
+			return nil, err
+		}
+		source, ok := server.dependencies.Retrieval.(knowledgecontract.LibraryKnowledge)
+		if !ok || source == nil {
+			return nil, &knowledgesdk.Error{Class: "unavailable", Code: "knowledge.library_retrieval_unavailable"}
+		}
+		return source.SearchLibraryKnowledge(ctx, input.LibraryID, input.Query, input.Authority)
+	case knowledgecontract.SaaSLibraryReadOperation:
+		var input knowledgecontract.SaaSLibraryReadRequest
+		if err := decodeInput(raw, &input); err != nil {
+			return nil, err
+		}
+		if err := server.validateLibraryAuthority(input.LibraryID, input.Authority); err != nil {
+			return nil, err
+		}
+		source, ok := server.dependencies.Retrieval.(knowledgecontract.LibraryKnowledge)
+		if !ok || source == nil {
+			return nil, &knowledgesdk.Error{Class: "unavailable", Code: "knowledge.library_retrieval_unavailable"}
+		}
+		return source.ReadLibraryKnowledge(ctx, input.LibraryID, input.DocumentID, input.Authority)
 	case "runtime.knowledge.search":
 		var input struct {
 			Query     string                 `json:"query"`
@@ -97,4 +125,14 @@ func (server *Server) dispatch(ctx context.Context, operation string, raw json.R
 	default:
 		return server.dispatchExtended(ctx, operation, raw)
 	}
+}
+
+func (server *Server) validateLibraryAuthority(library string, authority knowledgesdk.Authority) error {
+	if library == "" || library != strings.TrimSpace(library) || len(library) > 256 {
+		return &knowledgesdk.Error{Class: "bad_request", Code: "knowledge.library_required"}
+	}
+	if !authority.Known || authority.RuntimeID != server.dependencies.Audience || authority.WorkspaceID == "" || authority.WorkspaceID != strings.TrimSpace(authority.WorkspaceID) || authority.UserID == "" || authority.UserID != strings.TrimSpace(authority.UserID) {
+		return &knowledgesdk.Error{Class: "forbidden", Code: "knowledge.library_identity_denied"}
+	}
+	return nil
 }
