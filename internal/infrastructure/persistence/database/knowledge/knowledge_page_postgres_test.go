@@ -61,7 +61,21 @@ func TestKnowledgePageNavigationPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	parent = savePageFixture(t, store, actor, library, parent, "pg-parent-body", "Parent", "PostgreSQL comment body")
 	parent = publishPageFixture(t, store, actor, library, parent, "pg-publish-parent")
+	comment, err := store.CreateKnowledgePageComment(t.Context(), library.ID, parent.Page.ID, knowledgesdk.KnowledgePageCommentCreate{
+		ClientID: "pg-comment", PublishedVersion: 1, Anchor: knowledgesdk.KnowledgePageCommentAnchor{NodeID: "block-1", Quote: "PostgreSQL comment body"}, Body: "PostgreSQL reaction aggregation",
+	}, actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SetKnowledgePageCommentReaction(t.Context(), library.ID, parent.Page.ID, comment.ID, knowledgesdk.KnowledgePageCommentReactionWrite{ClientID: "pg-comment-like", Emoji: "👍", Active: true}, actor); err != nil {
+		t.Fatalf("postgres reaction aggregation: %v", err)
+	}
+	comments, err := store.KnowledgePageComments(t.Context(), library.ID, parent.Page.ID, "", 10, false, actor)
+	if err != nil || len(comments.Items) != 1 || len(comments.Items[0].Reactions) != 1 || comments.Items[0].Reactions[0].Count != 1 || !comments.Items[0].Reactions[0].Reacted {
+		t.Fatalf("postgres comments with reactions: %+v %v", comments, err)
+	}
 	child, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{ClientID: "pg-child", Title: "Child", ParentPageID: parent.Page.ID, ContentType: "document"}, actor)
 	if err != nil {
 		t.Fatal(err)

@@ -47,7 +47,7 @@ func (s *Store) hydrateKnowledgeCommentReactions(ctx context.Context, db convers
 		query.Project(query.Column("comment_id")),
 		query.Project(query.Column("emoji")),
 		query.ProjectAs(query.CountAll(), "reaction_count"),
-		query.ProjectAs(query.Sum(query.CaseWhen(query.Equal("user_id", a.UserID), 1).Else(0)), "caller_reacted"),
+		query.ProjectAs(query.Filtered(query.CountAll(), query.Equal("user_id", a.UserID)), "caller_reacted"),
 	).Where(predicate).GroupBy(query.Column("comment_id"), query.Column("emoji")).Build()
 	if err != nil {
 		return err
