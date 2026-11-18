@@ -1,12 +1,13 @@
 import { kt, ktf } from "./i18n/runtime.ts";
 import { useEffect, useRef, useState } from "react";
-import { Download, FileText, FileWarning, RefreshCw, Send, Upload } from "lucide-react";
+import { Download, FileWarning, RefreshCw, Send, Upload } from "lucide-react";
 import { Button } from "./components.tsx";
 import { documentCanDownload, documentLabel, documentStatusDetail } from "./document.ts";
 import { FilePreview } from "./FilePreviewDialog.tsx";
 import { downloadFile, knowledgeDocumentPreviewSource, knowledgePageDocumentDownloadSource } from "./file-preview.ts";
 import { parseFilePageContent } from "./file-page.ts";
 import { PageActionPortal } from "./editors/PageActionPortal.tsx";
+import { FileTypeIcon } from "./pageTypeRegistry.ts";
 import type { KnowledgeClient, KnowledgeDocument } from "./types.ts";
 
 export type KnowledgeFilePageProps = {
@@ -74,12 +75,11 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActi
     {actions}
     {error && <p className="knowledge-error" role="alert">{error}</p>}
     <header className="knowledge-file-page-summary">
-      <span className="knowledge-file-page-summary-icon" aria-hidden="true"><FileText size={18} /></span>
+      <span className="knowledge-file-page-summary-icon" aria-hidden="true"><FileTypeIcon filename={document.filename} size={18} /></span>
       <div><strong>{document.filename}</strong><span className={`knowledge-file-state is-${document.security_status}`}>{documentLabel(document)}</span></div>
       <dl>
         <div><dt>{kt("knowledge.file.size")}</dt><dd>{formatBytes(document.bytes)}</dd></div>
         <div><dt>{kt("knowledge.file.original_version")}</dt><dd>{document.content_version}</dd></div>
-        <div><dt>{kt("knowledge.file.checksum")}</dt><dd title={document.sha256}>{document.sha256.slice(0, 12)}…</dd></div>
       </dl>
     </header>
     <FilePreview source={knowledgeDocumentPreviewSource(client, document)} formatError={formatError} />

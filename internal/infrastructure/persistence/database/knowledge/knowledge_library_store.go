@@ -114,7 +114,7 @@ func (s *Store) libraryRecord(ctx context.Context, db conversationDB, id string,
 		return out, conversationError("not_found", "library_not_found")
 	}
 	found, err := s.executionRead(ctx, db, knowledgeLibraryTable, libraryPredicate(a, id), &out)
-	if err == nil && (!found || out.Kind == "personal" && out.OwnerUserID != a.UserID) {
+	if err == nil && !found {
 		err = conversationError("not_found", "library_not_found")
 	}
 	out.Role = role
@@ -129,18 +129,12 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 	if err = conversationAuthority(a); err != nil {
 		return
 	}
-	if !personalMemoryKey(in.ClientID) || !executionText(in.Name, 128, true) || !executionText(in.Description, 1024, false) || in.Kind != "personal" && in.Kind != "shared" {
+	if !personalMemoryKey(in.ClientID) || !executionText(in.Name, 128, true) || !executionText(in.Description, 1024, false) || in.Kind != "shared" {
 		return out, conversationError("bad_request", "library_invalid")
 	}
 	id, err := entityid.Derive("klib", "knowledge.library", conversationOwner(a), "shared", in.ClientID)
 	if err != nil {
 		return out, err
-	}
-	if in.Kind == "personal" {
-		id, err = entityid.Derive("klib", "knowledge.library", conversationOwner(a), "personal")
-		if err != nil {
-			return out, err
-		}
 	}
 	err = s.transaction(ctx, func(tx *sql.Tx) error {
 		out = agentsdk.KnowledgeLibrary{}
@@ -150,18 +144,16 @@ func (s *Store) CreateKnowledgeLibrary(ctx context.Context, in agentsdk.Knowledg
 			return e
 		}
 		if found {
-			if in.Kind != "personal" {
-				q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryTable).Columns("request_hash").Where(libraryPredicate(a, id)).Build()
-				if e != nil {
-					return e
-				}
-				var hash string
-				if e = tx.QueryRowContext(ctx, q, args...).Scan(&hash); e != nil {
-					return e
-				}
-				if hash != conversationHash(in) {
-					return conversationError("conflict", "idempotency_conflict")
-				}
+			q, args, e := query.NewSelectBuilder(s.store.Renderer(), knowledgeLibraryTable).Columns("request_hash").Where(libraryPredicate(a, id)).Build()
+			if e != nil {
+				return e
+			}
+			var hash string
+			if e = tx.QueryRowContext(ctx, q, args...).Scan(&hash); e != nil {
+				return e
+			}
+			if hash != conversationHash(in) {
+				return conversationError("conflict", "idempotency_conflict")
 			}
 			out, e = s.libraryRecord(ctx, tx, id, a)
 			return e
@@ -533,12 +525,6 @@ func (s *Store) KnowledgeLibraryRoleForUser(ctx context.Context, id, user string
 		if library.Role != "manager" {
 			return conversationError("forbidden", "library_manage_required")
 		}
-		if library.Kind == "personal" {
-			if library.OwnerUserID == user {
-				role = "manager"
-			}
-			return nil
-		}
 		var member agentsdk.KnowledgeLibraryMember
 		found, readErr := s.executionRead(ctx, tx, knowledgeLibraryMemberTable, libraryMemberPredicate(a, id, agentsdk.KnowledgeSubjectUser, user), &member)
 		if readErr != nil {
@@ -563,12 +549,6 @@ func (s *Store) KnowledgeLibraryRoleForAuthority(ctx context.Context, id string,
 		}
 		if library.Role != "manager" {
 			return conversationError("forbidden", "library_manage_required")
-		}
-		if library.Kind == "personal" {
-			if library.OwnerUserID == target.UserID {
-				role = "manager"
-			}
-			return nil
 		}
 		role, readErr = s.libraryRoleForAuthority(ctx, tx, id, target)
 		return readErr

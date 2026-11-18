@@ -1,9 +1,10 @@
 import { kt } from "./i18n/runtime.ts";
 import { createElement, lazy } from "react";
 import type { ComponentType } from "react";
-import { FileSpreadsheet, FileText, GitBranch, LayoutGrid, ListChecks, ListTree, Network, Paintbrush, Presentation } from "lucide-react";
+import { File, FileAudio, FileCode2, FileImage, FileSpreadsheet, FileText, FileType2, FileVideo, GitBranch, LayoutGrid, ListChecks, ListTree, Network, Paintbrush, Presentation } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { KnowledgePageContentType } from "./types.ts";
+import { previewKind } from "./file-preview.ts";
 import type { KnowledgeEditorProps } from "./editors/types.ts";
 import { emptyFormContent } from "./formContent.ts";
 import { emptyWhiteboardContent } from "./editors/whiteboardContent.ts";
@@ -158,8 +159,32 @@ export function getPageTypeDefinition(type: KnowledgePageContentType) {
   return definition;
 }
 
-export function PageTypeIcon({ type, size = 16 }: { type: KnowledgePageContentType; size?: number }) {
-  return createElement(getPageTypeDefinition(type).icon, { size, "aria-hidden": true });
+export type KnowledgeFileIconKind = "file" | "text" | "pdf" | "word" | "presentation" | "spreadsheet" | "image" | "audio" | "video";
+
+const fileTypeIcons: Record<KnowledgeFileIconKind, LucideIcon> = {
+  file: File,
+  text: FileCode2,
+  pdf: FileType2,
+  word: FileText,
+  presentation: Presentation,
+  spreadsheet: FileSpreadsheet,
+  image: FileImage,
+  audio: FileAudio,
+  video: FileVideo,
+};
+
+export function knowledgeFileIconKind(filename = ""): KnowledgeFileIconKind {
+  return previewKind(filename) || "file";
+}
+
+export function FileTypeIcon({ filename, size = 16 }: { filename: string; size?: number }) {
+  const kind = knowledgeFileIconKind(filename);
+  return createElement(fileTypeIcons[kind], { size, className: `knowledge-page-type-icon is-file-${kind}`, "aria-hidden": true });
+}
+
+export function PageTypeIcon({ type, size = 16, filename = "" }: { type: KnowledgePageContentType; size?: number; filename?: string }) {
+  if (type === "file") return createElement(FileTypeIcon, { filename, size });
+  return createElement(getPageTypeDefinition(type).icon, { size, className: `knowledge-page-type-icon is-page-${type}`, "aria-hidden": true });
 }
 
 export function initialPageContent(type: KnowledgePageContentType) {

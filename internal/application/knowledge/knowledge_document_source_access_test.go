@@ -228,7 +228,7 @@ func TestSourceBackedDocumentUploadPersistsAndRechecksRecordAccess(t *testing.T)
 
 func TestPublicDocumentUploadUsesLocalStorageWithoutManagedSource(t *testing.T) {
 	authority := sdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "owner", RoleKey: "editor"}
-	library := sdk.KnowledgeLibrary{ID: "library-a", Kind: "personal", Role: "editor"}
+	library := sdk.KnowledgeLibrary{ID: "library-a", Kind: "shared", Role: "editor"}
 	repo := &sourceUploadRepo{library: library}
 	storage := &sourceUploadStorage{}
 	service := NewService(repo, authority.RuntimeID, Options{DocumentStorage: storage, LibraryAuthorizer: &sourceUploadLibraryPolicy{}}, nil)

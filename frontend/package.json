@@ -50,6 +50,7 @@
     "@univerjs/preset-sheets-core": "1.1.0",
     "@univerjs/preset-sheets-data-validation": "1.1.0",
     "@univerjs/presets": "1.1.0",
+    "@web-ppt/core": "0.8.0",
     "ag-grid-community": "36.2.0",
     "ag-grid-react": "36.2.0",
     "bootstrap": "5.3.8",

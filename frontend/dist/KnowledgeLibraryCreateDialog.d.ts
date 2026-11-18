@@ -1,12 +1,7 @@
-import type { KnowledgeClient, KnowledgeDirectoryMember, KnowledgeDirectoryOrganization, KnowledgeLibraryMember } from "./types.ts";
-export type KnowledgeLibraryCreateMemberInput = {
-    principal: KnowledgeDirectoryMember;
-    role: KnowledgeLibraryMember["role"];
-};
-export type KnowledgeLibraryCreateOrganizationInput = {
-    organization: KnowledgeDirectoryOrganization;
-    role: KnowledgeLibraryMember["role"];
-};
+import type { KnowledgeAccessMemberInput, KnowledgeAccessOrganizationInput } from "./KnowledgeAccessSelector.tsx";
+import type { KnowledgeClient } from "./types.ts";
+export type KnowledgeLibraryCreateMemberInput = KnowledgeAccessMemberInput;
+export type KnowledgeLibraryCreateOrganizationInput = KnowledgeAccessOrganizationInput;
 export type KnowledgeLibraryCreateInput = {
     name: string;
     description: string;

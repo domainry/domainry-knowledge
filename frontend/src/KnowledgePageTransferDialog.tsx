@@ -91,7 +91,7 @@ export function KnowledgePageTransferDialog({ client, sourceLibrary, page, forma
       {error && <p role="alert" className="knowledge-error">{error}</p>}
       {loading ? <p className="knowledge-subtle">{kt("knowledge.auto.f98b0a5bbacfb1c6")}</p> : <div className="knowledge-transfer-list">{libraries.items.map(item => {
         const usable = canTransferPageToLibrary(item, sourceLibrary.id);
-        return <button key={item.id} aria-current={target?.id === item.id ? "true" : undefined} disabled={busy || !usable} onClick={() => chooseTarget(item)}><span><strong>{item.name}</strong><small>{item.kind === "shared" ? kt("knowledge.auto.07232412b43dde57") : kt("knowledge.auto.b23f90380cdd9003")}{!usable ? kt("knowledge.auto.04b2791343c64b5b") : ""}</small></span></button>;
+        return <button key={item.id} aria-current={target?.id === item.id ? "true" : undefined} disabled={busy || !usable} onClick={() => chooseTarget(item)}><span><strong>{item.name}</strong><small>{item.description || kt("knowledge.auto.975b35f9c2b1148c")}{!usable ? kt("knowledge.auto.04b2791343c64b5b") : ""}</small></span></button>;
       })}</div>}
       {(cursors.length > 1 || !libraries.complete) && <div className="knowledge-pagination"><Button disabled={busy || loading || cursors.length === 1} onClick={() => setCursors(value => value.slice(0, -1))}>{kt("knowledge.auto.c9b9ae7a61444ab7")}</Button><Button disabled={busy || loading || !libraries.next_after} onClick={() => setCursors(value => [...value, libraries.next_after!])}>{kt("knowledge.auto.8a8542f6964852dc")}</Button></div>}
       {targetUsable && <>

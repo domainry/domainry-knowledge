@@ -35,7 +35,10 @@ func TestKnowledgeRunsWithoutAgentTables(t *testing.T) {
 	}
 	s := New(SQLBackend{DB: db, Dialect: d.WithSchema("")})
 	a := sdk.Authority{Known: true, RuntimeID: "knowledge-host", WorkspaceID: "one", UserID: "a"}
-	library, err := s.CreateKnowledgeLibrary(t.Context(), sdk.KnowledgeLibraryCreate{ClientID: "library", Kind: "personal", Name: "Independent Knowledge"}, a)
+	if _, err = s.CreateKnowledgeLibrary(t.Context(), sdk.KnowledgeLibraryCreate{ClientID: "removed-personal-kind", Kind: "personal", Name: "Removed kind"}, a); err == nil {
+		t.Fatal("personal library kind was accepted")
+	}
+	library, err := s.CreateKnowledgeLibrary(t.Context(), sdk.KnowledgeLibraryCreate{ClientID: "library", Kind: "shared", Name: "Independent Knowledge"}, a)
 	if err != nil {
 		t.Fatal(err)
 	}

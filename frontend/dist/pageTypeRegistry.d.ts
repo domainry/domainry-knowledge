@@ -96,8 +96,18 @@ export declare const pageTypeMeta: Readonly<Record<KnowledgePageContentType, {
     title: string;
 }>>;
 export declare function getPageTypeDefinition(type: KnowledgePageContentType): PageTypeDefinition;
-export declare function PageTypeIcon({ type, size }: {
-    type: KnowledgePageContentType;
+export type KnowledgeFileIconKind = "file" | "text" | "pdf" | "word" | "presentation" | "spreadsheet" | "image" | "audio" | "video";
+export declare function knowledgeFileIconKind(filename?: string): KnowledgeFileIconKind;
+export declare function FileTypeIcon({ filename, size }: {
+    filename: string;
     size?: number;
 }): import("react").FunctionComponentElement<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>>;
+export declare function PageTypeIcon({ type, size, filename }: {
+    type: KnowledgePageContentType;
+    size?: number;
+    filename?: string;
+}): import("react").FunctionComponentElement<Omit<import("lucide-react").LucideProps, "ref"> & import("react").RefAttributes<SVGSVGElement>> | import("react").FunctionComponentElement<{
+    filename: string;
+    size?: number;
+}>;
 export declare function initialPageContent(type: KnowledgePageContentType): string;

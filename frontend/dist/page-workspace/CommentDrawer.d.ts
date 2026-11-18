@@ -1,13 +1,12 @@
 import type { KnowledgeCommentAnchorSelection } from "../editors/types.ts";
-import type { KnowledgePageComment, KnowledgePageTask, KnowledgePrincipal } from "../types.ts";
+import type { KnowledgePageComment, KnowledgePrincipal } from "../types.ts";
 export type CommentDrawerProps = {
     comments: KnowledgePageComment[];
-    tasks: KnowledgePageTask[];
+    failure: string;
     memberProfiles: Record<string, KnowledgePrincipal>;
     activeThreadID: string;
     pageArchived: boolean;
     canComment: boolean;
-    canWrite: boolean;
     unresolvedOnly: boolean;
     commentsComplete: boolean;
     replyingTo: string;
@@ -36,7 +35,6 @@ export type CommentDrawerProps = {
     onBeginEdit(comment: KnowledgePageComment): void;
     onBeginReply(comment: KnowledgePageComment): void;
     onResolve(comment: KnowledgePageComment): void;
-    onAssignTask(comment: KnowledgePageComment): void;
     onDelete(comment: KnowledgePageComment): void;
     onToggleReaction(comment: KnowledgePageComment, emoji: string): void;
     onLoadMore(): void;

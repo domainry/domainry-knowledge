@@ -8,8 +8,6 @@ export declare const officeWorkerErrors: {
     readonly worksheetTooLarge: "knowledge.auto.55c85d93fc5e34ac";
     readonly cellsTooMany: "knowledge.auto.5bee4cdb427cff1d";
     readonly cellAddressInvalid: "knowledge.auto.709a2e4b711558dc";
-    readonly presentationCountInvalid: "knowledge.auto.6a2a8bf8083cdf60";
-    readonly presentationTooLarge: "knowledge.auto.989c40af9fa37547";
     readonly unknown: "knowledge.auto.9412956e890013f9";
 };
 export type OfficeWorkerErrorCode = typeof officeWorkerErrors[keyof typeof officeWorkerErrors];

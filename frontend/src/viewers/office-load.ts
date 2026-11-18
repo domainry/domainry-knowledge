@@ -1,8 +1,8 @@
-import { kt, ktf } from "../i18n/runtime.ts";
+import { kt } from "../i18n/runtime.ts";
 import type { OfficeResult } from "./office-types.ts";
 import { isOfficeWorkerErrorCode, officeWorkerErrors } from "./office-worker-errors.ts";
 
-export async function loadOffice(blob: Blob, kind: "docx" | "xlsx" | "pptx", signal: AbortSignal): Promise<OfficeResult> {
+export async function loadOffice(blob: Blob, kind: "docx" | "xlsx", signal: AbortSignal): Promise<OfficeResult> {
   const data = await blob.arrayBuffer();
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -28,9 +28,6 @@ export async function loadOffice(blob: Blob, kind: "docx" | "xlsx" | "pptx", sig
 			for (const cell of sheet.cells) {
 				if (cell.text === officeWorkerErrors.formulaResultMissing) cell.text = kt(officeWorkerErrors.formulaResultMissing);
 			}
-		}
-		for (const slide of value.slides || []) {
-			if (!slide.title) slide.title = ktf("knowledge.auto.48df1e72ddb395f6", { value0: slide.number });
 		}
 		done(undefined, value);
     };

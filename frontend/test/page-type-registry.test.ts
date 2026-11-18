@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { importPageTypes, initialPageContent, nativePageTypes, pageTypeCapability, pageTypeDefinitions, pageTypeMeta, pageTypeRegistry, validatePageTypeDefinitions } from "../src/pageTypeRegistry.ts";
+import { importPageTypes, initialPageContent, knowledgeFileIconKind, nativePageTypes, pageTypeCapability, pageTypeDefinitions, pageTypeMeta, pageTypeRegistry, validatePageTypeDefinitions } from "../src/pageTypeRegistry.ts";
 import { activateKnowledgeLocale, kt } from "../src/i18n/runtime.ts";
 
 test("page type registry is complete and capability-driven", () => {
@@ -18,6 +18,18 @@ test("page type registry is complete and capability-driven", () => {
 test("page type registry fails fast on duplicate or incomplete definitions", () => {
   assert.throws(() => validatePageTypeDefinitions([...pageTypeDefinitions, pageTypeDefinitions[0]]), /Invalid page type definition/);
   assert.throws(() => validatePageTypeDefinitions([{ ...pageTypeDefinitions[0], id: "document", editor: undefined } as never]), /Invalid page type definition/);
+});
+
+test("uploaded file icons follow the real file format", () => {
+  assert.equal(knowledgeFileIconKind("manual.PDF"), "pdf");
+  assert.equal(knowledgeFileIconKind("proposal.docx"), "word");
+  assert.equal(knowledgeFileIconKind("roadmap.pptx"), "presentation");
+  assert.equal(knowledgeFileIconKind("budget.xlsx"), "spreadsheet");
+  assert.equal(knowledgeFileIconKind("photo.jpeg"), "image");
+  assert.equal(knowledgeFileIconKind("interview.mp3"), "audio");
+  assert.equal(knowledgeFileIconKind("demo.mp4"), "video");
+  assert.equal(knowledgeFileIconKind("notes.md"), "text");
+  assert.equal(knowledgeFileIconKind("archive.bin"), "file");
 });
 
 test("all registered type metadata follows locale changes after module loading", () => {

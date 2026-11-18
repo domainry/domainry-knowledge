@@ -658,7 +658,7 @@ export type KnowledgeResult = {
 
 export type KnowledgeLibrary = {
   id: string;
-  kind: "personal" | "shared";
+  kind: "shared";
   name: string;
   description: string;
   role: string;
@@ -832,6 +832,8 @@ export interface FilePreviewSource {
   file: FilePreviewDescriptor;
   /** Same-origin, currently authorized Range endpoint for browser media playback. */
   streamURL?: string;
+  /** Resolve a short-lived, same-origin Range endpoint without exposing the login credential. */
+  openStreamURL?(signal: AbortSignal): Promise<string>;
   read(request: FilePreviewReadRequest): Promise<Response>;
 }
 
@@ -901,7 +903,7 @@ export interface KnowledgeClient {
   search(request: KnowledgeSearchRequest): Promise<KnowledgeResult>;
   read(documentID: string, libraryID: string | undefined, signal: AbortSignal): Promise<KnowledgeResult>;
   listLibraries(after: string, limit: number, signal: AbortSignal): Promise<KnowledgeLibraryPage>;
-  createLibrary(request: { kind: "personal" | "shared"; name: string; description?: string; clientID: string }, signal: AbortSignal): Promise<KnowledgeLibrary>;
+  createLibrary(request: { kind: "shared"; name: string; description?: string; clientID: string }, signal: AbortSignal): Promise<KnowledgeLibrary>;
   getLibrary(libraryID: string, signal: AbortSignal): Promise<KnowledgeLibrary>;
   updateLibrary(libraryID: string, request: { name: string; description: string; archived: boolean; expectedRevision: number }, signal: AbortSignal): Promise<KnowledgeLibrary>;
   setLibraryArchived(libraryID: string, archived: boolean, expectedRevision: number, signal: AbortSignal): Promise<KnowledgeLibrary>;
@@ -1010,5 +1012,6 @@ export interface KnowledgeClient {
   readDocumentContent(libraryID: string, documentID: string, request: KnowledgeContentRequest): Promise<Response>;
   readPageDocumentContent?(libraryID: string, pageID: string, documentID: string, request: KnowledgeContentRequest): Promise<Response>;
   documentContentURL?(libraryID: string, documentID: string): string;
+  createDocumentStreamURL?(libraryID: string, documentID: string, signal: AbortSignal): Promise<string>;
   scope?(): string;
 }

@@ -80,7 +80,7 @@ func TestRemoteLibraryRetrievalUsesExistingLibraryAndCurrentPolicy(t *testing.T)
 		return binding.Runtime().NewService("runtime-a", clientOptions), source, close
 	}
 	client, _, closeFirst := open()
-	library, err := client.CreateKnowledgeLibrary(t.Context(), knowledgesdk.KnowledgeLibraryCreate{ClientID: "existing-library", Kind: "personal", Name: "Existing support guide"}, authority)
+	library, err := client.CreateKnowledgeLibrary(t.Context(), knowledgesdk.KnowledgeLibraryCreate{ClientID: "existing-library", Kind: "shared", Name: "Existing support guide"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

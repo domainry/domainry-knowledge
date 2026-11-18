@@ -23,12 +23,6 @@ export type DisplaySheet = {
     hiddenRows: number[];
     hiddenCols: number[];
 };
-export type DisplaySlide = {
-    number: number;
-    title: string;
-    lines: string[];
-};
 export type OfficeResult = {
     sheets?: DisplaySheet[];
-    slides?: DisplaySlide[];
 };

@@ -6,7 +6,7 @@ import type { KnowledgeLibrary } from "../src/types.ts";
 const MiB = 1024 * 1024;
 const library: KnowledgeLibrary = {
   id: "library-1",
-  kind: "personal",
+  kind: "shared",
   name: "资料库",
   description: "",
   role: "manager",

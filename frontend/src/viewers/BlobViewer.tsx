@@ -1,34 +1,125 @@
 import { kt, ktf } from "../i18n/runtime.ts";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFDocumentLoadingTask, RenderTask } from "pdfjs-dist";
-import { ChevronLeft, ChevronRight, Download, Maximize2, Minimize2, Minus, Plus, Printer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Maximize2, Minimize2, Minus, Plus, Printer, RotateCw } from "lucide-react";
 import { downloadFile, fallbackDownloadMaxBytes, readPreviewFile, readPreviewRange } from "../file-preview.ts";
 import type { FilePreviewLocation, FilePreviewSource } from "../types.ts";
+import { PreviewToolbar, usePreviewFullscreen } from "./PreviewToolbar.tsx";
 
 export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }) {
+  const root = useRef<HTMLDivElement>(null);
+  const viewport = useRef<HTMLDivElement>(null);
+  const image = useRef<HTMLImageElement>(null);
   const [url, setURL] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
+  const [fitted, setFitted] = useState(false);
+  const { fullscreen, toggleFullscreen } = usePreviewFullscreen(root);
   useEffect(() => {
     const next = URL.createObjectURL(blob);
     setURL(next);
+    setZoom(1);
+    setRotation(0);
+    setFitted(false);
+    setImageSize({ width: 0, height: 0 });
     return () => URL.revokeObjectURL(next);
   }, [blob]);
-  return <div className="knowledge-file-viewer"><p className="knowledge-subtle">{kt("knowledge.auto.df18572f8913c984")}</p>{url && <div className="knowledge-image-scroll"><img src={url} alt={filename} /></div>}</div>;
+
+  const fitImage = useCallback(() => {
+    const frame = viewport.current, element = image.current;
+    if (!frame || !element || !element.naturalWidth || !element.naturalHeight) return;
+    const sideways = rotation % 180 !== 0;
+    const width = sideways ? element.naturalHeight : element.naturalWidth;
+    const height = sideways ? element.naturalWidth : element.naturalHeight;
+    setZoom(Math.min(3, Math.max(.25, Math.min((frame.clientWidth - 40) / width, (frame.clientHeight - 40) / height))));
+    setFitted(true);
+  }, [rotation]);
+
+  useEffect(() => {
+    if (!fitted || !viewport.current) return;
+    const observer = new ResizeObserver(fitImage);
+    observer.observe(viewport.current);
+    fitImage();
+    return () => observer.disconnect();
+  }, [fitImage, fitted]);
+
+  const changeZoom = (value: number) => { setZoom(value); setFitted(false); };
+  const sideways = rotation % 180 !== 0;
+  const scaledWidth = imageSize.width * zoom;
+  const scaledHeight = imageSize.height * zoom;
+  return <div ref={root} className="knowledge-file-viewer knowledge-image-viewer">
+    {url && <PreviewToolbar
+      fitted={fitted}
+      fullscreen={fullscreen}
+      label="图片预览工具栏"
+      onFit={fitImage}
+      onFullscreen={() => void toggleFullscreen()}
+      onReset={() => { setZoom(1); setFitted(false); }}
+      onZoomChange={changeZoom}
+      zoom={zoom}
+    >
+      <button type="button" aria-label={kt("knowledge.auto.68eb90fa809e72cc")} title={kt("knowledge.auto.68eb90fa809e72cc")} onClick={() => { setRotation(value => (value + 90) % 360); setFitted(false); }}><RotateCw size={16} /></button>
+      <a href={url} download={filename} aria-label={kt("knowledge.auto.aa1d4263667a8086")} title={kt("knowledge.auto.aa1d4263667a8086")}><Download size={16} /></a>
+    </PreviewToolbar>}
+    {url && <div ref={viewport} className="knowledge-image-scroll">
+      <div className="knowledge-image-canvas">
+        <div className="knowledge-image-content" style={{ width: sideways ? scaledHeight : scaledWidth, height: sideways ? scaledWidth : scaledHeight }}>
+          <img
+            ref={image}
+            src={url}
+            alt={filename}
+            style={{ width: scaledWidth, height: scaledHeight, transform: `translate(-50%, -50%) rotate(${rotation}deg)` }}
+            onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+          />
+        </div>
+      </div>
+    </div>}
+  </div>;
 }
 
 export function MediaViewer({ source, kind }: { source: FilePreviewSource; kind: "audio" | "video" }) {
   const element = useRef<HTMLMediaElement>(null);
+  const [url, setURL] = useState(source.streamURL || ""), [loading, setLoading] = useState(!source.streamURL), [error, setError] = useState("");
   const start = Math.max(0, source.file.location?.start_ms || 0) / 1000;
   useEffect(() => {
+    if (source.streamURL) {
+      setURL(source.streamURL); setLoading(false); setError("");
+      return;
+    }
+    const abort = new AbortController();
+    let objectURL = "";
+    setURL(""); setLoading(true); setError("");
+    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(120_000)]);
+    const resolved = source.openStreamURL
+      ? source.openStreamURL(signal).then(streamURL => ({ streamURL }))
+      : readPreviewFile(source, signal, fallbackDownloadMaxBytes).then(file => ({ file }));
+    void resolved.then(result => {
+      if (abort.signal.aborted) return;
+      if ("streamURL" in result) setURL(result.streamURL);
+      else {
+        objectURL = URL.createObjectURL(result.file.blob);
+        setURL(objectURL);
+      }
+    }).catch(failure => {
+      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.f08dc47175344255"));
+    }).finally(() => {
+      if (!abort.signal.aborted) setLoading(false);
+    });
+    return () => { abort.abort(); if (objectURL) URL.revokeObjectURL(objectURL); };
+  }, [source.identity, source.streamURL]);
+  useEffect(() => {
     const media = element.current;
-    if (!media || !Number.isFinite(start)) return;
+    if (!media || !url || !Number.isFinite(start)) return;
     const seek = () => { if (Math.abs(media.currentTime - start) > 0.05) media.currentTime = start; };
     if (media.readyState >= 1) seek();
     else media.addEventListener("loadedmetadata", seek, { once: true });
     return () => media.removeEventListener("loadedmetadata", seek);
-  }, [source.identity, start]);
-  if (!source.streamURL) return <div className="knowledge-preview-unsupported"><p>{kt("knowledge.auto.f08dc47175344255")}</p></div>;
+  }, [source.identity, start, url]);
+  if (error) return <p role="alert" className="knowledge-error">{error}</p>;
+  if (loading || !url) return <p className="knowledge-file-preview-loading" role="status">{kt("knowledge.auto.25fe8537e4bdb53c")}</p>;
   const mediaRef = (node: HTMLMediaElement | null) => { element.current = node; };
-  return <div className="knowledge-file-viewer knowledge-media-viewer">{kind === "video" ? <video ref={mediaRef} src={source.streamURL} controls preload="metadata" playsInline /> : <audio ref={mediaRef} src={source.streamURL} controls preload="metadata" />}{source.file.location?.end_ms ? <p className="knowledge-subtle">{kt("knowledge.auto.d2a9b29ca3c46418")}{formatMediaTime(source.file.location.start_ms || 0)} – {formatMediaTime(source.file.location.end_ms)}</p> : null}</div>;
+  return <div className="knowledge-file-viewer knowledge-media-viewer">{kind === "video" ? <video ref={mediaRef} src={url} controls preload="metadata" playsInline /> : <audio ref={mediaRef} src={url} controls preload="metadata" />}{source.file.location?.end_ms ? <p className="knowledge-subtle">{kt("knowledge.auto.d2a9b29ca3c46418")}{formatMediaTime(source.file.location.start_ms || 0)} – {formatMediaTime(source.file.location.end_ms)}</p> : null}</div>;
 }
 
 function formatMediaTime(milliseconds: number) {

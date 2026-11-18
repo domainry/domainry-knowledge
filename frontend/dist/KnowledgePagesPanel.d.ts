@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { KnowledgeClient, KnowledgeLibrary, KnowledgePageSearchLocation } from "./types.ts";
 import { type KnowledgeHostIntegration, type KnowledgeHostLocale } from "./hostIntegration.ts";
 export declare function pageContentSHA256(content: string): Promise<string>;
-export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, locale, scopeTabs, teamLibraries, hostIntegration, onLibrarySelect, onCreateLibrary, onSelectionChange, onPageTransferred, onManage, onLibraryAccessRevoked }: {
+export declare function KnowledgePagesPanel({ client, library, currentUserID, disabled, formatError, embedded, initialPageID, initialBlockID, initialSearchLocation, initialPageMode, locale, scopeTabs, navigationQuery, onNavigationQueryChange, createRequestRevision, libraries, selectedLibraryID, expandedLibraryID, pageTreeEnabled, hostIntegration, onLibrarySelect, onLibraryExpandedChange, onCreateLibrary, onSelectionChange, onPageTransferred, onManage, onLibraryAccessRevoked }: {
     client: KnowledgeClient;
     library: KnowledgeLibrary;
     currentUserID?: string;
@@ -14,10 +14,17 @@ export declare function KnowledgePagesPanel({ client, library, currentUserID, di
     initialSearchLocation?: KnowledgePageSearchLocation;
     initialPageMode?: "read" | "edit";
     locale?: KnowledgeHostLocale;
-    scopeTabs?: ReactNode;
-    teamLibraries?: KnowledgeLibrary[];
+    scopeTabs?: (createControl?: ReactNode, branchContent?: ReactNode) => ReactNode;
+    navigationQuery?: string;
+    onNavigationQueryChange?: (query: string) => void;
+    createRequestRevision?: number;
+    libraries?: KnowledgeLibrary[];
+    selectedLibraryID?: string;
+    expandedLibraryID?: string;
+    pageTreeEnabled?: boolean;
     hostIntegration?: KnowledgeHostIntegration;
     onLibrarySelect?: (libraryID: string) => void;
+    onLibraryExpandedChange?: (libraryID: string) => void;
     onCreateLibrary?: () => void;
     onSelectionChange?: (page: {
         id: string;

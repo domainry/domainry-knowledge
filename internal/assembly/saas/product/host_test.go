@@ -262,7 +262,7 @@ func TestStandaloneProductStoresAndServesFilesWithoutIndexProvider(t *testing.T)
 	if login.Code != http.StatusOK || json.Unmarshal(login.Body.Bytes(), &authenticated) != nil || authenticated.AccessToken == "" {
 		t.Fatalf("login status=%d body=%s", login.Code, login.Body.String())
 	}
-	created := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries", map[string]any{"kind": "personal", "name": "Local files", "client_id": "local-files-library"}, authenticated.AccessToken)
+	created := callProduct(t, host.Handler(), http.MethodPost, "/knowledge/libraries", map[string]any{"kind": "shared", "name": "Local files", "client_id": "local-files-library"}, authenticated.AccessToken)
 	var library knowledgesdk.KnowledgeLibrary
 	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &library) != nil {
 		t.Fatalf("create status=%d body=%s", created.Code, created.Body.String())

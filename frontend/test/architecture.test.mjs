@@ -73,17 +73,21 @@ test("product authentication uses the shared editorial design contract", async (
   assert.match(workspace, /createPortal\(searchControl, headerSearchHost\)/);
   assert.match(workspace, /showHeaderSearch = true/);
   assert.match(workspace, /showHeaderSearch &&/);
-  assert.match(workspace, /knowledge-primary-scope-menu/);
-  assert.match(workspace, /knowledge-primary-scope-create/);
+  assert.match(workspace, /knowledge-library-navigation/);
+  assert.doesNotMatch(workspace, /knowledge-library-create-action|knowledge-library-content-create/);
   assert.match(workspace, /knowledge-header-search-toggle/);
   assert.match(workspace, /setSearchExpanded\(true\)/);
   assert.match(workspace, /scopeTabs=\{scopeNavigation\}/);
   assert.match(workspace, /navigationQuery=\{navigationQuery\}/);
   assert.match(workspace, /scopeTabsInLibraryRail/);
-  assert.match(workspace, /teamLibraries=\{libraryKind === "shared"/);
-  assert.match(pagesPanel, /scopeTabs\?\.\(createControl\)/);
+  assert.match(workspace, /libraries=\{selectableLibraries\}/);
+  assert.match(workspace, /page\.items\.filter\(item => !item\.archived\)/);
+  assert.match(workspace, /items\.filter\(library => !library\.archived && library\.knowledge_configured\)/);
+  assert.match(pagesPanel, /scopeTabs\?\.\(undefined, navigationTree\)/);
   assert.match(pagesPanel, /onNavigationQueryChange\?\.\(event\.target\.value\)/);
-  assert.match(pagesPanel, /knowledge-team-library-picker/);
+  assert.match(pagesPanel, /knowledge-library-tree/);
+  assert.match(pagesPanel, /knowledge-navigation-tree/);
+  assert.doesNotMatch(pagesPanel, /knowledge-team-library/);
   assert.doesNotMatch(workspace, /headerSearch=|navigationHeader=/);
   assert.match(styles, /\.product-header-search \.knowledge-global-search/);
   assert.match(styles, /\.product-header-search:has\(\.knowledge-header-search\.is-expanded\)/);
@@ -110,14 +114,43 @@ test("informational feedback uses bounded bottom-right toasts", async () => {
   for (const source of noticeOwners) assert.doesNotMatch(source, /className="knowledge-notice"/);
 });
 
-test("page destinations are first-level navigation and create menus dismiss outside", async () => {
+test("knowledge navigation unifies libraries and create menus dismiss outside", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
+  const workspace = await readFile(path.join(root, "src", "KnowledgeWorkspace.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   const createMenu = await readFile(path.join(root, "src", "KnowledgeCreateMenu.tsx"), "utf8");
   assert.doesNotMatch(panel, /knowledge-page-collection-more|pageCollectionMoreRef/);
-  for (const section of ["all", "shortcuts", "favorites", "recent_views", "recent_edits", "subscribed", "trash"]) {
-    assert.match(panel, new RegExp(`navigationSection === "${section}"`));
-  }
-  assert.match(panel, /aria-current=\{navigationSection === "all" \? "page"/);
+  assert.match(panel, /const shortcutPanel =/);
+  assert.match(panel, /scopeTabs\?\.\(undefined, navigationTree\)/);
+  assert.doesNotMatch(panel, /collectionBranch\("recent_views"/);
+  assert.doesNotMatch(panel, /knowledge-recycle-bin-link/);
+  assert.doesNotMatch(panel, /navigationSurface === "trash"/);
+  assert.match(panel, /if \(!pageTreeEnabled \|\| pageTreeLibraryRef\.current === library\.id\) return/);
+  assert.doesNotMatch(panel, /if \(!pageTreeEnabled\) \{ setSelectedID/);
+  assert.match(panel, /item\.id === expandedLibraryID/);
+  assert.match(workspace, /expandedLibraryID=\{expandedLibraryID\}/);
+  assert.doesNotMatch(workspace, /KnowledgeLibraryManager key=\{libraryKind\}/);
+  assert.doesNotMatch(workspace, /KnowledgePagesPanel key=/);
+  assert.match(workspace, /pageTreeEnabled=\{expandedLibraryID === selected\.id\}/);
+  assert.doesNotMatch(workspace, /const navigationLibraryKind = expandedScope \|\| libraryKind/);
+  assert.match(workspace, /const selectableLibraries =/);
+  assert.match(workspace, /setSelectedID\(current => activeItems\.some\(item => item\.id === current\)/);
+  assert.doesNotMatch(workspace, /setLibraryKind\(/);
+  assert.match(panel, /loadingChildren\.has\(page\.id\)/);
+  assert.match(panel, /className="knowledge-library-toggle"[\s\S]*?onLibraryExpandedChange/);
+  assert.match(panel, /className="knowledge-library-root"[\s\S]*?setCreationParentPageID\(""\)/);
+  assert.match(panel, /const parentPageID = creationParentPageID \?\? selectedID/);
+  assert.match(panel, /aria-selected=\{creationParentPageID === null && selectedID === page\.id\}/);
+  assert.match(styles, /\.knowledge-library-link\.is-selected/);
+  assert.match(panel, /<KnowledgeCreateMenu[^>]*onCreateLibrary=\{onCreateLibrary\}/);
+  assert.match(panel, /<label><Search[\s\S]*\{createControl\}[\s\S]*<Settings/);
+  assert.doesNotMatch(panel, /knowledge-library-document-create/);
+  assert.match(workspace, /createSharedLibraryWithAssignments/);
+  assert.doesNotMatch(panel, /knowledge-page-collections|knowledge-tree-label/);
+  assert.doesNotMatch(styles, /\.knowledge-primary-scope-link/);
+  assert.match(styles, /\.knowledge-navigation-tabs/);
+  assert.match(styles, /\.knowledge-library-navigation \{[^}]*border: 0/);
+  assert.doesNotMatch(styles, /\.knowledge-tree-row:has\([^}]*box-shadow/);
   assert.match(createMenu, /document\.addEventListener\("pointerdown", dismissOutside\)/);
   assert.match(createMenu, /!details\.current\.contains\(target\)/);
   assert.match(createMenu, /event\.key !== "Escape"/);
@@ -135,11 +168,10 @@ test("library settings separate everyday configuration from manager-only ingesti
   assert.match(documents, /if \(!loadedOnce\.current\) setLoading\(true\)/);
   assert.match(styles, /\.knowledge-documents\.is-management \.knowledge-document-list \{[^}]*border-top: 0/);
   assert.match(workspace, /onBusyChange=\{setDocumentBusy\}/);
-  assert.match(workspace, /const blocked = busy \|\| sourceBusy \|\| documentBusy/);
+  assert.match(workspace, /const blocked = busy \|\| documentBusy/);
   assert.match(workspace, /settingsSection === "general"/);
   assert.match(workspace, /settingsSection === "members"/);
   assert.match(workspace, /settingsSection === "data"/);
-  assert.match(workspace, /settingsSection === "sources"/);
   assert.match(workspace, /settingsSection === "danger"/);
   assertLocalized(workspace, "知识库设置");
   assertLocalized(workspace, "危险操作");
@@ -195,14 +227,17 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.doesNotMatch(panel, /mode === "outline" \|\| mode === "activity"/);
   assert.match(panel, /has-inline-outline/);
   assert.match(styles, /\.knowledge-page-readable\.has-inline-outline > \.knowledge-page-outline/);
-  for (const tooltip of ["页内查找", "收藏页面", "订阅页面", "添加到快捷入口", "页面大纲", "AI 写作助手", "页面属性", "引用与反向链接", "知识关系图", "权限分析", "页面权限", "受控分享", "页面治理", "复制页面", "归档页面"]) {
+  for (const tooltip of ["页内查找", "添加到快捷入口", "页面大纲"]) {
     assertLocalized(pageToolbar, tooltip, `pure icon tool must expose a localized hover label: ${tooltip}`);
   }
-  assert.match(pageToolbar, /<Network size=\{15\}/);
-  assert.match(pageToolbar, /<ScanSearch size=\{15\}/);
-  assert.match(pageToolbar, /<UserRoundCog size=\{15\}/);
-  assert.match(pageToolbar, /props\.archived \? <ArchiveRestore size=\{15\} \/> : <Archive size=\{15\} \/>/);
-  assert.doesNotMatch(pageToolbar, /MoreHorizontal/);
+  assert.match(pageToolbar, /MenuProvider|MenuButton|MenuItem|MenuSeparator|Ellipsis|knowledge-page-actions-menu/);
+  for (const retainedMessageID of ["knowledge.auto.0e235da0a383c26c", "knowledge.auto.348c903d1b5d1b9c", "knowledge.auto.7ab258e99c1e9382"]) {
+    assert.match(pageToolbar, new RegExp(retainedMessageID.replaceAll(".", "\\.")), `retained overflow action must stay present: ${retainedMessageID}`);
+  }
+  for (const removedMessageID of ["knowledge.auto.2f9ff39566bb9bc8", "knowledge.auto.0c4ab1ae758a60c4", "knowledge.auto.fc6bb436b8caf08b"]) {
+    assert.doesNotMatch(pageToolbar, new RegExp(removedMessageID.replaceAll(".", "\\.")), `removed overflow action must stay absent: ${removedMessageID}`);
+  }
+  assert.doesNotMatch(pageToolbar, /onToggleFavorite|onToggleSubscription|onCopy|<Activity|<Bell|<Star|<Tags|<Link2|<Network|<ScanSearch|<Copy/);
   assert.match(panel, /mode === "shares"/);
   assertLocalized(panel, "只读解释指定用户为什么能或不能执行某个动作");
   assert.match(panel, /knowledge-page-management-panel/);
@@ -219,6 +254,9 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(styles, /\.knowledge-page-main\.is-scroll-frame > \.knowledge-page-feedback/);
   assert.match(styles, /\.knowledge-page-tools \.knowledge-toolbar-icon:hover::after/);
   assert.match(styles, /\.knowledge-page-tools \.knowledge-toolbar-icon:focus-visible::after/);
+  assert.match(styles, /\.knowledge-comment-drawer \{[^}]*font-family: Inter[^}]*font-size: 13px;[^}]*line-height: 1\.55;/);
+  assert.match(styles, /\.knowledge-mention-composer textarea \{[^}]*font: inherit;[^}]*font-size: 13px;/);
+  assert.match(styles, /\.knowledge-comment-drawer \.knowledge-checkbox \{[^}]*font-size: 12px;/);
   assert.match(panel, /getPageAccess/);
   assert.match(panel, /setPageAccess/);
   assert.match(panel, /previewPageMove/);
@@ -243,12 +281,14 @@ test("page collaboration and ACL UI expose bounded responsive states without bro
   assert.match(commentDrawer, /onFocusComment\(comment\)/);
   assert.match(blockNoteEditor, /getSelectedText\(\)/);
   assert.match(blockNoteEditor, /onCommentAnchor/);
-  assert.match(panel, /mode !== "read" && mode !== "outline" && mode !== "comments" && mode !== "activity"/);
+  assert.match(panel, /mode !== "read" && mode !== "outline" && mode !== "comments"/);
   assert.match(panel, /const showCommentMarkers = view\?\.page\.content_type === "document"/);
   assert.match(panel, /commentMarkers=\{showCommentMarkers \? commentMarkers : undefined\}/);
   assert.match(panel, /function openCommentThread[\s\S]*?setMode\("comments"\)/);
   assert.doesNotMatch(panel, /commentMarkers=\{mode === "comments"/);
   assert.match(commentDrawer, /knowledge-comment-drawer/);
+  assert.doesNotMatch(commentDrawer, /KnowledgePageTask|tasks:|onAssignTask|knowledge-comment-task/);
+  assert.doesNotMatch(panel, /assignCommentTask|onAssignTask|knowledge\.auto\.68184773c18acfc9/);
   assert.match(panel, /openCommentThread/);
   assert.match(blockNoteEditor, /knowledge-block-comment-anchor/);
   assert.match(blockNoteEditor, /knowledge-block-comment-marker/);
@@ -334,6 +374,7 @@ test("library workspace keeps backend resource types out of primary navigation",
   const pages = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const createMenu = await readFile(path.join(root, "src", "KnowledgeCreateMenu.tsx"), "utf8");
   const createDialog = await readFile(path.join(root, "src", "KnowledgeLibraryCreateDialog.tsx"), "utf8");
+  const accessSelector = await readFile(path.join(root, "src", "KnowledgeAccessSelector.tsx"), "utf8");
   const registry = await readFile(path.join(root, "src", "pageTypeRegistry.ts"), "utf8");
   const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.doesNotMatch(workspace, /aria-label="知识库工作区"/);
@@ -341,26 +382,22 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(workspace, /setLibraryDialog\("documents"\)/);
   assertLocalized(createMenu, "新增");
   assertLocalized(createMenu, "新增知识库");
-  assertLocalized(createMenu, "填写信息并创建团队知识库");
-  assertLocalized(createDialog, "新建团队知识库");
+  assertLocalized(createMenu, "创建后你将成为管理者");
+  assertLocalized(createDialog, "新增知识库");
   assertLocalized(createDialog, "知识库名称");
   assertLocalized(createDialog, "用途说明");
-  assert.match(createDialog, /getPrincipalDirectory/);
-  assertLocalized(createDialog, "企业组织与成员");
-  assert.match(createDialog, /toggleOrganization/);
-  assert.match(createDialog, /normalizeSelection/);
-  assert.match(createDialog, /hasSelectableDescendants/);
-  assert.match(createDialog, /compressedSelection/);
-  assert.match(createDialog, /snapshot\?\.current_user_id/);
-  assert.match(createDialog, /isCreator \|\| selectedMembers\.has/);
-  assert.match(createDialog, /disabled=\{busy \|\| isCreator\}/);
-  assertLocalized(createDialog, "创建者");
-  assertLocalized(createDialog, "管理员");
-  assert.match(createDialog, /role: "editor"/);
-  assertLocalized(createDialog, "新成员统一以编辑者加入");
-  assert.doesNotMatch(createDialog, /统一初始角色/);
-  assertLocalized(createDialog, "创建并授权成员");
-  assertLocalized(createDialog, "创建团队知识库");
+  assert.match(createDialog, /useState<"basic" \| "access">\("basic"\)/);
+  assert.match(createDialog, /KnowledgeAccessTabs/);
+  assert.match(createDialog, /KnowledgeAccessSelector/);
+  assert.match(createDialog, /defaultRole="editor"/);
+  assert.match(accessSelector, /getPrincipalDirectory/);
+  assert.match(accessSelector, /parsedEmails/);
+  assert.match(accessSelector, /searchPrincipals/);
+  assert.match(accessSelector, /knowledge-directory-tree/);
+  assert.match(accessSelector, /toggleOrganization/);
+  assert.doesNotMatch(accessSelector, /输入准确的组织 ID|verify_and_save_org_role/);
+  assertLocalized(createDialog, "下一步：授权");
+  assertLocalized(createDialog, "新增知识库");
   assert.match(createMenu, /pageTypeDefinitions\.filter/);
   assert.match(createMenu, /importPageTypes/);
   assertLocalized(createMenu, "上传文件");
@@ -370,14 +407,18 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(workspace, /createSharedLibrary/);
   assert.match(workspace, /KnowledgeLibraryCreateDialog/);
   assert.doesNotMatch(workspace, /name: "未命名知识库"/);
-  assert.match(workspace, /emptySharedLibraryPicker/);
+  assert.match(workspace, /libraryRailBranch/);
+  assert.match(workspace, /knowledge-scope-library-list/);
   assert.match(workspace, /client\.setMember\(value\.id, member\.principal\.user_id, member\.role, value\.revision/);
   assert.match(workspace, /client\.setOrganizationMember\(value\.id, organization\.organization\.organization_id, organization\.role, value\.revision/);
-  assert.match(workspace, /libraryKind === "personal" && value\.complete && value\.items\.length === 0/);
-  assert.match(workspace, /personalBootstrapClientID/);
+  assert.doesNotMatch(workspace, /libraryKind === "personal"/);
+  assert.doesNotMatch(workspace, /personalBootstrapClientID/);
   assert.doesNotMatch(workspace, /创建个人知识库/);
-  assertLocalized(workspace, "创建团队知识库并邀请相关成员");
-  assertLocalized(createMenu, "请先创建团队知识库");
+  assert.doesNotMatch(pages, /knowledge-recycle-bin-link/);
+  assert.match(pages, /knowledge-navigation-tabs/);
+  assert.match(workspace, /KnowledgeRecycleBinSettings/);
+  assertLocalized(workspace, "新增知识库");
+  assertLocalized(createMenu, "暂无可访问的知识库");
   assert.match(pages, /parent_page_id: parentPageID/);
   assert.match(pages, /content_type: contentType/);
   assert.match(pages, /content_type: "file"/);
@@ -413,12 +454,15 @@ test("file-page original download is a one-click browser download without a seco
   assertLocalized(filePage, "正在下载…");
   assertLocalized(filePage, "下载原文件");
   assert.match(filePage, /knowledge-file-page-summary/);
-  assert.match(filePage, /document\.sha256\.slice\(0, 12\)/);
+  assert.doesNotMatch(filePage, /document\.sha256|knowledge\.file\.checksum/);
 });
 
 test("file pages render the authorized original inline immediately without a card or preview dialog gate", async () => {
   const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
   const previewDialog = await readFile(path.join(root, "src", "FilePreviewDialog.tsx"), "utf8");
+  const presentationViewer = await readFile(path.join(root, "src", "viewers", "PresentationViewer.tsx"), "utf8");
+  const blobViewer = await readFile(path.join(root, "src", "viewers", "BlobViewer.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
   assert.match(filePage, /<FilePreview source=\{knowledgeDocumentPreviewSource\(client, document\)\}/);
   assert.doesNotMatch(filePage, /<FilePreviewDialog|setPreview|knowledge-file-page-icon|knowledge-file-page-details/);
   assert.match(previewDialog, /export function FilePreview\(/);
@@ -427,13 +471,22 @@ test("file pages render the authorized original inline immediately without a car
   }
   assert.match(filePage, /knowledgeDocumentPreviewSource\(client, document\)/);
   assert.match(filePage, /knowledgePageDocumentDownloadSource\(client, pageID, document\)/);
+  assert.match(presentationViewer, /import\("@web-ppt\/core"\)/, "PPTX files must be parsed from the original package instead of reduced to extracted text");
+  assert.match(presentationViewer, /renderSlideToSvg/, "PPTX files must render their slide layout");
+  assert.match(blobViewer, /readPreviewFile\(source,[\s\S]*?fallbackDownloadMaxBytes/, "authenticated media must fall back to an original-file Blob URL");
+  assert.match(blobViewer, /<video[\s\S]*?controls/);
+  assert.match(blobViewer, /<audio[\s\S]*?controls/);
+  assert.match(styles, /\.knowledge-media-viewer video \{[^}]*background: var\(--knowledge-slideshow-surface\)/, "posterless video uses a neutral media surface");
+  assert.doesNotMatch(styles, /\.knowledge-media-viewer video \{[^}]*background: var\(--knowledge-primary\)/, "product green is not a video fill");
 });
 
 test("file pages replace immutable originals through version upload instead of generic page editing", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const filePage = await readFile(path.join(root, "src", "KnowledgeFilePage.tsx"), "utf8");
   const toolbar = await readFile(path.join(root, "src", "page-workspace", "PageToolbar.tsx"), "utf8");
-  assert.match(panel, /canEdit=\{canWrite && view\.page\.content_type !== "file"\}/);
+  assert.match(panel, /canEdit=\{canWrite && view\.page\.state === "active"\} onEdit=\{view\.page\.content_type === "file" \? beginTitleEditing/);
+  assert.match(panel, /viewRef\.current\?\.page\.content_type === "file" && dirty\) void saveDraft\(\)/);
+  assert.match(panel, /if \(viewRef\.current\?\.page\.content_type === "file"\)[\s\S]*?filePageContent\(reference\.document_id, nextTitle\.trim\(\) \|\| reference\.title\)/);
   assert.match(panel, /async function replaceFilePage\(file: File\)/);
   assert.match(panel, /await client\.uploadDocument[\s\S]*?await client\.setPageAttachment[\s\S]*?await client\.savePageDraft/);
   assert.match(panel, /visibleFileContent = canWrite \? view\?\.draft\?\.body\.content/);
@@ -444,6 +497,12 @@ test("file pages replace immutable originals through version upload instead of g
   assert.match(filePage, /type="file"[\s\S]*?onReplace\(file\)/);
   assertLocalized(filePage, "上传新版本");
   assertLocalized(filePage, "重新上传");
+});
+
+test("long page titles cannot stretch the classification badge", async () => {
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+  assert.match(styles, /\.knowledge-classification \{[^}]*flex: 0 0 auto;[^}]*white-space: nowrap;/);
+  assert.match(styles, /\.knowledge-classification > svg \{[^}]*flex: 0 0 auto;/);
 });
 
 test("page search uses the authorized structured endpoint and opens canonical hit locations", async () => {
@@ -800,7 +859,7 @@ test("native application references are governed child pages instead of raw page
   assert.match(styles, /\.knowledge-reference-embed/);
 });
 
-test("personal page navigation is backend-owned and visible in the workspace", async () => {
+test("user page state remains backend-owned while the primary tree stays focused", async () => {
   const panel = await readFile(path.join(root, "src", "KnowledgePagesPanel.tsx"), "utf8");
   const types = await readFile(path.join(root, "src", "types.ts"), "utf8");
   const client = await readFile(path.join(root, "src", "client.ts"), "utf8");
@@ -815,12 +874,13 @@ test("personal page navigation is backend-owned and visible in the workspace", a
   assert.match(panel, /client\.recordPageView/);
   assert.match(panel, /client\.setPagePersonalState/);
   assertLocalized(panel, "快捷入口");
-  assertLocalized(panel, "最近访问");
-  assertLocalized(panel, "最近编辑");
-  assertLocalized(panel, "回收站");
+  assert.doesNotMatch(panel, /collectionBranch\("recent_views"/);
+  assert.doesNotMatch(panel, /knowledge-recycle-bin-link/);
+  assert.match(panel, /knowledge-navigation-tabs/);
   assert.doesNotMatch(panel, /showArchived/, "archive filtering must not remain a second recycle-bin interaction");
-  assert.match(styles, /\.knowledge-page-collections > button:hover/);
-  assert.match(styles, /\.knowledge-collection-list > button\[role="listitem"\]:hover/);
+  assert.match(styles, /\.knowledge-navigation-root:hover/);
+  assert.match(styles, /\.knowledge-navigation-children/);
+  assert.match(styles, /\.knowledge-recycle-bin-settings/);
 });
 
 test("shared page metadata and governance are backend-owned, typed, and editable in the page workspace", async () => {
@@ -982,9 +1042,8 @@ test("page workspace keeps focused surfaces and mention composition outside the 
   const mention = await readFile(path.join(root, "src", "page-workspace", "MentionComposer.tsx"), "utf8");
   const comments = await readFile(path.join(root, "src", "page-workspace", "CommentDrawer.tsx"), "utf8");
   const suggestions = await readFile(path.join(root, "src", "page-workspace", "SuggestionDrawer.tsx"), "utf8");
-  const activity = await readFile(path.join(root, "src", "page-workspace", "PageActivityPanel.tsx"), "utf8");
 
-  for (const component of ["CommentDrawer", "SuggestionDrawer", "PageHistoryPanel", "PageActivityPanel", "PageOutline"]) assert.match(panel, new RegExp(`<${component}`));
+  for (const component of ["CommentDrawer", "SuggestionDrawer", "PageHistoryPanel", "PageOutline"]) assert.match(panel, new RegExp(`<${component}`));
   assert.match(comments, /<MentionComposer/);
   assert.match(suggestions, /<MentionComposer/);
   assert.match(mention, /textarea/);
@@ -994,8 +1053,7 @@ test("page workspace keeps focused surfaces and mention composition outside the 
   assert.doesNotMatch(suggestions, /<textarea/);
   assert.doesNotMatch(comments, /按姓名或邮箱搜索/);
   assert.doesNotMatch(suggestions, /按姓名或邮箱搜索/);
-  assert.match(activity, /knowledge-page-mode-surface/);
-  assert.doesNotMatch(panel, /mode === "activity" \? " has-side-panel"/);
+  assert.doesNotMatch(panel, /PageActivityPanel|mode === "activity"/);
 });
 
 test("host selection integration is opt-in, bounded, and authorizes outbound content", async () => {
@@ -1040,10 +1098,8 @@ test("page attachment and editor file uploads enter the collaboration document b
 test("Office worker stays independent from the React and Lingui runtime", async () => {
 	const worker = await readFile(path.join(root, "src", "viewers", "office-worker.ts"), "utf8");
 	const errors = await readFile(path.join(root, "src", "viewers", "office-worker-errors.ts"), "utf8");
-	const presentation = await readFile(path.join(root, "src", "viewers", "presentation.ts"), "utf8");
 	const executableErrors = errors.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 	assert.doesNotMatch(worker, /i18n\/runtime|\bkt\(/);
-	assert.doesNotMatch(presentation, /i18n\/runtime|\bktf?\(/);
 	assert.doesNotMatch(executableErrors, /@lingui|react|process\.env/);
 	assert.match(worker, /error_code/);
 });

@@ -49,7 +49,7 @@ func TestKnowledgeDocumentRetryResetsOnlySafeStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "retry-library", Kind: "personal", Name: "Retry"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "retry-library", Kind: "shared", Name: "Retry"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestKnowledgeDocumentRetryRejectsQuarantinedThreat(t *testing.T) {
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "rejected-library", Kind: "personal", Name: "Rejected"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "rejected-library", Kind: "shared", Name: "Rejected"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestStoreOriginalAfterProviderLimitChangeRejectsStartedIndexAndPageProjecti
 				t.Fatal(err)
 			}
 			actor := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-			library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "storage-limit", Kind: "personal", Name: "Storage limit"}, actor)
+			library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "storage-limit", Kind: "shared", Name: "Storage limit"}, actor)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +173,7 @@ func TestKnowledgeDocumentPutRecoveryIsDurablyLimitedToOneAutomaticReplay(t *tes
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "put-recovery-library", Kind: "personal", Name: "Put recovery"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "put-recovery-library", Kind: "shared", Name: "Put recovery"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestUnconfirmedPutDeleteRecordsRecoveryIntentWithoutIndexObservation(t *tes
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "uncertain-delete-library", Kind: "personal", Name: "Uncertain delete"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "uncertain-delete-library", Kind: "shared", Name: "Uncertain delete"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -79,7 +79,7 @@ export declare function canonicalWhiteboardContent(elements: readonly unknown[],
 export declare function whiteboardScene(content: KnowledgeWhiteboardContent): {
     elements: {
         id: string;
-        type: "ellipse" | "text" | "image" | "line" | "rectangle" | "diamond" | "arrow" | "freedraw" | "frame";
+        type: "ellipse" | "text" | "image" | "line" | "frame" | "rectangle" | "diamond" | "arrow" | "freedraw";
         x: number;
         y: number;
         width: number;

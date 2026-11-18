@@ -92,7 +92,7 @@ func TestEnsureSchemaKeepsNormalizedKnowledgeTablesSharedOrIsolatedByDeployment(
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice"}
 	first := NewStore(backend)
 	second := NewStore(backend)
-	library, err := first.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "shared", Kind: "personal", Name: "Shared physical row"}, authority)
+	library, err := first.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "shared", Kind: "shared", Name: "Shared physical row"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -201,7 +201,7 @@ func TestRemoteKnowledgeOwnsDatabaseAndSurvivesRestart(t *testing.T) {
 		return service, httpServer, client
 	}
 	service, httpServer, client := open()
-	library, err := client.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "library-a", Kind: "personal", Name: "Independent"}, authority)
+	library, err := client.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "library-a", Kind: "shared", Name: "Independent"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

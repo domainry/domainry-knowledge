@@ -35,7 +35,7 @@ export type KnowledgeDocumentSelectionSnapshot = {
 export type KnowledgeSelectionReference = {
   version: typeof KNOWLEDGE_HOST_PROTOCOL_VERSION;
   libraryId: string;
-  libraryKind: "personal" | "shared";
+  libraryKind: "shared";
   pageId: string;
   title: string;
   contentType: "document";
@@ -174,7 +174,7 @@ export function parseKnowledgeSelectionReference(value: unknown): KnowledgeSelec
   const anchor = record(input?.anchor);
   if (!input || !anchor || input.version !== KNOWLEDGE_HOST_PROTOCOL_VERSION) return null;
   if (!libraryIdPattern.test(String(input.libraryId)) || !pageIdPattern.test(String(input.pageId))) return null;
-  if (input.libraryKind !== "personal" && input.libraryKind !== "shared") return null;
+  if (input.libraryKind !== "shared") return null;
   if (input.contentType !== "document") return null;
   if (input.source !== "draft" && input.source !== "published") return null;
   const pageRevision = positiveInteger(input.pageRevision);

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, RefreshCw, X } from "lucide-react";
 import { Button, defaultErrorMessage } from "./components.tsx";
-import { canPreviewFilename, downloadFile, previewKind, previewOfficeMaxBytes, readPreviewFile, readPreviewText, type PreviewFile, type PreviewText } from "./file-preview.ts";
+import { canPreviewFilename, downloadFile, previewBinaryMaxBytes, previewKind, previewOfficeMaxBytes, readPreviewFile, readPreviewText, type PreviewFile, type PreviewText } from "./file-preview.ts";
 import type { FilePreviewSource } from "./types.ts";
 import { ImageViewer, MediaViewer, PDFViewer } from "./viewers/BlobViewer.tsx";
 import { SpreadsheetViewer } from "./viewers/SpreadsheetViewer.tsx";
@@ -41,7 +41,7 @@ export function FilePreview({ source, formatError = defaultErrorMessage, refresh
     if (kind === "pdf" || kind === "audio" || kind === "video") return () => abort.abort();
     const operation = kind === "text"
       ? readPreviewText(source, signal).then(setText)
-      : readPreviewFile(source, signal, kind === "word" || kind === "presentation" || kind === "spreadsheet" ? previewOfficeMaxBytes : undefined).then(setFile);
+      : readPreviewFile(source, signal, kind === "presentation" ? previewBinaryMaxBytes : kind === "word" || kind === "spreadsheet" ? previewOfficeMaxBytes : undefined).then(setFile);
     void operation.catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
     return () => abort.abort();
   }, [source.identity, formatError, kind, refresh, supported]);

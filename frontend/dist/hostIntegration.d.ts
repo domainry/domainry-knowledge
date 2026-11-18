@@ -17,7 +17,7 @@ export type KnowledgeDocumentSelectionSnapshot = {
 export type KnowledgeSelectionReference = {
     version: typeof KNOWLEDGE_HOST_PROTOCOL_VERSION;
     libraryId: string;
-    libraryKind: "personal" | "shared";
+    libraryKind: "shared";
     pageId: string;
     title: string;
     contentType: "document";

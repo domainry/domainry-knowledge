@@ -1,6 +1,5 @@
 export type KnowledgeDeepLink = {
     libraryID: string;
-    libraryKind: "personal" | "shared";
     pageID: string;
     blockID?: string;
     mode: "read" | "edit";

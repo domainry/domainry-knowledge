@@ -12,8 +12,6 @@ export const officeWorkerErrors = {
   worksheetTooLarge: "knowledge.auto.55c85d93fc5e34ac",
   cellsTooMany: "knowledge.auto.5bee4cdb427cff1d",
   cellAddressInvalid: "knowledge.auto.709a2e4b711558dc",
-	presentationCountInvalid: "knowledge.auto.6a2a8bf8083cdf60",
-	presentationTooLarge: "knowledge.auto.989c40af9fa37547",
   unknown: "knowledge.auto.9412956e890013f9",
 } as const satisfies Record<string, KnowledgeMessageID>;
 

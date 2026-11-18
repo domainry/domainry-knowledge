@@ -3,7 +3,7 @@ import ExcelJS from "exceljs";
 import { format } from "numfmt";
 import type { DisplayCell, DisplaySheet } from "./office-types.ts";
 import { officeWorkerErrors, type OfficeWorkerErrorCode } from "./office-worker-errors.ts";
-import { readPresentation } from "./presentation.ts";
+import { normalizeSpreadsheetOoxml } from "./spreadsheet-ooxml.ts";
 
 class OfficeWorkerError extends Error {
   constructor(readonly code: OfficeWorkerErrorCode) {
@@ -26,12 +26,21 @@ function checkArchive(data: Uint8Array, kind: string) {
   });
   unzip.register(UnzipInflate);
   for (let offset = 0; offset < data.length; offset += 16_384) unzip.push(data.subarray(offset, offset + 16_384), offset + 16_384 >= data.length);
-  const required = kind === "xlsx" ? "xl/workbook.xml" : kind === "pptx" ? "ppt/presentation.xml" : "word/document.xml";
+  const required = kind === "xlsx" ? "xl/workbook.xml" : "word/document.xml";
   if (!names.has("[Content_Types].xml") || !names.has(required)) throw new OfficeWorkerError(officeWorkerErrors.archiveInvalid);
 }
 
 function color(value?: Partial<ExcelJS.Color>) {
   return value?.argb && /^[a-f\d]{8}$/i.test(value.argb) ? `#${value.argb.slice(2)}` : undefined;
+}
+
+function border(value?: { style?: string; color?: Partial<ExcelJS.Color> }) {
+  if (!value?.style) return undefined;
+  const width = value.style === "medium" || value.style.startsWith("medium") ? 2 : value.style === "thick" || value.style === "double" ? 3 : 1;
+  const style = value.style === "double" ? "double"
+    : value.style.includes("dash") ? "dashed"
+    : value.style.includes("dot") || value.style === "hair" ? "dotted" : "solid";
+  return `${width}px ${style} ${color(value.color) || "#d6d9d7"}`;
 }
 
 function displayCell(cell: ExcelJS.Cell): DisplayCell {
@@ -49,8 +58,9 @@ function displayCell(cell: ExcelJS.Cell): DisplayCell {
     : typeof value === "object" ? ("richText" in value ? value.richText.map(part => part.text).join("") : "text" in value ? value.text : "error" in value ? value.error : "")
     : typeof value === "number" ? format(cell.numFmt || "General", value) : String(value);
   if (text.length > 32_768) throw new OfficeWorkerError(officeWorkerErrors.cellTooLong);
-  const font = cell.font, alignment = cell.alignment, fill = cell.fill;
+  const font = cell.font, alignment = cell.alignment, fill = cell.fill, borders = cell.border;
   return { row: Number(cell.row), col: Number(cell.col), text, formula, style: {
+    fontFamily: font?.name || undefined,
     fontWeight: font?.bold ? "bold" : undefined,
     fontStyle: font?.italic ? "italic" : undefined,
     textDecoration: font?.underline ? "underline" : font?.strike ? "line-through" : undefined,
@@ -60,6 +70,10 @@ function displayCell(cell: ExcelJS.Cell): DisplayCell {
     textAlign: alignment?.horizontal === "center" || alignment?.horizontal === "right" ? alignment.horizontal : typeof value === "number" ? "right" : "left",
     verticalAlign: alignment?.vertical === "middle" || alignment?.vertical === "bottom" ? alignment.vertical : "top",
     whiteSpace: alignment?.wrapText ? "pre-wrap" : "pre",
+    borderTop: border(borders?.top),
+    borderRight: border(borders?.right),
+    borderBottom: border(borders?.bottom),
+    borderLeft: border(borders?.left),
   } };
 }
 
@@ -69,7 +83,7 @@ async function readWorkbook(data: ArrayBuffer): Promise<DisplaySheet[]> {
   if (workbook.worksheets.length > 64) throw new OfficeWorkerError(officeWorkerErrors.worksheetsTooMany);
   let count = 0;
   return workbook.worksheets.filter(sheet => sheet.state === "visible").map(sheet => {
-    if (sheet.rowCount > 100_000 || sheet.columnCount > 4096) throw new OfficeWorkerError(officeWorkerErrors.worksheetTooLarge);
+    if (sheet.rowCount > 100_000 || sheet.columnCount > 4096 || sheet.rowCount * sheet.columnCount > 250_000) throw new OfficeWorkerError(officeWorkerErrors.worksheetTooLarge);
     const result: DisplaySheet = { name: sheet.name, rows: sheet.rowCount, cols: sheet.columnCount, cells: [], merges: [], widths: {}, heights: {}, hiddenRows: [], hiddenCols: [] };
     sheet.eachRow(row => {
       if (row.hidden) result.hiddenRows.push(row.number);
@@ -98,12 +112,12 @@ async function readWorkbook(data: ArrayBuffer): Promise<DisplaySheet[]> {
 
 self.onmessage = async event => {
   try {
-    const { data, kind } = event.data as { data: ArrayBuffer; kind: "docx" | "xlsx" | "pptx" };
-    checkArchive(new Uint8Array(data), kind);
-    self.postMessage(kind === "xlsx" ? { sheets: await readWorkbook(data) } : kind === "pptx" ? { slides: readPresentation(data) } : {});
+    const { data, kind } = event.data as { data: ArrayBuffer; kind: "docx" | "xlsx" };
+    const bytes = new Uint8Array(data);
+    checkArchive(bytes, kind);
+    const workbookData = kind === "xlsx" ? normalizeSpreadsheetOoxml(bytes) : bytes;
+    self.postMessage(kind === "xlsx" ? { sheets: await readWorkbook(workbookData.buffer.slice(workbookData.byteOffset, workbookData.byteOffset + workbookData.byteLength) as ArrayBuffer) } : {});
   } catch (error) {
-		const message = error instanceof Error ? error.message : "";
-		const presentationError = message === officeWorkerErrors.presentationCountInvalid || message === officeWorkerErrors.presentationTooLarge ? message : "";
-    self.postMessage({ error_code: error instanceof OfficeWorkerError ? error.code : presentationError || officeWorkerErrors.unknown });
+    self.postMessage({ error_code: error instanceof OfficeWorkerError ? error.code : officeWorkerErrors.unknown });
   }
 };

@@ -1,12 +1,11 @@
 import { kt, ktf } from "../i18n/runtime.ts";
-import { useEffect, useMemo, useState } from "react";
-import { Button, Select } from "../components.tsx";
+import { ChevronDown, ChevronUp, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import type { FilePreviewLocation } from "../types.ts";
 import { loadOffice } from "./office-load.ts";
 import type { DisplaySheet } from "./office-types.ts";
-
-const rowsPerPage = 50;
-const columnsPerPage = 16;
+import { PreviewToolbar, usePreviewFullscreen } from "./PreviewToolbar.tsx";
 
 function columnName(column: number) {
   let name = "";
@@ -14,20 +13,65 @@ function columnName(column: number) {
   return name;
 }
 
+function parseAddress(value?: string) {
+  const match = /^([A-Z]{1,3})([1-9][0-9]{0,5})$/.exec((value || "").toUpperCase());
+  if (!match) return undefined;
+  return {
+    column: [...match[1]].reduce((result, character) => result * 26 + character.charCodeAt(0) - 64, 0),
+    row: Number(match[2]),
+  };
+}
+
 export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: FilePreviewLocation }) {
+  const root = useRef<HTMLDivElement>(null);
   const [sheets, setSheets] = useState<DisplaySheet[]>([]);
-  const [sheetIndex, setSheetIndex] = useState(0), [rowPage, setRowPage] = useState(0), [columnPage, setColumnPage] = useState(0);
-  const [address, setAddress] = useState(location?.cell || ""), [selected, setSelected] = useState(""), [error, setError] = useState("");
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const [selected, setSelected] = useState("");
+  const [error, setError] = useState("");
+  const [query, setQuery] = useState(""), [matchIndex, setMatchIndex] = useState(0);
+  const [nonEmptyOnly, setNonEmptyOnly] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const { fullscreen, toggleFullscreen } = usePreviewFullscreen(root);
   const sheet = sheets[sheetIndex];
   const cells = useMemo(() => new Map(sheet?.cells.map(cell => [`${cell.row}:${cell.col}`, cell])), [sheet]);
+  const hiddenRows = useMemo(() => new Set(sheet?.hiddenRows || []), [sheet]);
+  const hiddenColumns = useMemo(() => new Set(sheet?.hiddenCols || []), [sheet]);
+  const nonEmptyRows = useMemo(() => new Set(sheet?.cells.filter(cell => cell.text || cell.formula).map(cell => cell.row) || []), [sheet]);
+  const rows = useMemo(() => sheet ? Array.from({ length: sheet.rows }, (_, index) => index + 1).filter(row => !hiddenRows.has(row) && (!nonEmptyOnly || nonEmptyRows.has(row))) : [], [hiddenRows, nonEmptyOnly, nonEmptyRows, sheet]);
+  const columns = useMemo(() => sheet ? Array.from({ length: sheet.cols }, (_, index) => index + 1).filter(column => !hiddenColumns.has(column)) : [], [hiddenColumns, sheet]);
+  const spans = useMemo(() => {
+    const result = new Map<string, { master: string; rowSpan: number; colSpan: number } | null>();
+    for (const merge of sheet?.merges || []) {
+      const visibleRows = rows.filter(row => row >= merge.top && row <= merge.bottom);
+      const visibleColumns = columns.filter(column => column >= merge.left && column <= merge.right);
+      for (const row of visibleRows) for (const column of visibleColumns) {
+        result.set(`${row}:${column}`, row === visibleRows[0] && column === visibleColumns[0]
+          ? { master: `${merge.top}:${merge.left}`, rowSpan: visibleRows.length, colSpan: visibleColumns.length }
+          : null);
+      }
+    }
+    return result;
+  }, [columns, rows, sheet]);
+  const searchMatches = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleLowerCase();
+    if (!sheet || !normalizedQuery) return [];
+    const result: string[] = [], seen = new Set<string>();
+    for (const cell of sheet.cells) {
+      if (hiddenRows.has(cell.row) || hiddenColumns.has(cell.col)) continue;
+      if (!`${cell.text}\n${cell.formula || ""}`.toLocaleLowerCase().includes(normalizedQuery)) continue;
+      const merge = sheet.merges.find(item => cell.row >= item.top && cell.row <= item.bottom && cell.col >= item.left && cell.col <= item.right);
+      const key = merge ? `${merge.top}:${merge.left}` : `${cell.row}:${cell.col}`;
+      if (!seen.has(key)) { seen.add(key); result.push(key); }
+    }
+    return result;
+  }, [hiddenColumns, hiddenRows, query, sheet]);
+  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
 
-  function jump(value: string) {
-    const match = /^([A-Z]{1,3})([1-9][0-9]{0,5})$/.exec(value.toUpperCase());
-    if (!match || !sheet) { setError(kt("knowledge.auto.b25de26f3bbeb88f")); return; }
-    const column = [...match[1]].reduce((result, character) => result * 26 + character.charCodeAt(0) - 64, 0), row = Number(match[2]);
-    if (row > sheet.rows || column > sheet.cols) { setError(kt("knowledge.auto.230a5daf47e1ebd1")); return; }
-    setError(""); setRowPage(Math.floor((row - 1) / rowsPerPage)); setColumnPage(Math.floor((column - 1) / columnsPerPage)); setSelected(`${row}:${column}`);
-  }
+  const locateCell = useCallback((key: string) => {
+    setSelected(key);
+    requestAnimationFrame(() => scrollRef.current?.querySelector<HTMLElement>(`[data-cell="${key}"]`)?.scrollIntoView({ block: "center", inline: "center" }));
+  }, []);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -36,35 +80,99 @@ export function SpreadsheetViewer({ blob, location }: { blob: Blob; location?: F
       const next = result.sheets || [];
       setSheets(next);
       const requested = next.findIndex(item => item.name === location?.sheet);
-      if (requested >= 0) setSheetIndex(requested);
-    }).catch(failure => { if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.95a8bd308bcb4562")); });
+      setSheetIndex(requested >= 0 ? requested : 0);
+      setSelected("");
+      setQuery("");
+      setMatchIndex(0);
+      setZoom(1);
+      setError("");
+    }).catch(failure => {
+      if (!abort.signal.aborted) setError(failure instanceof Error ? failure.message : kt("knowledge.auto.95a8bd308bcb4562"));
+    });
     return () => abort.abort();
   }, [blob, location?.sheet]);
 
   useEffect(() => {
-    if (!sheet || sheet.name !== location?.sheet) return;
-    if (location.cell) jump(location.cell);
-    else if (location.row && location.row <= sheet.rows) setRowPage(Math.floor((location.row - 1) / rowsPerPage));
-  }, [sheet, location?.cell, location?.row, location?.sheet]);
+    if (!sheet || (location?.sheet && sheet.name !== location.sheet)) return;
+    const address = parseAddress(location?.cell);
+    const row = address?.row || location?.row;
+    const column = address?.column || 1;
+    if (!row || row > sheet.rows || column > sheet.cols) return;
+    const merge = sheet.merges.find(item => row >= item.top && row <= item.bottom && column >= item.left && column <= item.right);
+    const target = merge ? `${merge.top}:${merge.left}` : `${row}:${column}`;
+    locateCell(target);
+  }, [locateCell, location?.cell, location?.row, location?.sheet, sheet]);
 
-  const rows = sheet ? Array.from({ length: Math.min(rowsPerPage, Math.max(0, sheet.rows - rowPage * rowsPerPage)) }, (_, index) => rowPage * rowsPerPage + index + 1).filter(row => !sheet.hiddenRows.includes(row)) : [];
-  const columns = sheet ? Array.from({ length: Math.min(columnsPerPage, Math.max(0, sheet.cols - columnPage * columnsPerPage)) }, (_, index) => columnPage * columnsPerPage + index + 1).filter(column => !sheet.hiddenCols.includes(column)) : [];
-  const spans = new Map<string, { master: string; rowSpan: number; colSpan: number } | null>();
-  for (const merge of sheet?.merges || []) {
-    const visibleRows = rows.filter(row => row >= merge.top && row <= merge.bottom), visibleColumns = columns.filter(column => column >= merge.left && column <= merge.right);
-    for (const row of visibleRows) for (const column of visibleColumns) spans.set(`${row}:${column}`, row === visibleRows[0] && column === visibleColumns[0] ? { master: `${merge.top}:${merge.left}`, rowSpan: visibleRows.length, colSpan: visibleColumns.length } : null);
-  }
-  const current = cells.get(selected);
+  useEffect(() => {
+    setMatchIndex(0);
+    if (searchMatches[0]) locateCell(searchMatches[0]);
+  }, [locateCell, searchMatches]);
 
-  return <div className="knowledge-file-viewer" data-static-ui-list>
+  const moveToMatch = (offset: number) => {
+    if (searchMatches.length === 0) return;
+    const nextIndex = (matchIndex + offset + searchMatches.length) % searchMatches.length;
+    setMatchIndex(nextIndex);
+    locateCell(searchMatches[nextIndex]);
+  };
+
+  return <div ref={root} className="knowledge-file-viewer knowledge-spreadsheet-viewer" data-static-ui-list>
     {error && <p role="alert" className="knowledge-error">{error}</p>}
     {!sheet && !error && <p role="status">{kt("knowledge.auto.8a3d46c1ed6a9c3a")}</p>}
     {sheet && <>
-      <div className="knowledge-file-toolbar"><label>{kt("knowledge.auto.b02781ee06c6587e")}<Select aria-label={kt("knowledge.auto.b02781ee06c6587e")} value={sheetIndex} onChange={event => { setSheetIndex(Number(event.target.value)); setRowPage(0); setColumnPage(0); setSelected(""); setError(""); }}>{sheets.map((item, index) => <option value={index} key={index}>{item.name}</option>)}</Select></label><form onSubmit={event => { event.preventDefault(); jump(address); }}><label>{kt("knowledge.auto.14f27de51c56bdd6")}<input value={address} onChange={event => setAddress(event.target.value)} placeholder="B12" maxLength={10} /></label><Button type="submit">{kt("knowledge.auto.49726f09c8123a40")}</Button></form></div>
-      <p className="knowledge-subtle">{sheet.rows} {kt("knowledge.auto.5cc8055e634793b4")}{sheet.cols} {kt("knowledge.auto.6e26093f0bd530da")}</p>
-      {current && <p className="knowledge-spreadsheet-value"><strong>{columnName(current.col)}{current.row}</strong> {current.formula ? `=${current.formula} → ` : ""}{current.text}</p>}
-      <div className="knowledge-sheet-scroll"><table aria-label={ktf("knowledge.auto.c26834877dfd9070", { value0: sheet.name })}><colgroup><col style={{ width: 50 }} />{columns.map(column => <col key={column} style={{ width: sheet.widths[column] || 110 }} />)}</colgroup><thead><tr><th scope="col">{kt("knowledge.auto.4cc7b00050cb1c21")}</th>{columns.map(column => <th key={column} scope="col">{columnName(column)}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row} style={{ height: sheet.heights[row] }}><th scope="row">{row}</th>{columns.map(column => { const key = `${row}:${column}`, span = spans.get(key); if (span === null) return null; const cell = cells.get(span?.master || key); return <td key={column} rowSpan={span?.rowSpan} colSpan={span?.colSpan} style={cell?.style} data-selected={selected === (span?.master || key)} onClick={() => { setSelected(span?.master || key); setAddress(`${columnName(cell?.col || column)}${cell?.row || row}`); }}>{cell?.text || ""}</td>; })}</tr>)}</tbody></table></div>
-      <nav className="knowledge-file-toolbar" aria-label={kt("knowledge.auto.5b62687797a4b97d")} data-static-ui-pagination><Button disabled={rowPage === 0} onClick={() => setRowPage(value => value - 1)}>{kt("knowledge.auto.9a45cd4d9d8c3ddb")}</Button><span>{kt("knowledge.auto.af50a0fe2a50a3d1")}{rowPage + 1} / {Math.max(1, Math.ceil(sheet.rows / rowsPerPage))} {kt("knowledge.auto.d24d3c99460c7e3a")}</span><Button disabled={(rowPage + 1) * rowsPerPage >= sheet.rows} onClick={() => setRowPage(value => value + 1)}>{kt("knowledge.auto.e8e8277bfd84d507")}</Button><Button disabled={columnPage === 0} onClick={() => setColumnPage(value => value - 1)}>{kt("knowledge.auto.1026ce594c4b4bd5")}</Button><span>{columnName(columnPage * columnsPerPage + 1)}–{columnName(Math.max(1, Math.min(sheet.cols, (columnPage + 1) * columnsPerPage)))}</span><Button disabled={(columnPage + 1) * columnsPerPage >= sheet.cols} onClick={() => setColumnPage(value => value + 1)}>{kt("knowledge.auto.d787fa5af4f3ea9e")}</Button></nav>
+      <PreviewToolbar
+        fullscreen={fullscreen}
+        label={ktf("knowledge.auto.c26834877dfd9070", { value0: sheet.name })}
+        maxZoom={2}
+        minZoom={.5}
+        onFullscreen={() => void toggleFullscreen()}
+        onReset={() => setZoom(1)}
+        onZoomChange={setZoom}
+        status={<span>{sheet.rows} × {sheet.cols}{query.trim() ? ` · ${searchMatches.length ? matchIndex + 1 : 0} / ${searchMatches.length}` : ""}</span>}
+        zoom={zoom}
+        zoomStep={.1}
+      >
+        <form className="knowledge-sheet-search" role="search" onSubmit={event => { event.preventDefault(); moveToMatch(searchMatches.length > 1 ? 1 : 0); }}>
+          <Search size={14} aria-hidden="true" />
+          <input aria-label={kt("knowledge.auto.44ce7ae909bbb28b")} placeholder={kt("knowledge.auto.44ce7ae909bbb28b")} value={query} onChange={event => setQuery(event.target.value)} />
+          <button type="button" aria-label={kt("knowledge.auto.c9b9ae7a61444ab7")} title={kt("knowledge.auto.c9b9ae7a61444ab7")} disabled={searchMatches.length === 0} onClick={() => moveToMatch(-1)}><ChevronUp size={15} /></button>
+          <button type="submit" aria-label={kt("knowledge.auto.8a8542f6964852dc")} title={kt("knowledge.auto.8a8542f6964852dc")} disabled={searchMatches.length === 0}><ChevronDown size={15} /></button>
+        </form>
+        <label className="knowledge-sheet-nonempty-filter" title="只显示包含内容的行"><input type="checkbox" checked={nonEmptyOnly} onChange={event => setNonEmptyOnly(event.target.checked)} /><span>只看非空行</span></label>
+      </PreviewToolbar>
+      <div ref={scrollRef} className="knowledge-sheet-scroll">
+        <table className="knowledge-sheet-zoom" aria-label={ktf("knowledge.auto.c26834877dfd9070", { value0: sheet.name })} style={{ "--knowledge-sheet-zoom": zoom } as CSSProperties}>
+          <colgroup><col className="knowledge-sheet-row-number-column" />{columns.map(column => <col key={column} style={{ width: sheet.widths[column] || 103 }} />)}</colgroup>
+          <thead><tr><th aria-hidden="true" />{columns.map(column => <th key={column} scope="col">{columnName(column)}</th>)}</tr></thead>
+          <tbody>{rows.map(row => <tr key={row} style={{ height: sheet.heights[row] }}>
+            <th scope="row">{row}</th>
+            {columns.map(column => {
+              const key = `${row}:${column}`, span = spans.get(key);
+              if (span === null) return null;
+              const master = span?.master || key, cell = cells.get(master);
+              return <td
+                key={column}
+                data-cell={master}
+                data-match={searchMatchSet.has(master) || undefined}
+                data-active-match={searchMatchSet.has(master) && selected === master || undefined}
+                data-selected={selected === master}
+                rowSpan={span?.rowSpan}
+                colSpan={span?.colSpan}
+                style={cell?.style}
+                title={cell?.text || undefined}
+                onClick={() => setSelected(master)}
+              >{cell?.text || ""}</td>;
+            })}
+          </tr>)}</tbody>
+        </table>
+      </div>
+      <nav className="knowledge-sheet-tabs" aria-label={kt("knowledge.auto.b02781ee06c6587e")}>
+        {sheets.map((item, index) => <button
+          key={`${item.name}:${index}`}
+          type="button"
+          aria-current={index === sheetIndex ? "page" : undefined}
+          onClick={() => { setSheetIndex(index); setSelected(""); setQuery(""); setMatchIndex(0); scrollRef.current?.scrollTo({ top: 0, left: 0 }); }}
+        >{item.name}</button>)}
+      </nav>
     </>}
   </div>;
 }

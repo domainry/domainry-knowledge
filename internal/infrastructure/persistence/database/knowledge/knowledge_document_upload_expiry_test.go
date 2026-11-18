@@ -10,7 +10,7 @@ import (
 
 func reserveUploadingDocument(t *testing.T, store *Store, client string, authority agentsdk.Authority) persistence.KnowledgeDocumentRecord {
 	t.Helper()
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: client + "-library", Kind: "personal", Name: "Uploads"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: client + "-library", Kind: "shared", Name: "Uploads"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

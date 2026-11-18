@@ -13,7 +13,7 @@ export type KnowledgeWorkspaceProps = {
     hostIntegration?: KnowledgeHostIntegration;
 };
 export declare function KnowledgeWorkspace({ client, currentUserID, formatError, headerSearchHost, showHeaderSearch, theme, locale, hostIntegration }: KnowledgeWorkspaceProps): import("react").JSX.Element;
-export declare function KnowledgeLibraryManager({ client, currentUserID, formatError, initialLibraryID, initialPageID, initialBlockID, initialPageMode, libraryKind, locale, scopeTabs, searchQuery, searchRevision, hostIntegration }: {
+export declare function KnowledgeLibraryManager({ client, currentUserID, formatError, initialLibraryID, initialPageID, initialBlockID, initialPageMode, locale, scopeTabs, navigationQuery, onNavigationQueryChange, searchQuery, searchRevision, hostIntegration }: {
     client: KnowledgeClient;
     currentUserID?: string;
     formatError?: (error: unknown) => string;
@@ -21,9 +21,10 @@ export declare function KnowledgeLibraryManager({ client, currentUserID, formatE
     initialPageID?: string;
     initialBlockID?: string;
     initialPageMode?: "read" | "edit";
-    libraryKind?: "personal" | "shared";
     locale?: KnowledgeHostLocale;
-    scopeTabs?: ReactNode;
+    scopeTabs?: (createControl?: ReactNode, branchContent?: ReactNode, libraryCreateControl?: ReactNode) => ReactNode;
+    navigationQuery?: string;
+    onNavigationQueryChange?: (query: string) => void;
     searchQuery?: string;
     searchRevision?: number;
     hostIntegration?: KnowledgeHostIntegration;

@@ -83,11 +83,11 @@ func TestKnowledgeWorkspaceLibrariesListsMetadataWithoutInventingMembership(t *t
 	store, _ := openSubjectKnowledgeStore(t)
 	alice := agentsdk.Authority{Known: true, RuntimeID: "catalog-runtime", WorkspaceID: "catalog-workspace", UserID: "alice"}
 	bob := agentsdk.Authority{Known: true, RuntimeID: "catalog-runtime", WorkspaceID: "catalog-workspace", UserID: "bob"}
-	first, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-alice", Kind: "personal", Name: "Alice personal"}, alice)
+	first, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-alice", Kind: "shared", Name: "Alice library"}, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-bob", Kind: "shared", Name: "Bob shared"}, bob)
+	second, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "catalog-bob", Kind: "shared", Name: "Bob library"}, bob)
 	if err != nil {
 		t.Fatal(err)
 	}

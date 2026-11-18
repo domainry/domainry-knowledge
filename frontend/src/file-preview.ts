@@ -140,6 +140,7 @@ export function knowledgeDocumentPreviewSource(client: KnowledgeClient, document
     identity: `knowledge:${document.library_id}:${document.id}:${document.revision}:${document.bytes}:${document.sha256}`,
     file: { filename: document.filename, bytes: document.bytes, sha256: document.sha256 },
     streamURL: client.documentContentURL?.(document.library_id, document.id),
+    openStreamURL: client.createDocumentStreamURL ? signal => client.createDocumentStreamURL!(document.library_id, document.id, signal) : undefined,
     async read(request) {
       const response = await client.readDocumentContent(document.library_id, document.id, request);
       const headers = new Headers(response.headers);

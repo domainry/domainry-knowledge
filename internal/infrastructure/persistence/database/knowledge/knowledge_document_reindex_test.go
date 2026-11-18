@@ -27,7 +27,7 @@ func TestKnowledgeDocumentReindexCutsOverOnlyAfterShadowIndexIsReady(t *testing.
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-library", Kind: "personal", Name: "Reindex"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-library", Kind: "shared", Name: "Reindex"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestKnowledgeDocumentManualRetryReopensOnlyConfirmedAbsentShadowPut(t *test
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "manual-reindex-retry", Kind: "personal", Name: "Manual retry"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "manual-reindex-retry", Kind: "shared", Name: "Manual retry"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +162,7 @@ func TestKnowledgeDocumentReindexRejectsConcurrentDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	authority := agentsdk.Authority{Known: true, RuntimeID: "runtime", WorkspaceID: "workspace", UserID: "alice", RoleKey: "member"}
-	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-delete-library", Kind: "personal", Name: "Reindex delete"}, authority)
+	library, err := store.CreateKnowledgeLibrary(t.Context(), agentsdk.KnowledgeLibraryCreate{ClientID: "reindex-delete-library", Kind: "shared", Name: "Reindex delete"}, authority)
 	if err != nil {
 		t.Fatal(err)
 	}

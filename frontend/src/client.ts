@@ -333,6 +333,17 @@ export const knowledgeClient: KnowledgeClient = {
     if (digest) headers.set(fileSHA256Header, digest);
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   },
+  async createDocumentStreamURL(libraryID, documentID, signal) {
+    const result = await request<{ url?: unknown; expires_at?: unknown }>(`${documentPath(libraryID, documentID)}/stream`, "POST", undefined, signal);
+    if (typeof window === "undefined" || typeof result.url !== "string" || typeof result.expires_at !== "string" || !Number.isFinite(Date.parse(result.expires_at))) {
+      throw new APIError("knowledge.document_stream_response_invalid", 502);
+    }
+    const url = new URL(result.url, window.location.origin);
+    if (url.origin !== window.location.origin || !/^\/knowledge\/document-streams\/[A-Za-z0-9_-]{43}$/.test(url.pathname) || url.search || url.hash) {
+      throw new APIError("knowledge.document_stream_response_invalid", 502);
+    }
+    return url.pathname;
+  },
   async readPageDocumentContent(libraryID, pageID, documentID, { signal, range }) {
     const response = await sessionFetch(`${pagePath(libraryID, pageID)}/documents/${encodeURIComponent(documentID)}/download`, { method: "GET", headers: range ? { Range: range } : undefined, signal });
     const headers = new Headers(response.headers);
