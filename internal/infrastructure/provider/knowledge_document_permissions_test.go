@@ -107,8 +107,8 @@ func TestKnowledgePrivateDocumentPolicyBindsWritesReadsAndInspection(t *testing.
 				if !knowledgeWireFilename.MatchString(r.URL.Query().Get("filename")) || !strings.HasSuffix(r.URL.Query().Get("filename"), ".xlsx") {
 					t.Error("non-ASCII filename or lost parser extension")
 				}
-				if r.URL.Query().Get("source") != "verdent_knowledge" || r.URL.Query().Has("page_id") {
-					t.Error("managed Knowledge file lost its source identity")
+				if r.URL.Query().Get("source") != "verdent_knowledge" || r.URL.Query().Get("title") != "季度费用.XLSX" || r.URL.Query().Has("page_id") {
+					t.Error("managed Knowledge file lost its source identity or display title")
 				}
 			} else if r.Header.Get("X-KB-Permission-Ids") != "" {
 				t.Error("delete mutated ACL")

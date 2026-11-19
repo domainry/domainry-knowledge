@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sync/atomic"
 	"testing"
 
@@ -54,6 +55,10 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(managedTarget, data)); err != nil {
 		t.Fatal("managed Knowledge file was rejected", err)
 	}
+	managedTitledTarget := managedTarget + "&title=" + url.QueryEscape("客户沟通会录音.mp3")
+	if _, err := doc.RoundTripHTTP(t.Context(), streamedRequest(managedTitledTarget, data)); err != nil {
+		t.Fatal("managed Knowledge file display title was rejected", err)
+	}
 	remove := put
 	remove.Method = http.MethodDelete
 	remove.Content, remove.ContentLength, remove.ContentSHA256 = nil, 0, ""
@@ -96,7 +101,7 @@ func TestKnowledgeDocumentTransportRequiresExactGrantedKB(t *testing.T) {
 			t.Fatal("ungranted document request accepted")
 		}
 	}
-	if calls.Load() != 3 {
+	if calls.Load() != 4 {
 		t.Fatal("rejected request reached network")
 	}
 	if _, err := NewKnowledgeDocumentHTTP(server.URL, "../other", server.Client()); err == nil {

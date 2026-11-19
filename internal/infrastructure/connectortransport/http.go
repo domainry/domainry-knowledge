@@ -44,6 +44,11 @@ func validDocumentWriteQuery(query url.Values, streamed bool) bool {
 		return len(query["source"]) == 1 && query.Get("source") == "verdent_knowledge" &&
 			len(query["source_id"]) == 1 && query.Get("source_id") != "" && len(query.Get("source_id")) <= 128
 	}
+	if len(query) == 5 {
+		return len(query["source"]) == 1 && query.Get("source") == "verdent_knowledge" &&
+			len(query["source_id"]) == 1 && query.Get("source_id") != "" && len(query.Get("source_id")) <= 128 &&
+			len(query["title"]) == 1 && query.Get("title") != "" && len(query.Get("title")) <= 2048
+	}
 	want := map[string]int{
 		"doc_id": 4096, "filename": 255, "source": 64, "source_id": 128, "title": 2048,
 		"page_id": 128, "page_version": 20, "library_kind": 16, "content_type": 64, "path_segments": 65536,

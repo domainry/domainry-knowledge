@@ -7,8 +7,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
 	github.com/domainry/domainry-audit v0.1.46
-	github.com/domainry/domainry-connector-sdk v0.1.21
-	github.com/domainry/domainry-connectors v0.1.28
+	github.com/domainry/domainry-connector-sdk v0.1.24
+	github.com/domainry/domainry-connectors v0.1.34
 	github.com/domainry/domainry-identity v0.2.84
 	github.com/domainry/domainry-metadata v0.1.40
 	github.com/domainry/domainry-orm v0.1.34

@@ -37,7 +37,10 @@ func (k *Knowledge) PutKnowledgeDocument(ctx context.Context, in agentsdk.Knowle
 	var documentSource *httpapi.PutDocumentSource
 	provider := strings.TrimSpace(k.config.DocumentSourceProvider)
 	if provider != "" {
-		documentSource = &httpapi.PutDocumentSource{Provider: provider, SourceID: strings.TrimSpace(k.config.DocumentSourceID)}
+		// Filename is the user-visible source title. knowledgeUploadFilename below
+		// may replace it with an ASCII transport name solely for parser routing;
+		// keeping both prevents that internal name from leaking into citations.
+		documentSource = &httpapi.PutDocumentSource{Provider: provider, SourceID: strings.TrimSpace(k.config.DocumentSourceID), Title: in.Filename}
 	}
 	if in.Source != nil {
 		if documentSource == nil {
