@@ -187,6 +187,23 @@ func (s *Store) saveDocumentRecord(ctx context.Context, tx *sql.Tx, r *persisten
 	return nil
 }
 
+// saveBoundLocalFileDocument is the single transition from a local-only
+// original to the datasource selected for its Library. The physical source
+// column must move with the durable payload or source-scoped reads would never
+// observe the document that the worker indexed.
+func (s *Store) saveBoundLocalFileDocument(ctx context.Context, tx *sql.Tx, r *persistence.KnowledgeDocumentRecord, expected int64) error {
+	if expected < 1 || r.Document.Revision != expected || r.Document.ProjectionKind != "file" || r.Document.State != "queued" || !validArtifactSHA(r.SourceID) {
+		return conversationError("conflict", "document_source_changed")
+	}
+	r.Document.Revision++
+	r.Document.UpdatedAt = time.Now().UTC().Truncate(time.Millisecond)
+	q, args, err := query.NewUpdateBuilder(s.store.Renderer(), knowledgeDocumentTable).
+		Set("source_key", r.SourceID).Set("remote_id", r.RemoteID).Set("state", r.Document.State).
+		Set("revision", r.Document.Revision).Set("updated_at", r.Document.UpdatedAt.UnixMilli()).Set("payload_json", conversationJSON(r)).
+		Where(query.And(documentScope(r.Actor, r.Document.ID), query.Equal("revision", expected), query.Equal("source_key", ""))).Build()
+	return conversationCAS(ctx, tx, q, args, err)
+}
+
 // saveRelocatedPageProjection is the only path that changes the Library/source
 // owner of an existing physical page projection. It is valid only after the
 // previous remote generation reached the durable deleted state; this prevents

@@ -15,8 +15,12 @@ func (s *Store) KnowledgeDatasourceBinding(ctx context.Context, scope agentsdk.K
 	if conversationAuthority(a) != nil || !validLibraryID(scope.LibraryID) {
 		return out, false, conversationError("bad_request", "document_source_invalid")
 	}
-	found, err = s.executionRead(ctx, s.store.Database(), knowledgeSourceTable, query.And(knowledgeSourcePredicate(a, scope.LibraryID), query.Equal("source_kind", knowledgeDatasourceSourceKind)), &out)
+	found, err = s.knowledgeDatasourceBinding(ctx, s.store.Database(), scope.LibraryID, a, &out)
 	return
+}
+
+func (s *Store) knowledgeDatasourceBinding(ctx context.Context, db conversationDB, libraryID string, a agentsdk.Authority, out *persistence.KnowledgeDatasourceBinding) (bool, error) {
+	return s.executionRead(ctx, db, knowledgeSourceTable, query.And(knowledgeSourcePredicate(a, libraryID), query.Equal("source_kind", knowledgeDatasourceSourceKind)), out)
 }
 func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persistence.KnowledgeDatasourceAssignment, a agentsdk.Authority) (out agentsdk.KnowledgeLibrary, err error) {
 	if conversationAuthority(a) != nil || !validLibraryID(id) || !personalMemoryKey(in.DatasourceKey) || !validArtifactSHA(in.SourceID) || !validArtifactSHA(in.AccessPolicySHA256) || in.ExpectedRevision < 1 {
@@ -35,7 +39,7 @@ func (s *Store) BindKnowledgeDatasource(ctx context.Context, id string, in persi
 			return conversationError("conflict", "library_archived")
 		}
 		var prior persistence.KnowledgeDatasourceBinding
-		found, e := s.executionRead(ctx, tx, knowledgeSourceTable, query.And(knowledgeSourcePredicate(a, id), query.Equal("source_kind", knowledgeDatasourceSourceKind)), &prior)
+		found, e := s.knowledgeDatasourceBinding(ctx, tx, id, a, &prior)
 		if e != nil {
 			return e
 		}
@@ -96,9 +100,7 @@ func (s *Store) queueUnindexedLibraryPages(ctx context.Context, tx *sql.Tx, id s
 		if err != nil {
 			break
 		}
-		if page.ProjectionStatus == "none" {
-			pages = append(pages, page)
-		}
+		pages = append(pages, page)
 	}
 	iterationErr := rows.Err()
 	closeErr := rows.Close()
@@ -112,14 +114,23 @@ func (s *Store) queueUnindexedLibraryPages(ctx context.Context, tx *sql.Tx, id s
 		return closeErr
 	}
 	for _, page := range pages {
-		access, err := s.knowledgePageAccessPolicy(ctx, tx, id, page.ID, a)
-		if err != nil {
-			return err
+		if page.ProjectionStatus == "none" {
+			access, err := s.knowledgePageAccessPolicy(ctx, tx, id, page.ID, a)
+			if err != nil {
+				return err
+			}
+			if err = s.queueCurrentPageProjection(ctx, tx, &page, access.Revision, a); err != nil {
+				return err
+			}
+			if err = s.setPageProjectionStatus(ctx, tx, page, "queued", access.Revision, a); err != nil {
+				return err
+			}
 		}
-		if err = s.queueCurrentPageProjection(ctx, tx, &page, access.Revision, a); err != nil {
-			return err
-		}
-		if err = s.setPageProjectionStatus(ctx, tx, page, "queued", access.Revision, a); err != nil {
+		// A File Page uploaded before the Library was bound owns a local-only
+		// original. Reconcile every published File Page, including on an
+		// idempotent binding replay, so that original enters the newly bound
+		// document index instead of leaving only the page title searchable.
+		if err := s.reconcileFilePageAttachments(ctx, tx, page, a); err != nil {
 			return err
 		}
 	}

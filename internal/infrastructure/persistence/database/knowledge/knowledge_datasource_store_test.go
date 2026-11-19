@@ -94,3 +94,69 @@ func TestDatasourceBindingPreventsConcurrentLocalProjectionSkip(t *testing.T) {
 		t.Fatalf("work was not recoverable: work=%+v found=%v err=%v", retry, found, err)
 	}
 }
+
+func TestDatasourceBindingQueuesPublishedLocalFilePageOriginal(t *testing.T) {
+	store, authority, library, _ := pageFixture(t)
+	body := []byte("private file body uploaded before datasource binding")
+	record, err := store.ReserveKnowledgeDocument(t.Context(), persistence.KnowledgeDocumentReserve{
+		LibraryID: library.ID, ClientID: "local-file-before-binding", Filename: "launch-plan.pdf",
+		ContentType: "application/pdf", SHA256: knowledgeTestDigest(body), Bytes: int64(len(body)),
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = store.CommitKnowledgeDocumentContent(t.Context(), record.Document.ID, record.Document.Revision, "body://local-file-before-binding", authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.SecurityScanStarted, record.SecurityScanCompleted = true, true
+	record.Document.State, record.Document.ProcessingStage = "ready", "complete"
+	record.Document.SecurityStatus, record.Document.SecurityScanner = "clean", "test"
+	record.Document.SecurityReportSHA256, record.Document.IndexStatus = record.Document.SHA256, "STORED"
+	saveRetryFixture(t, store.store.Database(), record, authority)
+
+	page, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{
+		ClientID: "local-file-page", Title: record.Document.Filename, ContentType: knowledgesdk.KnowledgePageTypeFile,
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.SetKnowledgePageAttachment(t.Context(), library.ID, page.Page.ID, record.Document.ID, knowledgesdk.KnowledgePageAttachmentWrite{
+		ClientID: "local-file-page-attachment", Title: record.Document.Filename, Rank: "a",
+	}, authority); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"document_id":"` + record.Document.ID + `","display_mode":"preview","title":"` + record.Document.Filename + `"}`
+	page = savePageFixture(t, store, authority, library, page, "local-file-page-save", record.Document.Filename, content)
+	page = publishPageFixture(t, store, authority, library, page, "local-file-page-publish")
+	work, found, err := store.ClaimKnowledgePageProjection(t.Context(), authority.RuntimeID, "local-file-page-skip", time.Now().UTC().Add(time.Second), time.Minute)
+	if err != nil || !found || work.Lease.PageID != page.Page.ID {
+		t.Fatalf("claim local File Page projection: work=%+v found=%t err=%v", work, found, err)
+	}
+	if err = store.SkipKnowledgePageProjection(t.Context(), work.Lease); err != nil {
+		t.Fatal(err)
+	}
+
+	sourceID := strings.Repeat("e", 64)
+	accessPolicy := strings.Repeat("a", 64)
+	if _, err = store.BindKnowledgeDatasource(t.Context(), library.ID, persistence.KnowledgeDatasourceAssignment{
+		DatasourceKey: "enterprise", SourceID: sourceID, AccessPolicySHA256: accessPolicy, ExpectedRevision: library.Revision,
+	}, authority); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := store.KnowledgeDocumentRecord(t.Context(), record.Document.ID, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SourceID != sourceID || migrated.AccessPolicySHA256 != accessPolicy || migrated.Document.State != "queued" || migrated.Document.ProcessingStage != "parse" || migrated.Document.IndexStatus != "" || migrated.PutRequestID == "" || migrated.RemoteID == record.RemoteID {
+		t.Fatalf("binding did not queue the published local File Page original: before=%+v after=%+v", record, migrated)
+	}
+	byRemoteID, err := store.KnowledgeDocumentByRemoteID(t.Context(), library.ID, sourceID, migrated.RemoteID, authority)
+	if err != nil || byRemoteID.Document.ID != record.Document.ID {
+		t.Fatalf("bound File Page original is missing from the physical datasource scope: record=%+v err=%v", byRemoteID, err)
+	}
+	lease, claimed, err := store.ClaimKnowledgeDocumentWork(t.Context(), authority.RuntimeID, "local-file-page-index", time.Now().UTC(), time.Minute)
+	if err != nil || !claimed || lease.DocumentID != record.Document.ID {
+		t.Fatalf("migrated File Page original was not queued: lease=%+v claimed=%t err=%v", lease, claimed, err)
+	}
+}

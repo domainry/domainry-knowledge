@@ -376,6 +376,36 @@ func (s *Store) reconcileFilePageDocumentLifecycle(ctx context.Context, tx *sql.
 			return s.retireKnowledgeDocument(ctx, tx, &record, record.Document.Revision)
 		}
 	}
+	if record.SourceID == "" {
+		var binding persistence.KnowledgeDatasourceBinding
+		found, bindingErr := s.knowledgeDatasourceBinding(ctx, tx, libraryID, a, &binding)
+		if bindingErr != nil {
+			return bindingErr
+		}
+		if found {
+			if record.BodyRef == "" || !record.SecurityScanCompleted || record.Document.SecurityStatus != "clean" || record.Document.State != "ready" {
+				return conversationError("conflict", "page_file_content_unavailable")
+			}
+			record.SourceID = binding.SourceID
+			record.AccessPolicySHA256 = binding.AccessPolicySHA256
+			if record.Document.IndexGeneration < 1 {
+				record.Document.IndexGeneration = 1
+			}
+			record.RemoteID = knowledgeFilePageRemoteID(record, record.Document.IndexGeneration)
+			record.PutRequestID = knowledgeDocumentPutRequestID(record)
+			record.PutStarted, record.PutAcknowledged, record.IndexObserved = false, false, false
+			record.PutRecoveryAttempts, record.DeleteStarted, record.DeleteAcknowledged = 0, false, false
+			record.ResumeAfterDelete = false
+			record.Reindex, record.RetiredRemoteID = nil, ""
+			record.RetiredDeleteStarted, record.RetiredDeleteAcknowledged = false, false
+			record.Document.State, record.Document.ProcessingStage = "queued", "parse"
+			record.Document.IndexStatus, record.Document.ErrorCode, record.Document.Reindexing = "", "", false
+			if err = s.saveBoundLocalFileDocument(ctx, tx, &record, record.Document.Revision); err != nil {
+				return err
+			}
+			return s.queueDocumentWork(ctx, tx, record)
+		}
+	}
 	switch record.Document.State {
 	case "deleting":
 		if record.ResumeAfterDelete {
