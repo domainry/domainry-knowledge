@@ -993,6 +993,33 @@ func TestKnowledgePageReaderTreeUsesPublishedSnapshotAndPaginatesPublishedRows(t
 	}
 }
 
+func TestKnowledgePageDetailReportsVisibleChildren(t *testing.T) {
+	store, authority, library, parent := pageFixture(t)
+	parent = publishPageFixture(t, store, authority, library, parent, "detail-parent-publish")
+	child, err := store.CreateKnowledgePage(t.Context(), library.ID, knowledgesdk.KnowledgePageCreate{
+		ClientID: "detail-child", ParentPageID: parent.Page.ID, Rank: "a", Title: "可见子页面", ContentType: knowledgesdk.KnowledgePageTypeDocument,
+	}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child = publishPageFixture(t, store, authority, library, child, "detail-child-publish")
+
+	managerView, err := store.KnowledgePage(t.Context(), library.ID, parent.Page.ID, true, authority)
+	if err != nil || !managerView.Page.HasChildren {
+		t.Fatalf("manager detail did not report its visible child: %+v err=%v", managerView, err)
+	}
+	library, err = store.SetKnowledgeLibraryMember(t.Context(), library.ID, "bob", agentsdk.KnowledgeLibraryMemberWrite{Role: "reader", ExpectedRevision: library.Revision}, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob := authority
+	bob.UserID = "bob"
+	readerView, err := store.KnowledgePage(t.Context(), library.ID, parent.Page.ID, false, bob)
+	if err != nil || !readerView.Page.HasChildren {
+		t.Fatalf("reader detail did not report its published visible child: %+v err=%v", readerView, err)
+	}
+}
+
 func TestKnowledgePageStateMutationsHaveDurableIdempotencyReceipts(t *testing.T) {
 	store, authority, library, page := pageFixture(t)
 	page = savePageFixture(t, store, authority, library, page, "idempotent-draft", "幂等页面", "正文")

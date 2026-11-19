@@ -192,6 +192,15 @@ func (s *Store) pageView(ctx context.Context, db conversationDB, library agentsd
 		return knowledgesdk.KnowledgePageView{}, err
 	}
 	view.Governance = knowledgePageContentGovernance(policy, a)
+	// Detail and list responses must describe the same visible tree. Stored page
+	// payloads do not persist this derived flag, so compute it against the
+	// caller's current publication and page-access projection before returning.
+	includeArchivedChildren := view.Page.State == "archived"
+	pages := []knowledgesdk.KnowledgePage{view.Page}
+	if err = s.markKnowledgePageChildren(ctx, db, library, pages, includeArchivedChildren, a); err != nil {
+		return knowledgesdk.KnowledgePageView{}, err
+	}
+	view.Page = pages[0]
 	return view, nil
 }
 
@@ -228,7 +237,7 @@ func pageListLimit(after string, limit int) (int, error) {
 // child state for the current caller. Keeping this server-owned avoids an N+1
 // browser probe and prevents inaccessible or unpublished children from leaking
 // through an expand control.
-func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, library agentsdk.KnowledgeLibrary, pages []knowledgesdk.KnowledgePage, includeArchived bool, a agentsdk.Authority) error {
+func (s *Store) markKnowledgePageChildren(ctx context.Context, tx conversationDB, library agentsdk.KnowledgeLibrary, pages []knowledgesdk.KnowledgePage, includeArchived bool, a agentsdk.Authority) error {
 	if len(pages) == 0 {
 		return nil
 	}
@@ -274,6 +283,13 @@ func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, libra
 		if _, wanted := pageIndexes[parentID]; !wanted {
 			continue
 		}
+		// A library manager is allowed to read every page in the library. Avoid
+		// rebuilding the page, policy and ancestor chain for every child merely
+		// to decide whether the expand affordance is visible.
+		if library.Role == "manager" {
+			pages[pageIndexes[parentID]].HasChildren = true
+			continue
+		}
 		if err = unmarshalDurableJSON(raw, &child); err != nil {
 			return err
 		}
@@ -284,6 +300,9 @@ func (s *Store) markKnowledgePageChildren(ctx context.Context, tx *sql.Tx, libra
 	}
 	if err = rows.Close(); err != nil {
 		return err
+	}
+	if library.Role == "manager" {
+		return nil
 	}
 	for _, child := range children {
 		effective, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, library.ID, child.page.ID, a)
@@ -401,6 +420,14 @@ func (s *Store) KnowledgePages(ctx context.Context, libraryID, parentID, after s
 					return readErr
 				}
 				page.Title, page.ParentPageID, page.Rank = version.Title, version.ParentPageID, version.Rank
+			}
+			// libraryRecord already proved this caller is the manager. Page-level
+			// access policies cannot restrict a manager, so the generic evaluator's
+			// library/page/policy reads are redundant here and turn a directory
+			// listing into an N+1 query chain.
+			if library.Role == "manager" {
+				out.Items = append(out.Items, page)
+				continue
 			}
 			effective, accessErr := s.evaluateKnowledgePageAccess(ctx, tx, libraryID, page.ID, a)
 			if accessErr != nil {
