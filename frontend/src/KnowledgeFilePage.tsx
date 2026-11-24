@@ -36,6 +36,8 @@ function formatBytes(value: number) {
 export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActionHost, canReplace = false, replacing = false, replaceAccept, onReplace, canPublish = false, publishing = false, onPublish, formatError }: KnowledgeFilePageProps) {
   const reference = parseFilePageContent(content);
   const replacementInput = useRef<HTMLInputElement | null>(null);
+  const formatErrorRef = useRef(formatError);
+  formatErrorRef.current = formatError;
   const [document, setDocument] = useState<KnowledgeDocument | null>(null);
   const [loading, setLoading] = useState(!!reference), [error, setError] = useState(reference ? "" : kt("knowledge.auto.b7ae88e3ef2d9ad2"));
   const [downloading, setDownloading] = useState(false), [revision, setRevision] = useState(0);
@@ -47,10 +49,10 @@ export function KnowledgeFilePage({ client, libraryID, pageID, content, pageActi
     void client.getDocument(libraryID, reference.document_id, abort.signal).then(value => {
       if (!abort.signal.aborted) setDocument(value);
     }).catch(failure => {
-      if (!abort.signal.aborted) { setDocument(null); setError(ktf("knowledge.auto.23bb69256a4d2600", { value0: formatError(failure) })); }
+      if (!abort.signal.aborted) { setDocument(null); setError(ktf("knowledge.auto.23bb69256a4d2600", { value0: formatErrorRef.current(failure) })); }
     }).finally(() => { if (!abort.signal.aborted) setLoading(false); });
     return () => abort.abort();
-  }, [client, formatError, libraryID, reference?.document_id, revision]);
+  }, [client, libraryID, reference?.document_id, revision]);
 
   async function download() {
     if (!document || downloading) return;

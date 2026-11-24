@@ -12,4 +12,5 @@ dist/
 !frontend/dist/**
 !frontend/app-dist/
 !frontend/app-dist/**
+frontend/*.tgz
 data/

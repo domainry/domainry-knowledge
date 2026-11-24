@@ -1,5 +1,5 @@
 import { kt } from "./i18n/runtime.ts";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, RefreshCw, X } from "lucide-react";
 import { Button, defaultErrorMessage } from "./components.tsx";
@@ -31,6 +31,8 @@ export function FilePreviewDialog({ source, downloadSource = source, formatError
 export function FilePreview({ source, formatError = defaultErrorMessage, refresh = 0 }: { source: FilePreviewSource; formatError?: (error: unknown) => string; refresh?: number }) {
   const [file, setFile] = useState<PreviewFile | null>(null), [text, setText] = useState<PreviewText | null>(null);
   const [error, setError] = useState("");
+  const formatErrorRef = useRef(formatError);
+  formatErrorRef.current = formatError;
   const kind = previewKind(source.file.filename);
   const supported = kind !== null;
   useEffect(() => {
@@ -42,8 +44,8 @@ export function FilePreview({ source, formatError = defaultErrorMessage, refresh
     const operation = kind === "text"
       ? readPreviewText(source, signal).then(setText)
       : readPreviewFile(source, signal, kind === "presentation" ? previewBinaryMaxBytes : kind === "word" || kind === "spreadsheet" ? previewOfficeMaxBytes : undefined).then(setFile);
-    void operation.catch(failure => { if (!abort.signal.aborted) setError(formatError(failure)); });
+    void operation.catch(failure => { if (!abort.signal.aborted) setError(formatErrorRef.current(failure)); });
     return () => abort.abort();
-  }, [source.identity, formatError, kind, refresh, supported]);
+  }, [source.identity, kind, refresh, supported]);
   return !supported ? <div className="knowledge-preview-unsupported"><p>{kt("knowledge.auto.81c99e49c798db1a")}</p></div> : error ? <p role="alert" className="knowledge-error">{error}</p> : kind === "pdf" ? <PDFViewer source={source} location={source.file.location} /> : kind === "audio" ? <MediaViewer source={source} kind="audio" /> : kind === "video" ? <MediaViewer source={source} kind="video" /> : !file && !text ? <p className="knowledge-file-preview-loading" role="status">{kt("knowledge.auto.25fe8537e4bdb53c")}</p> : kind === "text" && text ? <TextViewer file={text} /> : kind === "word" && file ? <WordViewer blob={file.blob} /> : kind === "presentation" && file ? <PresentationViewer blob={file.blob} location={source.file.location} /> : kind === "spreadsheet" && file ? <SpreadsheetViewer blob={file.blob} location={source.file.location} /> : kind === "image" && file ? <ImageViewer blob={file.blob} filename={file.filename} /> : <p>{kt("knowledge.auto.d73d3fd06f4446cb")}</p>;
 }

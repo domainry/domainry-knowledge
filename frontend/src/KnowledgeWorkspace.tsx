@@ -2,7 +2,7 @@ import { kt, ktf } from "./i18n/runtime.ts";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, ChevronRight, Database, FileSearch, FileText, Filter, FolderOpen, LoaderCircle, Plus, RefreshCw, Search, Settings, ShieldAlert, Trash2, UserRoundCog, X } from "lucide-react";
+import { BookOpen, ChevronRight, Database, FileSearch, FileText, Filter, FolderOpen, LoaderCircle, Pin, Plus, RefreshCw, Search, Settings, ShieldAlert, Trash2, UserRoundCog, X } from "lucide-react";
 import { Button, defaultErrorMessage, EmptyState, KnowledgeToast, Select } from "./components.tsx";
 import { KnowledgeDocumentsPanel } from "./KnowledgeDocumentsPanel.tsx";
 import { KnowledgePagesPanel } from "./KnowledgePagesPanel.tsx";
@@ -398,6 +398,7 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   const [pendingOrganizations, setPendingOrganizations] = useState<KnowledgeAccessOrganizationInput[]>([]);
   const [documentBusy, setDocumentBusy] = useState(false);
   const [libraryView, setLibraryView] = useState<"content" | "search">("content");
+  const [railNavigationTab, setRailNavigationTab] = useState<"libraries" | "shortcuts">("libraries");
   const [searchTarget, setSearchTarget] = useState<{ pageID: string; mode: "read" | "edit"; location?: KnowledgePageSearchLocation; revision: number } | null>(null);
 	const [expandedLibraryID, setExpandedLibraryID] = useState(initialPageID ? initialLibraryID : "");
 	const [currentPage, setCurrentPage] = useState<{ pageID: string; title: string } | null>(null);
@@ -556,16 +557,28 @@ export function KnowledgeLibraryManager({ client, currentUserID = "", formatErro
   const revealLibraryRail = !selected || libraryView === "search";
   const scopeTabsInLibraryRail = revealLibraryRail;
   const selectableLibraries = selected && !visibleLibraries.some(item => item.id === selected.id) ? [selected, ...visibleLibraries] : visibleLibraries;
+  const filteredLibraries = visibleLibraries.filter(item => !navigationQuery || item.name.toLocaleLowerCase().includes(navigationQuery.toLocaleLowerCase()));
   const libraryRailBranch = <div className="knowledge-scope-library-list">
-    {loading ? <p className="knowledge-subtle">{kt("knowledge.auto.3310a3aff04dec06")}</p> : visibleLibraries.length ? visibleLibraries.map(renderLibrary) : <p className="knowledge-library-group-empty">{kt("knowledge.auto.00adfc139a6a1320")}</p>}
+    {loading ? <p className="knowledge-subtle">{kt("knowledge.auto.3310a3aff04dec06")}</p> : filteredLibraries.length ? filteredLibraries.map(renderLibrary) : <p className="knowledge-library-group-empty">{navigationQuery ? kt("knowledge.auto.c7572df20b03a03e") : kt("knowledge.auto.00adfc139a6a1320")}</p>}
     {(libraryCursors.length > 1 || !page.complete) && <nav className="knowledge-pagination"><Button disabled={blocked || loading || libraryCursors.length === 1} onClick={() => { setSelectedID(""); setLibraryCursors(value => value.slice(0, -1)); }}>{kt("knowledge.auto.c9b9ae7a61444ab7")}</Button><Button disabled={blocked || loading || !page.next_after} onClick={() => { setSelectedID(""); setLibraryCursors(value => [...value, page.next_after!]); }}>{kt("knowledge.auto.8a8542f6964852dc")}</Button></nav>}
   </div>;
   const pageScopeTabs = (createControl?: ReactNode, branchContent?: ReactNode) => scopeTabs?.(createControl, branchContent || libraryRailBranch);
 
   return <div className={`managed-library-browser${revealLibraryRail ? " has-library-rail" : ""}`}>
     <aside className="managed-library-list">
-      {scopeTabsInLibraryRail && <div className="knowledge-library-rail-toolbar"><Button aria-label={kt("knowledge.auto.601bdf61c4cb8e38")} title={kt("knowledge.auto.601bdf61c4cb8e38")} disabled={blocked} onClick={openSharedLibraryCreate}><Plus size={16} /></Button></div>}
-      {scopeTabsInLibraryRail && scopeTabs?.(undefined, libraryRailBranch)}
+      {scopeTabsInLibraryRail && <>
+        <div className="knowledge-tree-toolbar">
+          <label><Search size={14} aria-hidden="true" /><input aria-label={kt("knowledge.auto.f1390e1f22bf2285")} value={navigationQuery} onChange={event => onNavigationQueryChange?.(event.target.value)} placeholder={kt("knowledge.auto.e8654dfeb4e5b61c")} /></label>
+          <Button aria-label={kt("knowledge.auto.601bdf61c4cb8e38")} title={kt("knowledge.auto.601bdf61c4cb8e38")} disabled={blocked} onClick={openSharedLibraryCreate}><Plus size={16} /></Button>
+        </div>
+        <div className="knowledge-navigation-tabs" role="tablist" aria-label={kt("knowledge.auto.297b54190830e020")}>
+          <button type="button" role="tab" aria-selected={railNavigationTab === "libraries"} onClick={() => setRailNavigationTab("libraries")}><BookOpen size={14} /><span>{kt("knowledge.auto.975b35f9c2b1148c")}</span></button>
+          <button type="button" role="tab" aria-selected={railNavigationTab === "shortcuts"} onClick={() => setRailNavigationTab("shortcuts")}><Pin size={14} /><span>{kt("knowledge.auto.d9a8514e981dee1f")}</span></button>
+        </div>
+        <nav className="knowledge-navigation-tree" aria-label={kt("knowledge.auto.297b54190830e020")}>
+          {railNavigationTab === "libraries" ? scopeTabs?.(undefined, libraryRailBranch) : <div className="knowledge-shortcut-list" role="tabpanel" aria-label={kt("knowledge.auto.d9a8514e981dee1f")}><p className="knowledge-navigation-status">{ktf("knowledge.auto.ff1f95f1d49e6ba9", { value0: kt("knowledge.auto.d9a8514e981dee1f") })}</p></div>}
+        </nav>
+      </>}
       {error && <p role="alert" className="knowledge-error">{error}</p>}
     </aside>
     <section className="managed-library-content">{notice && <KnowledgeToast message={notice} onDismiss={setNotice} />}{selected ? <>

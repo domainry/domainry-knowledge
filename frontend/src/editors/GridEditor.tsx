@@ -1,8 +1,8 @@
 import { formatKnowledgeDate, formatKnowledgeNumber, kt, ktf, useKnowledgeLocale } from "../i18n/runtime.ts";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AllCommunityModule, themeQuartz, type CellValueChangedEvent, type ColDef, type GridApi } from "ag-grid-community";
+import { AllCommunityModule, themeQuartz, type ColDef, type GridApi, type ICellRendererParams, type IHeaderParams } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
-import { BarChart3, CalendarDays, Download, Filter, GalleryVerticalEnd, GanttChart, Kanban, LayoutGrid, Plus, Settings2, Share2, Sheet, ShieldCheck, Trash2, Upload, X, Zap } from "lucide-react";
+import { BarChart3, CalendarDays, Download, Filter, GalleryVerticalEnd, GanttChart, Hash, Kanban, LayoutGrid, Link2, List, PanelRightOpen, Paperclip, Pencil, Plus, Settings2, Share2, Sheet, ShieldCheck, SquareCheck, Trash2, Type, Upload, X, Zap } from "lucide-react";
 import { Button, Select } from "../components.tsx";
 import {
   coerceGridInput, gridCellDisplay, gridCellValue, gridFieldLabel, gridFieldTypes, gridRecordsForView, gridViewLabel, gridViewTypes,
@@ -12,10 +12,18 @@ import type { KnowledgeEditorProps } from "./types.ts";
 import { PageActionPortal } from "./PageActionPortal.tsx";
 import { agGridLocaleText } from "../i18n/thirdParty.ts";
 
-const knowledgeGridTheme = themeQuartz.withParams({ accentColor: "var(--knowledge-primary)", borderColor: "var(--knowledge-border)", fontFamily: "inherit", foregroundColor: "var(--knowledge-text)", backgroundColor: "var(--knowledge-surface)", headerBackgroundColor: "var(--knowledge-surface-subtle)", rowHoverColor: "var(--knowledge-surface-hover)", selectedRowBackgroundColor: "var(--knowledge-selection)" });
+const knowledgeGridTheme = themeQuartz.withParams({ accentColor: "var(--knowledge-primary)", borderColor: "var(--knowledge-border)", fontFamily: "inherit", fontSize: 13, foregroundColor: "var(--knowledge-text)", backgroundColor: "var(--knowledge-surface)", headerBackgroundColor: "var(--knowledge-surface-subtle)", rowHoverColor: "var(--knowledge-surface-hover)", selectedRowBackgroundColor: "var(--knowledge-selection)" });
 const viewIcons: Record<GridViewType, typeof LayoutGrid> = { grid: LayoutGrid, kanban: Kanban, gantt: GanttChart, calendar: CalendarDays, gallery: GalleryVerticalEnd, form: Sheet };
 const optionColors = ["#b8e4d2", "#c8ddff", "#ffe0a8", "#f5c6d6", "#ded1ff", "#cfe8ea"];
 const computedGridFieldTypes = new Set<GridFieldType>(["formula", "lookup", "created_time", "updated_time", "auto_number"]);
+const recordPanelFieldTypes = new Set<GridFieldType>(["attachment", "relation", "multi_select", "person"]);
+const numericGridFieldTypes = new Set<GridFieldType>(["number", "currency", "progress", "rating"]);
+const gridFieldIcons: Partial<Record<GridFieldType, typeof LayoutGrid>> = {
+  number: Hash, currency: Hash, progress: Hash, rating: Hash, auto_number: Hash,
+  date: CalendarDays, created_time: CalendarDays, updated_time: CalendarDays,
+  checkbox: SquareCheck, single_select: List, multi_select: List,
+  attachment: Paperclip, url: Link2, relation: Link2, lookup: Link2,
+};
 
 function gridID(prefix: string) { return `${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`; }
 function downloadBlob(blob: Blob, filename: string) { const url = URL.createObjectURL(blob), link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url); }
@@ -52,13 +60,102 @@ function RecordPanel({ content, record, targetFieldID, canWrite, uploadFile, onC
   return <aside ref={panel} className="native-grid-record-panel" aria-label={kt("knowledge.auto.07edd6ac944a2271")}><header><div><small>{kt("knowledge.auto.07edd6ac944a2271")}</small><h3>{String(record.values.title || kt("knowledge.auto.0251d638ce646a48"))}</h3></div><button type="button" title={kt("knowledge.auto.3fd47edce45b3603")} onClick={onClose}><X size={18} /></button></header><div>{content.fields.map(field => <label data-field-id={field.id} className={field.id === targetFieldID ? "is-search-target" : undefined} key={field.id}><span>{field.name}{field.required && <em>*</em>}<small>{gridFieldLabel(field.type)}</small></span><FieldInput content={content} field={field} value={gridCellValue(content, record, field)} disabled={!canWrite(field)} uploadFile={uploadFile} onChange={value => onChange({ ...record, values: { ...record.values, [field.id]: value } })} /></label>)}</div></aside>;
 }
 
-function GridTable({ content, view, readOnly, canWriteRecord, canWrite, selected, onSelected, onRecord, onCell }: { content: GridContent; view: GridView; readOnly: boolean; canWriteRecord(record: GridRecord): boolean; canWrite(record: GridRecord, field: GridField): boolean; selected: Set<string>; onSelected(ids: Set<string>): void; onRecord(record: GridRecord): void; onCell(record: GridRecord, field: GridField, value: unknown): void }) {
+function GridFieldHeader({ field, onEdit }: IHeaderParams<GridRecord> & { field: GridField; onEdit?: (field: GridField) => void }) {
+  const Icon = gridFieldIcons[field.type] || Type;
+  const fieldLabel = ktf("knowledge.auto.babdbb1f471fe71f", { value0: field.name });
+  const editLabel = kt("knowledge.auto.051836569928a9f9");
+  return <span className="native-grid-field-header">
+    <Icon size={14} aria-hidden="true" />
+    <span title={`${field.name} · ${gridFieldLabel(field.type)}`}>{field.name}</span>
+    {onEdit && <button type="button" className="native-grid-inline-action" title={`${editLabel} · ${fieldLabel}`} aria-label={`${editLabel} · ${fieldLabel}`} onClickCapture={event => {
+      event.stopPropagation();
+      onEdit(field);
+    }} onDoubleClickCapture={event => event.stopPropagation()}><Pencil size={13} aria-hidden="true" /></button>}
+  </span>;
+}
+
+function GridRecordCell({ data, valueFormatted, onRecord }: ICellRendererParams<GridRecord> & { onRecord(record: GridRecord): void }) {
+  const detailLabel = kt("knowledge.auto.07edd6ac944a2271");
+  return <span className="native-grid-record-cell">
+    <span>{valueFormatted}</span>
+    {data && <button type="button" className="native-grid-inline-action" title={detailLabel} aria-label={detailLabel} onClickCapture={event => {
+      event.stopPropagation();
+      onRecord(data);
+    }} onDoubleClickCapture={event => event.stopPropagation()}><PanelRightOpen size={14} aria-hidden="true" /></button>}
+  </span>;
+}
+
+function GridTable({ content, view, readOnly, canWriteRecord, canWriteField, selected, onSelected, onRecord, onCell, onEditField }: {
+  content: GridContent;
+  view: GridView;
+  readOnly: boolean;
+  canWriteRecord(id: string): boolean;
+  canWriteField(id: string): boolean;
+  selected: Set<string>;
+  onSelected(ids: Set<string>): void;
+  onRecord(record: GridRecord, fieldID?: string): void;
+  onCell(recordID: string, field: GridField, value: unknown): void;
+  onEditField(field: GridField): void;
+}) {
   const locale = useKnowledgeLocale();
   const records = useMemo(() => gridRecordsForView(content, view), [content, view]);
-  const columns = useMemo<ColDef<GridRecord>[]>(() => content.fields.filter(field => !(view.hidden_field_ids || []).includes(field.id)).map(field => ({ colId: field.id, headerName: field.name, editable: params => Boolean(params.data && canWrite(params.data, field)) && !computedGridFieldTypes.has(field.type) && field.type !== "attachment" && field.type !== "relation" && field.type !== "multi_select" && field.type !== "long_text", flex: 1, minWidth: field.type === "attachment" || field.type === "long_text" ? 220 : 150, pinned: (view.frozen_field_ids || []).includes(field.id) ? "left" : undefined, valueGetter: params => params.data ? gridCellValue(content, params.data, field) : "", valueFormatter: params => params.data ? gridCellDisplay(content, params.data, field) : "", cellEditor: field.type === "single_select" ? "agSelectCellEditor" : field.type === "checkbox" ? "agCheckboxCellEditor" : undefined, cellEditorParams: field.type === "single_select" ? { values: ["", ...(field.options || []).map(option => option.id)] } : undefined })), [canWrite, content, view.frozen_field_ids, view.hidden_field_ids]);
+  const fieldsByID = useMemo(() => new Map(content.fields.map(field => [field.id, field])), [content.fields]);
+  const columns = useMemo<ColDef<GridRecord>[]>(() => {
+    const visibleFields = content.fields.filter(field => !view.hidden_field_ids?.includes(field.id));
+    const recordActionField = visibleFields.find(field => field.id === "title") || visibleFields[0];
+    return visibleFields.map(field => {
+      const fieldWritable = canWriteField(field.id);
+      const inlineEditable = fieldWritable && !computedGridFieldTypes.has(field.type) && !recordPanelFieldTypes.has(field.type);
+      return {
+        colId: field.id,
+        headerName: field.name,
+        headerComponentParams: {
+          innerHeaderComponent: GridFieldHeader,
+          innerHeaderComponentParams: { field, onEdit: fieldWritable ? onEditField : undefined },
+        },
+        editable: params => inlineEditable && Boolean(params.data && canWriteRecord(params.data.id)),
+        initialWidth: field.id === "title" ? 320 : field.type === "long_text" || field.type === "attachment" ? 240 : 192,
+        minWidth: 128,
+        pinned: view.frozen_field_ids?.includes(field.id) ? "left" : undefined,
+        valueGetter: params => params.data ? gridCellValue(content, params.data, field) : undefined,
+        valueFormatter: params => field.type === "single_select"
+          ? field.options?.find(option => option.id === params.value)?.label ?? String(params.value ?? "")
+          : params.data ? gridCellDisplay(content, params.data, field) : "",
+        cellDataType: numericGridFieldTypes.has(field.type) ? "number" : field.type === "date" ? "dateString" : false,
+        cellEditor: field.type === "single_select" ? "agSelectCellEditor"
+          : field.type === "checkbox" ? "agCheckboxCellEditor"
+          : field.type === "long_text" ? "agLargeTextCellEditor"
+          : undefined,
+        cellEditorPopup: field.type === "long_text",
+        cellEditorParams: field.type === "single_select" ? { values: ["", ...(field.options || []).map(option => option.id)] } : undefined,
+        ...(field === recordActionField ? { cellRenderer: GridRecordCell, cellRendererParams: { onRecord } } : {}),
+      };
+    });
+  }, [canWriteField, canWriteRecord, content, onEditField, onRecord, view.frozen_field_ids, view.hidden_field_ids]);
   const api = useRef<GridApi<GridRecord> | null>(null);
   useEffect(() => { if (api.current) api.current.forEachNode(node => node.setSelected(Boolean(node.data && selected.has(node.data.id)))); }, [selected]);
-  return <div className="native-grid-host" data-row-height={view.row_height || "normal"}><AgGridReact<GridRecord> modules={[AllCommunityModule]} theme={knowledgeGridTheme} localeText={agGridLocaleText[locale]} enableRtl={locale === "ar"} rowData={records} columnDefs={columns} getRowId={params => params.data.id} rowHeight={view.row_height === "compact" ? 32 : view.row_height === "tall" ? 64 : 44} defaultColDef={{ sortable: true, filter: true, resizable: true }} rowSelection={{ mode: "multiRow", checkboxes: !readOnly, headerCheckbox: !readOnly }} isRowSelectable={params => Boolean(params.data && canWriteRecord(params.data))} getRowStyle={params => { const color = params.data ? rowColor(content, params.data, view) : undefined; return color ? { backgroundColor: color } : undefined; }} onGridReady={event => { api.current = event.api; }} onSelectionChanged={event => onSelected(new Set(event.api.getSelectedRows().map(record => record.id)))} onRowDoubleClicked={event => { if (event.data) onRecord(event.data); }} onCellValueChanged={(event: CellValueChangedEvent<GridRecord>) => { const field = content.fields.find(item => item.id === event.colDef.colId); if (event.data && field && canWrite(event.data, field)) onCell(event.data, field, coerceGridInput(field, event.newValue)); }} /></div>;
+  return <div className="native-grid-host" data-row-height={view.row_height || "normal"}>
+    <AgGridReact<GridRecord>
+      modules={[AllCommunityModule]} theme={knowledgeGridTheme} localeText={agGridLocaleText[locale]} enableRtl={locale === "ar"}
+      rowData={records} columnDefs={columns} getRowId={params => params.data.id}
+      headerHeight={38} rowHeight={view.row_height === "compact" ? 32 : view.row_height === "tall" ? 64 : 38}
+      defaultColDef={{ sortable: true, filter: true, resizable: true }}
+      rowSelection={{ mode: "multiRow", checkboxes: !readOnly, headerCheckbox: !readOnly }}
+      isRowSelectable={params => Boolean(params.data && canWriteRecord(params.data.id))}
+      getRowStyle={params => { const color = params.data ? rowColor(content, params.data, view) : undefined; return color ? { backgroundColor: color } : undefined; }}
+      readOnlyEdit stopEditingWhenCellsLoseFocus maintainColumnOrder
+      onGridReady={event => { api.current = event.api; }}
+      onSelectionChanged={event => onSelected(new Set(event.api.getSelectedRows().map(record => record.id)))}
+      onCellDoubleClicked={event => {
+        if (event.data && !event.column.isCellEditable(event.node)) onRecord(event.data, event.column.getColId());
+      }}
+      onCellEditRequest={event => {
+        const field = fieldsByID.get(event.column.getColId());
+        if (!event.data || !field || !event.column.isCellEditable(event.node)) return;
+        onCell(event.data.id, field, coerceGridInput(field, event.newValue ?? ""));
+      }}
+    />
+  </div>;
 }
 
 function KanbanView({ content, view, canMove, onRecord, onMove }: { content: GridContent; view: GridView; canMove(record: GridRecord, field: GridField): boolean; onRecord(record: GridRecord): void; onMove(record: GridRecord, fieldID: string, value: unknown): void }) {
@@ -106,6 +203,29 @@ function FieldCreateMenu({ content, type, onType, onCreate }: { content: GridCon
     {type === "lookup" && <><label>{kt("knowledge.auto.f8dfa9438f7aee9d")}<Select value={relationFieldID} onChange={event => setRelationFieldID(event.target.value)}><option value="">{kt("knowledge.auto.da590a8fe3ce4de0")}</option>{relations.map(field => <option key={field.id} value={field.id}>{field.name}</option>)}</Select></label><label>{kt("knowledge.auto.38ea8dbd845e2ec7")}<Select value={targetFieldID} onChange={event => setTargetFieldID(event.target.value)}><option value="">{kt("knowledge.auto.da590a8fe3ce4de0")}</option>{content.fields.map(field => <option key={field.id} value={field.id}>{field.name}</option>)}</Select></label></>}
     <Button className="primary" disabled={disabled} onClick={() => { const id = gridID("field"); const optionList = options.split(",").map(item => item.trim()).filter(Boolean); onCreate({ id, name: name.trim(), type, ...(type === "single_select" || type === "multi_select" ? { options: optionList.map((label, index) => ({ id: `${id}_option_${index + 1}`, label, color: optionColors[index % optionColors.length] })) } : {}), ...(type === "formula" ? { formula } : {}), ...(type === "relation" ? { relation: { page_id: "self" } } : {}), ...(type === "lookup" ? { lookup: { relation_field_id: relationFieldID, target_field_id: targetFieldID } } : {}) }); }}>{kt("knowledge.auto.2c1e786d8385c27b")}</Button>
   </div>;
+}
+
+function GridFieldSettings({ field, onSave, onClose }: { field: GridField; onSave(name: string): void; onClose(): void }) {
+  const [name, setName] = useState(field.name);
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => nameRef.current?.select(), []);
+  const cancelLabel = kt("knowledge.auto.2cd0f3be8738a86c");
+  const fieldLabel = ktf("knowledge.auto.babdbb1f471fe71f", { value0: field.name });
+  return <aside className="native-grid-settings native-grid-field-settings" aria-label={fieldLabel} onKeyDown={event => {
+    if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+  }}>
+    <header><div><strong>{kt("knowledge.auto.051836569928a9f9")}</strong><small>{gridFieldLabel(field.type)}</small></div>
+      <button type="button" aria-label={cancelLabel} onClick={onClose}><X size={16} aria-hidden="true" /></button>
+    </header>
+    <form onSubmit={event => {
+      event.preventDefault();
+      const nextName = name.trim();
+      if (nextName) onSave(nextName);
+    }}>
+      <label>{kt("knowledge.auto.89da4affb504ec0f")}<input ref={nameRef} autoFocus required maxLength={256} value={name} onChange={event => setName(event.target.value)} /></label>
+      <footer><Button type="button" onClick={onClose}>{cancelLabel}</Button><Button type="submit" className="primary" disabled={!name.trim()}>{kt("knowledge.auto.a3030bf8f16dc63c")}</Button></footer>
+    </form>
+  </aside>;
 }
 
 function ViewSettings({ content, view, onChange, onClose }: { content: GridContent; view: GridView; onChange(view: GridView): void; onClose(): void }) {
@@ -161,6 +281,8 @@ function AutomationSettings({ content, onChange, onClose }: { content: GridConte
 }
 
 export function GridEditor({ body, readOnly = false, gridAccess, initialSearchLocation, onChange, uploadFile, pageActionHost, authorizeContentAction, onActionFeedback }: KnowledgeEditorProps) {
+  const [fieldID, setFieldID] = useState("");
+  const [recordFieldID, setRecordFieldID] = useState("");
   const content = useMemo(() => parseGridContent(body), [body]); const sharedViewID = typeof window === "undefined" ? "" : new URL(window.location.href).searchParams.get("view") || ""; const [viewID, setViewID] = useState(content.views.some(view => view.id === sharedViewID && view.shared) ? sharedViewID : content.views[0]?.id || ""), [fieldType, setFieldType] = useState<GridFieldType>("text"), [viewType, setViewType] = useState<GridViewType>("grid"); const [showFieldMenu, setShowFieldMenu] = useState(false), [showViewMenu, setShowViewMenu] = useState(false), [showSettings, setShowSettings] = useState(false), [showDashboard, setShowDashboard] = useState(false), [showAutomations, setShowAutomations] = useState(false), [showPermissions, setShowPermissions] = useState(false); const [recordID, setRecordID] = useState(""), [selected, setSelected] = useState(new Set<string>()), importRef = useRef<HTMLInputElement>(null); const view = content.views.find(item => item.id === viewID) || content.views[0];
   useEffect(() => { if (!content.views.some(item => item.id === viewID)) setViewID(content.views[0]?.id || ""); }, [content.views, viewID]); const commit = (next: GridContent) => onChange(JSON.stringify(next)); const updateRecord = (record: GridRecord) => commit({ ...content, records: content.records.map(item => item.id === record.id ? record : item) }); const updateView = (next: GridView) => commit({ ...content, views: content.views.map(item => item.id === next.id ? next : item) }); const addRecord = (values: Record<string, unknown> = {}) => { const recordValues = { ...values }; for (const field of content.fields) {
     if (!field.required || computedGridFieldTypes.has(field.type) || recordValues[field.id] !== undefined && recordValues[field.id] !== "") continue;
@@ -173,18 +295,52 @@ export function GridEditor({ body, readOnly = false, gridAccess, initialSearchLo
                 : field.type === "person" || field.type === "multi_select" || field.type === "relation" || field.type === "attachment" ? []
                   : field.type === "single_select" ? field.options?.[0]?.id || ""
                     : 0;
-  } const now = new Date().toISOString(); const record: GridRecord = { id: gridID("record"), values: recordValues, created_at: now, updated_at: now }; commit({ ...content, records: [...content.records, record] }); setRecordID(record.id); };
+  } const now = new Date().toISOString(); const record: GridRecord = { id: gridID("record"), values: recordValues, created_at: now, updated_at: now }; commit({ ...content, records: [...content.records, record] }); openRecord(record); };
   useEffect(() => {
     if (initialSearchLocation?.kind !== "cell" || !initialSearchLocation.record_id || !content.records.some(record => record.id === initialSearchLocation.record_id)) return;
     setRecordID(initialSearchLocation.record_id);
+    setRecordFieldID(initialSearchLocation.field_id || "");
     setShowDashboard(false);
   }, [content.records, initialSearchLocation]);
   const exportCSV = async () => { if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165")); await authorizeContentAction("export"); const rows = [content.fields.map(field => field.name), ...gridRecordsForView(content, view).map(record => content.fields.map(field => gridCellDisplay(content, record, field)))]; downloadBlob(new Blob(["\ufeff", rows.map(row => row.map(csvEscape).join(",")).join("\n")], { type: "text/csv;charset=utf-8" }), `${view.name}.csv`); };
   const exportXLSX = async () => { if (!authorizeContentAction) throw Error(kt("knowledge.auto.5838a06d4990c165")); await authorizeContentAction("export"); const { Workbook } = await import("exceljs"); const workbook = new Workbook(), sheet = workbook.addWorksheet(view.name.slice(0, 31)); sheet.addRow(content.fields.map(field => field.name)); for (const record of gridRecordsForView(content, view)) sheet.addRow(content.fields.map(field => gridCellDisplay(content, record, field))); const buffer = await workbook.xlsx.writeBuffer(); downloadBlob(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), `${view.name}.xlsx`); };
   const importFile = async (file: File) => { let rows: string[][] = []; if (file.name.toLowerCase().endsWith(".xlsx")) { const { Workbook } = await import("exceljs"), workbook = new Workbook(); await workbook.xlsx.load(await file.arrayBuffer()); const sheet = workbook.worksheets[0]; sheet?.eachRow(row => { const values = Array.isArray(row.values) ? row.values : []; rows.push(values.slice(1).map(value => String(value ?? ""))); }); } else rows = parseCSV(await file.text()); if (rows.length < 2) throw Error(kt("knowledge.auto.d5d7db801448d607")); const headers = rows[0].map(value => value.trim()), fields = [...content.fields]; const mapped = headers.map((header, index) => fields.find(field => field.name === header) || (() => { const field: GridField = { id: gridID("field"), name: header || ktf("knowledge.auto.9263081cb5836e13", { value0: index + 1 }), type: "text" }; fields.push(field); return field; })()); const records = rows.slice(1).filter(row => row.some(Boolean)).map(row => ({ id: gridID("record"), values: Object.fromEntries(mapped.map((field, index) => [field.id, coerceGridInput(field, row[index] || "")])), created_at: new Date().toISOString(), updated_at: new Date().toISOString() })); commit({ ...content, fields, records: [...content.records, ...records] }); onActionFeedback?.(ktf("knowledge.auto.1399e9492c99c5ff", { value0: records.length })); };
   const tableWritable = !readOnly && (gridAccess?.write ?? true), canManageGrid = !readOnly && (gridAccess?.manage ?? true), canWriteField = (id: string) => tableWritable && (gridAccess?.field_write?.[id] ?? true), canWriteRecord = (id: string) => tableWritable && (gridAccess?.record_write?.[id] ?? true), canWriteView = (id: string) => tableWritable && (gridAccess?.view_write?.[id] ?? true); const activeRecord = content.records.find(record => record.id === recordID); if (!view) return <div className="native-grid-empty">{kt("knowledge.auto.f45e6d73b5899d9f")}</div>;
+  const activeField = content.fields.find(field => field.id === fieldID);
+  const openRecord = (record: GridRecord, targetFieldID = "") => {
+    setFieldID("");
+    setRecordFieldID(targetFieldID);
+    setRecordID(record.id);
+  };
+  const openField = (field: GridField) => {
+    setRecordID("");
+    setShowSettings(false);
+    setShowAutomations(false);
+    setShowPermissions(false);
+    setFieldID(field.id);
+  };
+  const updateCell = (recordID: string, field: GridField, value: unknown) => {
+    const record = content.records.find(item => item.id === recordID);
+    if (!record || !canWriteRecord(recordID) || !canWriteField(field.id) || Object.is(record.values[field.id], value)) return;
+    updateRecord({ ...record, values: { ...record.values, [field.id]: value }, updated_at: new Date().toISOString() });
+  };
   return <div className="knowledge-open-editor is-ag-grid">{authorizeContentAction && <PageActionPortal host={pageActionHost}><Button title={kt("knowledge.auto.e40a628ffec72072")} onClick={() => void exportCSV().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.f7862b83251f2349")))}><Download size={15} />CSV</Button><Button title={kt("knowledge.auto.b480f22fc1f8f8da")} onClick={() => void exportXLSX().catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.f7862b83251f2349")))}><Download size={15} />XLSX</Button></PageActionPortal>}<div className="native-grid-toolbar"><nav aria-label={kt("knowledge.auto.1ab001035ce8368a")}>{content.views.map(item => { const Icon = viewIcons[item.type]; return <button type="button" key={item.id} aria-current={item.id === view.id ? "page" : undefined} onClick={() => { setViewID(item.id); setShowDashboard(false); }}><Icon size={14} />{item.name}</button>; })}</nav>{tableWritable && <div><Button onClick={() => addRecord()}><Plus size={15} />{kt("knowledge.auto.42845d86b969c68f")}</Button><span className="native-grid-menu-anchor"><Button title={kt("knowledge.auto.09dc8cd2d64e99c2")} onClick={() => setShowFieldMenu(value => !value)}><Plus size={15} />{kt("knowledge.auto.49ecd0e342d6d23b")}</Button>{showFieldMenu && <FieldCreateMenu content={content} type={fieldType} onType={setFieldType} onCreate={field => { commit({ ...content, fields: [...content.fields, field] }); setShowFieldMenu(false); }} />}</span><span className="native-grid-menu-anchor"><Button title={kt("knowledge.auto.82ab62b843d68e65")} onClick={() => setShowViewMenu(value => !value)}><Plus size={15} />{kt("knowledge.auto.1c5c067138704dda")}</Button>{showViewMenu && <div className="native-grid-create-menu"><label>{kt("knowledge.auto.27b77b59be312a45")}<Select value={viewType} onChange={event => setViewType(event.target.value as GridViewType)}>{gridViewTypes.map(type => <option key={type} value={type}>{gridViewLabel(type)}</option>)}</Select></label><Button className="primary" onClick={() => { const next: GridView = { id: gridID("view"), name: gridViewLabel(viewType), type: viewType, row_height: "normal" }; commit({ ...content, views: [...content.views, next] }); setViewID(next.id); setShowViewMenu(false); }}>{kt("knowledge.auto.2bfedf305a16e122")}</Button></div>}</span><Button title={kt("knowledge.auto.81b0834aa6049795")} disabled={!canWriteView(view.id)} aria-pressed={showSettings} onClick={() => setShowSettings(value => !value)}><Settings2 size={15} /></Button>{canManageGrid && <><Button title={kt("knowledge.auto.8438f55f61c7a0e9")} aria-pressed={showAutomations} onClick={() => setShowAutomations(value => !value)}><Zap size={15} /></Button><Button title={kt("knowledge.auto.4cffce2eeabc00c9")} aria-pressed={showPermissions} onClick={() => setShowPermissions(value => !value)}><ShieldCheck size={15} /></Button></>}</div>}<div className="native-grid-transfer"><Button title={kt("knowledge.auto.0853bf3c01440ea8")} aria-pressed={showDashboard} onClick={() => setShowDashboard(value => !value)}><BarChart3 size={15} /></Button>{view.shared && <Button title={kt("knowledge.auto.6554d80746ad5817")} onClick={() => { const url = new URL(window.location.href); url.searchParams.set("view", view.id); void navigator.clipboard.writeText(url.toString()); onActionFeedback?.(kt("knowledge.auto.b7056eff2b70f93a")); }}><Share2 size={15} /></Button>}{tableWritable && <><Button title={kt("knowledge.auto.812c3b3b5e350e33")} onClick={() => importRef.current?.click()}><Upload size={15} />{kt("knowledge.auto.576d81bb0631b165")}</Button><input ref={importRef} hidden type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file).catch(failure => onActionFeedback?.(failure instanceof Error ? failure.message : kt("knowledge.auto.d5d4ca58693603db"))); event.currentTarget.value = ""; }} /></>}</div></div>
     {selected.size > 0 && tableWritable && <div className="native-grid-selection"><span>{kt("knowledge.auto.3f4ebc4aad9793b6")}{selected.size} {kt("knowledge.auto.a0b70c96764dd1df")}</span><Button className="danger" onClick={() => { commit({ ...content, records: content.records.filter(record => !selected.has(record.id) || !canWriteRecord(record.id)) }); setSelected(new Set()); }}><Trash2 size={14} />{kt("knowledge.auto.ddae7a0fc554f46a")}</Button><Button onClick={() => setSelected(new Set())}>{kt("knowledge.auto.74966e20df2ea9fd")}</Button></div>}{view.filters?.length ? <div className="native-grid-view-summary"><Filter size={13} />{kt("knowledge.auto.897975e6c490e6e8")}{view.filters.length} {kt("knowledge.auto.f78dac9830c0a662")}</div> : null}
-    {showDashboard ? <GridDashboard content={content} view={view} /> : <>{view.type === "grid" && <GridTable content={content} view={view} readOnly={!tableWritable} canWriteRecord={record => canWriteRecord(record.id)} canWrite={(record, field) => canWriteRecord(record.id) && canWriteField(field.id)} selected={selected} onSelected={setSelected} onRecord={record => setRecordID(record.id)} onCell={(record, field, value) => updateRecord({ ...record, values: { ...record.values, [field.id]: value }, updated_at: new Date().toISOString() })} />}{view.type === "kanban" && <KanbanView content={content} view={view} canMove={(record, field) => canWriteRecord(record.id) && canWriteField(field.id)} onRecord={record => setRecordID(record.id)} onMove={(record, fieldID, value) => updateRecord({ ...record, values: { ...record.values, [fieldID]: value }, updated_at: new Date().toISOString() })} />}{view.type === "gantt" && <GanttView content={content} view={view} onRecord={record => setRecordID(record.id)} />}{view.type === "calendar" && <CalendarView content={content} view={view} onRecord={record => setRecordID(record.id)} />}{view.type === "gallery" && <GalleryView content={content} view={view} onRecord={record => setRecordID(record.id)} />}{view.type === "form" && <FormView content={content} view={view} canSubmit={tableWritable} canWriteField={field => canWriteField(field.id)} uploadFile={uploadFile} onSubmit={values => addRecord(values)} />}</>}{showSettings && canWriteView(view.id) && <ViewSettings content={content} view={view} onChange={updateView} onClose={() => setShowSettings(false)} />}{showAutomations && canManageGrid && <AutomationSettings content={content} onChange={commit} onClose={() => setShowAutomations(false)} />}{showPermissions && canManageGrid && <PermissionSettings content={content} onChange={commit} onClose={() => setShowPermissions(false)} />}{activeRecord && <RecordPanel content={content} record={activeRecord} targetFieldID={initialSearchLocation?.record_id === activeRecord.id ? initialSearchLocation.field_id : undefined} canWrite={field => canWriteRecord(activeRecord.id) && canWriteField(field.id)} uploadFile={uploadFile} onChange={record => updateRecord({ ...record, updated_at: new Date().toISOString() })} onClose={() => setRecordID("")} />}
+    {showDashboard ? <GridDashboard content={content} view={view} /> : <>
+      {view.type === "grid" && <GridTable content={content} view={view} readOnly={!tableWritable} canWriteRecord={canWriteRecord} canWriteField={canWriteField} selected={selected} onSelected={setSelected} onRecord={openRecord} onCell={updateCell} onEditField={openField} />}
+      {view.type === "kanban" && <KanbanView content={content} view={view} canMove={(record, field) => canWriteRecord(record.id) && canWriteField(field.id)} onRecord={openRecord} onMove={(record, fieldID, value) => updateRecord({ ...record, values: { ...record.values, [fieldID]: value }, updated_at: new Date().toISOString() })} />}
+      {view.type === "gantt" && <GanttView content={content} view={view} onRecord={openRecord} />}
+      {view.type === "calendar" && <CalendarView content={content} view={view} onRecord={openRecord} />}
+      {view.type === "gallery" && <GalleryView content={content} view={view} onRecord={openRecord} />}
+      {view.type === "form" && <FormView content={content} view={view} canSubmit={tableWritable} canWriteField={field => canWriteField(field.id)} uploadFile={uploadFile} onSubmit={values => addRecord(values)} />}
+    </>}
+    {showSettings && canWriteView(view.id) && <ViewSettings content={content} view={view} onChange={updateView} onClose={() => setShowSettings(false)} />}
+    {showAutomations && canManageGrid && <AutomationSettings content={content} onChange={commit} onClose={() => setShowAutomations(false)} />}
+    {showPermissions && canManageGrid && <PermissionSettings content={content} onChange={commit} onClose={() => setShowPermissions(false)} />}
+    {activeField && canWriteField(activeField.id) && <GridFieldSettings key={activeField.id} field={activeField} onSave={name => {
+      if (name !== activeField.name) commit({ ...content, fields: content.fields.map(field => field.id === activeField.id ? { ...field, name } : field) });
+      setFieldID("");
+    }} onClose={() => setFieldID("")} />}
+    {activeRecord && <RecordPanel content={content} record={activeRecord} targetFieldID={recordFieldID} canWrite={field => canWriteRecord(activeRecord.id) && canWriteField(field.id)} uploadFile={uploadFile} onChange={record => updateRecord({ ...record, updated_at: new Date().toISOString() })} onClose={() => { setRecordID(""); setRecordFieldID(""); }} />}
   </div>;
 }

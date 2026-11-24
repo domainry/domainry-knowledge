@@ -14,14 +14,14 @@ export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
-  const [fitted, setFitted] = useState(false);
+  const [fitted, setFitted] = useState(true);
   const { fullscreen, toggleFullscreen } = usePreviewFullscreen(root);
   useEffect(() => {
     const next = URL.createObjectURL(blob);
     setURL(next);
     setZoom(1);
     setRotation(0);
-    setFitted(false);
+    setFitted(true);
     setImageSize({ width: 0, height: 0 });
     return () => URL.revokeObjectURL(next);
   }, [blob]);
@@ -32,7 +32,9 @@ export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }
     const sideways = rotation % 180 !== 0;
     const width = sideways ? element.naturalHeight : element.naturalWidth;
     const height = sideways ? element.naturalWidth : element.naturalHeight;
-    setZoom(Math.min(3, Math.max(.25, Math.min((frame.clientWidth - 40) / width, (frame.clientHeight - 40) / height))));
+    const availableWidth = Math.max(1, frame.clientWidth - 48);
+    const availableHeight = Math.max(1, frame.clientHeight - 96);
+    setZoom(Math.min(1, Math.max(.25, Math.min(availableWidth / width, availableHeight / height))));
     setFitted(true);
   }, [rotation]);
 
@@ -48,6 +50,18 @@ export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }
   const sideways = rotation % 180 !== 0;
   const scaledWidth = imageSize.width * zoom;
   const scaledHeight = imageSize.height * zoom;
+
+  useLayoutEffect(() => {
+    if (!imageSize.width || !imageSize.height) return;
+    const frame = requestAnimationFrame(() => {
+      const element = viewport.current;
+      if (!element) return;
+      element.scrollLeft = Math.max(0, (element.scrollWidth - element.clientWidth) / 2);
+      element.scrollTop = Math.max(0, (element.scrollHeight - element.clientHeight) / 2);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [imageSize.height, imageSize.width, rotation, zoom]);
+
   return <div ref={root} className="knowledge-file-viewer knowledge-image-viewer">
     {url && <PreviewToolbar
       fitted={fitted}
@@ -59,7 +73,7 @@ export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }
       onZoomChange={changeZoom}
       zoom={zoom}
     >
-      <button type="button" aria-label={kt("knowledge.auto.68eb90fa809e72cc")} title={kt("knowledge.auto.68eb90fa809e72cc")} onClick={() => { setRotation(value => (value + 90) % 360); setFitted(false); }}><RotateCw size={16} /></button>
+      <button type="button" aria-label={kt("knowledge.auto.68eb90fa809e72cc")} title={kt("knowledge.auto.68eb90fa809e72cc")} onClick={() => setRotation(value => (value + 90) % 360)}><RotateCw size={16} /></button>
       <a href={url} download={filename} aria-label={kt("knowledge.auto.aa1d4263667a8086")} title={kt("knowledge.auto.aa1d4263667a8086")}><Download size={16} /></a>
     </PreviewToolbar>}
     {url && <div ref={viewport} className="knowledge-image-scroll">
@@ -70,7 +84,10 @@ export function ImageViewer({ blob, filename }: { blob: Blob; filename: string }
             src={url}
             alt={filename}
             style={{ width: scaledWidth, height: scaledHeight, transform: `translate(-50%, -50%) rotate(${rotation}deg)` }}
-            onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+            onLoad={event => {
+              setImageSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight });
+              requestAnimationFrame(fitImage);
+            }}
           />
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { Building2, ChevronDown, ChevronRight, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Button, Select } from "./components.tsx";
 import { kt, ktf } from "./i18n/runtime.ts";
@@ -13,6 +13,7 @@ type DirectoryIndex = {
   organizations: KnowledgeDirectoryOrganization[];
   organizationByID: Map<string, KnowledgeDirectoryOrganization>;
   childrenByParent: Map<string, KnowledgeDirectoryOrganization[]>;
+  members: KnowledgeDirectoryMember[];
   memberByEmail: Map<string, KnowledgeDirectoryMember>;
   roots: KnowledgeDirectoryOrganization[];
 };
@@ -31,6 +32,7 @@ function buildDirectoryIndex(snapshot: KnowledgePrincipalDirectorySnapshot | nul
     organizations,
     organizationByID,
     childrenByParent,
+    members,
     memberByEmail: new Map(members.filter(item => item.email).map(item => [item.email!.trim().toLowerCase(), item])),
     roots: childrenByParent.get("") || [],
   };
@@ -61,10 +63,20 @@ export function KnowledgeAccessSelector({ client, activeTab, busy, members, orga
   const [loading, setLoading] = useState(true), [loadError, setLoadError] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [emailText, setEmailText] = useState(""), [memberRole, setMemberRole] = useState<KnowledgeLibraryMember["role"]>(defaultRole);
+  const [pendingMembers, setPendingMembers] = useState<KnowledgeDirectoryMember[]>([]);
+  const [memberSuggestions, setMemberSuggestions] = useState<KnowledgeDirectoryMember[]>([]);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false), [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [organizationRole, setOrganizationRole] = useState<KnowledgeLibraryMember["role"]>(defaultRole);
   const [resolving, setResolving] = useState(false), [inputError, setInputError] = useState("");
+  const memberInputRef = useRef<HTMLInputElement>(null);
   const index = useMemo(() => buildDirectoryIndex(directory), [directory]);
   const selectedOrganizationIDs = useMemo(() => new Set(organizations.map(item => item.organization.organization_id)), [organizations]);
+  const unavailableMemberIDs = useMemo(() => new Set([
+    directory?.current_user_id || "",
+    ...members.map(item => item.principal.user_id),
+    ...pendingMembers.map(item => item.user_id),
+  ]), [directory?.current_user_id, members, pendingMembers]);
   const roleLabels: Record<KnowledgeLibraryMember["role"], string> = {
     reader: kt("knowledge.auto.534cb3fa8fbf373f"), editor: kt("knowledge.auto.051836569928a9f9"), manager: kt("knowledge.auto.bb6d995724f49a72"),
   };
@@ -81,25 +93,98 @@ export function KnowledgeAccessSelector({ client, activeTab, busy, members, orga
     return () => abort.abort();
   }, [client]);
 
+  useEffect(() => {
+    const query = emailText.trim().toLocaleLowerCase();
+    if (query.length < 2 || parsedEmails(emailText).length > 1) {
+      setMemberSuggestions([]);
+      setSuggestionsLoading(false);
+      setActiveSuggestion(0);
+      return;
+    }
+
+    const matchesQuery = (item: KnowledgeDirectoryMember) =>
+      item.display_name.toLocaleLowerCase().includes(query) || item.email?.toLocaleLowerCase().includes(query);
+    const available = (item: KnowledgeDirectoryMember) => item.status === "active" && !unavailableMemberIDs.has(item.user_id);
+    const local = index.members.filter(item => available(item) && matchesQuery(item)).slice(0, 8);
+    setMemberSuggestions(local);
+    setActiveSuggestion(0);
+
+    const abort = new AbortController();
+    const timer = window.setTimeout(() => {
+      setSuggestionsLoading(true);
+      void client.searchPrincipals(emailText.trim(), "", 20, abort.signal).then(page => {
+        if (abort.signal.aborted) return;
+        const merged = new Map<string, KnowledgeDirectoryMember>();
+        for (const item of [...local, ...page.items]) {
+          if (available(item) && matchesQuery(item)) merged.set(item.user_id, item);
+        }
+        setMemberSuggestions([...merged.values()].slice(0, 8));
+        setActiveSuggestion(0);
+      }).catch(() => undefined).finally(() => {
+        if (!abort.signal.aborted) setSuggestionsLoading(false);
+      });
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      abort.abort();
+    };
+  }, [client, emailText, index.members, unavailableMemberIDs]);
+
+  function selectMemberSuggestion(principal: KnowledgeDirectoryMember) {
+    setPendingMembers(current => current.some(item => item.user_id === principal.user_id) ? current : [...current, principal]);
+    setEmailText("");
+    setInputError("");
+    setSuggestionsOpen(false);
+    setActiveSuggestion(0);
+    window.requestAnimationFrame(() => memberInputRef.current?.focus());
+  }
+
+  function removePendingMember(userID: string) {
+    setPendingMembers(current => current.filter(item => item.user_id !== userID));
+    setInputError("");
+  }
+
+  async function resolveEmails(value: string) {
+    const resolved: KnowledgeDirectoryMember[] = [];
+    const unresolved: string[] = [];
+    for (const email of parsedEmails(value)) {
+      let principal = index.memberByEmail.get(email);
+      if (!principal) {
+        const page = await client.searchPrincipals(email, "", 20, AbortSignal.timeout(20_000));
+        const match = page.items.find(item => item.status === "active" && item.email?.trim().toLowerCase() === email);
+        if (match && match.user_id !== directory?.current_user_id) principal = { ...match };
+      }
+      if (principal && !members.some(item => item.principal.user_id === principal.user_id)) resolved.push(principal);
+      else if (!principal) unresolved.push(email);
+    }
+    return { resolved, unresolved };
+  }
+
+  async function stageEmails(value: string) {
+    if (!parsedEmails(value).length) return;
+    setResolving(true); setInputError(""); setSuggestionsOpen(false);
+    try {
+      const { resolved, unresolved } = await resolveEmails(value);
+      setPendingMembers(current => {
+        const next = new Map(current.map(item => [item.user_id, item]));
+        for (const principal of resolved) next.set(principal.user_id, principal);
+        return [...next.values()];
+      });
+      setEmailText(unresolved.join(", "));
+      if (unresolved.length) setInputError(ktf("knowledge.access.email_not_found", { value0: unresolved.join(", ") }));
+    } finally { setResolving(false); }
+  }
+
   async function addEmails() {
     const emails = parsedEmails(emailText);
-    if (!emails.length) { setInputError(kt("knowledge.access.email_invalid")); return; }
+    if (!emails.length && pendingMembers.length === 0) { setInputError(kt("knowledge.access.email_invalid")); return; }
     setResolving(true); setInputError("");
     try {
-      const resolved: KnowledgeDirectoryMember[] = [];
-      const unresolved: string[] = [];
-      for (const email of emails) {
-        let principal = index.memberByEmail.get(email);
-        if (!principal) {
-          const page = await client.searchPrincipals(email, "", 20, AbortSignal.timeout(20_000));
-          const match = page.items.find(item => item.status === "active" && item.email?.trim().toLowerCase() === email);
-          if (match) principal = { ...match };
-        }
-        if (principal) resolved.push(principal); else unresolved.push(email);
-      }
+      const { resolved, unresolved } = emails.length ? await resolveEmails(emailText) : { resolved: [], unresolved: [] };
       const next = new Map(members.map(item => [item.principal.user_id, item]));
-      for (const principal of resolved) next.set(principal.user_id, { principal, role: memberRole });
+      for (const principal of [...pendingMembers, ...resolved]) next.set(principal.user_id, { principal, role: memberRole });
       onMembersChange([...next.values()]);
+      setPendingMembers([]);
       setEmailText(unresolved.join("\n"));
       if (unresolved.length) setInputError(ktf("knowledge.access.email_not_found", { value0: unresolved.join(", ") }));
     } finally { setResolving(false); }
@@ -129,9 +214,43 @@ export function KnowledgeAccessSelector({ client, activeTab, busy, members, orga
   if (activeTab === "members") return <div className="knowledge-access-editor" role="tabpanel">
     <div className="knowledge-access-editor-copy"><strong>{kt("knowledge.access.add_members")}</strong><span>{kt("knowledge.access.add_members_description")}</span></div>
     <div className="knowledge-bulk-member-editor">
-      <label>{kt("knowledge.access.member_emails")}<textarea rows={1} value={emailText} disabled={busy || resolving} onChange={event => setEmailText(event.target.value)} placeholder={kt("knowledge.access.member_emails_placeholder")} /></label>
+      <label>{kt("knowledge.access.member_emails")}<div className="knowledge-member-combobox">
+        <div className="knowledge-member-token-input" onClick={() => memberInputRef.current?.focus()}>
+          {pendingMembers.map(item => <span className="knowledge-member-token" key={item.user_id}><span>{item.email || item.display_name}</span><button type="button" aria-label={`${kt("knowledge.auto.6135d4159e892541")} ${item.email || item.display_name}`} disabled={busy || resolving} onClick={event => { event.stopPropagation(); removePendingMember(item.user_id); }}><X size={12} /></button></span>)}
+          <input
+            ref={memberInputRef}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={suggestionsOpen && (suggestionsLoading || memberSuggestions.length > 0)}
+            aria-controls="knowledge-member-suggestions"
+            aria-label={kt("knowledge.settings.find_workspace_member")}
+            value={emailText}
+            disabled={busy || resolving}
+            onFocus={() => setSuggestionsOpen(true)}
+            onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
+            onChange={event => { setEmailText(event.target.value); setInputError(""); setSuggestionsOpen(true); }}
+            onPaste={event => { const value = event.clipboardData.getData("text"); if (parsedEmails(value).length) { event.preventDefault(); void stageEmails(value); } }}
+            onKeyDown={event => {
+              if (event.key === "Escape") { setSuggestionsOpen(false); return; }
+              if (event.key === "Backspace" && !emailText && pendingMembers.length) { removePendingMember(pendingMembers.at(-1)!.user_id); return; }
+              if (event.key === "ArrowDown" && memberSuggestions.length) { event.preventDefault(); setSuggestionsOpen(true); setActiveSuggestion(value => (value + 1) % memberSuggestions.length); return; }
+              if (event.key === "ArrowUp" && memberSuggestions.length) { event.preventDefault(); setSuggestionsOpen(true); setActiveSuggestion(value => (value - 1 + memberSuggestions.length) % memberSuggestions.length); return; }
+              if (event.key === "Enter" && suggestionsOpen && memberSuggestions[activeSuggestion]) { event.preventDefault(); selectMemberSuggestion(memberSuggestions[activeSuggestion]); return; }
+              if ((event.key === "Enter" || event.key === "," || event.key === ";") && parsedEmails(emailText).length) { event.preventDefault(); void stageEmails(emailText); }
+            }}
+            placeholder={pendingMembers.length ? kt("knowledge.settings.find_workspace_member") : kt("knowledge.access.member_emails_placeholder")}
+          />
+        </div>
+        {suggestionsOpen && (suggestionsLoading || memberSuggestions.length > 0) && <div id="knowledge-member-suggestions" className="knowledge-member-suggestions" role="listbox" aria-label={kt("knowledge.settings.find_workspace_member")}>
+          {memberSuggestions.map((item, itemIndex) => <button key={item.user_id} type="button" role="option" aria-selected={itemIndex === activeSuggestion} onMouseDown={event => event.preventDefault()} onClick={() => selectMemberSuggestion(item)}>
+            <span className="knowledge-member-avatar" aria-hidden="true">{(item.display_name || item.email || "?").slice(0, 1)}</span>
+            <span><strong>{item.display_name || item.email || item.user_id}</strong><small>{item.email || item.user_id}</small></span>
+          </button>)}
+          {suggestionsLoading && <small className="knowledge-member-suggestions-loading">{kt("knowledge.auto.38e112b5a2be3b56")}</small>}
+        </div>}
+      </div></label>
       <label>{kt("knowledge.auto.c47b54e84e79d77f")}<Select value={memberRole} disabled={busy || resolving} onChange={event => setMemberRole(event.target.value as KnowledgeLibraryMember["role"])}>{Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</Select></label>
-      <Button type="button" className="primary" disabled={busy || resolving || !emailText.trim()} onClick={() => void addEmails()}>{resolving ? kt("knowledge.access.resolving") : kt("knowledge.access.add_to_authorization")}</Button>
+      <Button type="button" className="primary" disabled={busy || resolving || (!emailText.trim() && pendingMembers.length === 0)} onClick={() => void addEmails()}>{resolving ? kt("knowledge.access.resolving") : kt("knowledge.access.add_to_authorization")}</Button>
     </div>
     {inputError && <p className="knowledge-access-input-error" role="alert">{inputError}</p>}
     {members.length > 0 && <div className="knowledge-access-selection-list">{members.map(item => <div key={item.principal.user_id}><span className="knowledge-member-avatar" aria-hidden="true">{(item.principal.display_name || item.principal.email || "?").slice(0, 1)}</span><span><strong>{item.principal.display_name || item.principal.email || item.principal.user_id}</strong><small>{item.principal.email || item.principal.user_id}</small></span><em>{roleLabels[item.role]}</em><Button type="button" aria-label={kt("knowledge.auto.6135d4159e892541")} disabled={busy} onClick={() => onMembersChange(members.filter(candidate => candidate.principal.user_id !== item.principal.user_id))}><X size={13} /></Button></div>)}</div>}

@@ -393,6 +393,9 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(accessSelector, /getPrincipalDirectory/);
   assert.match(accessSelector, /parsedEmails/);
   assert.match(accessSelector, /searchPrincipals/);
+  assert.match(accessSelector, /knowledge-member-suggestions/);
+  assert.match(accessSelector, /knowledge-member-token/);
+  assert.match(accessSelector, /removePendingMember/);
   assert.match(accessSelector, /knowledge-directory-tree/);
   assert.match(accessSelector, /toggleOrganization/);
   assert.doesNotMatch(accessSelector, /输入准确的组织 ID|verify_and_save_org_role/);
@@ -401,7 +404,8 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.match(createMenu, /pageTypeDefinitions\.filter/);
   assert.match(createMenu, /importPageTypes/);
   assertLocalized(createMenu, "上传文件");
-  assert.match(createMenu, /importInput\.current\?\.click\(\)/);
+  assert.match(createMenu, /openNativePicker\(importInput\.current\)/);
+  assert.match(createMenu, /input\?\.click\(\)/);
   assert.match(createMenu, /\{definition\.label\}/);
   assert.doesNotMatch(pages, /createPage\("document"\)/);
   assert.match(workspace, /createSharedLibrary/);
@@ -409,6 +413,8 @@ test("library workspace keeps backend resource types out of primary navigation",
   assert.doesNotMatch(workspace, /name: "未命名知识库"/);
   assert.match(workspace, /libraryRailBranch/);
   assert.match(workspace, /knowledge-scope-library-list/);
+  assert.match(workspace, /railNavigationTab/);
+  assert.match(workspace, /knowledge-navigation-tabs/);
   assert.match(workspace, /client\.setMember\(value\.id, member\.principal\.user_id, member\.role, value\.revision/);
   assert.match(workspace, /client\.setOrganizationMember\(value\.id, organization\.organization\.organization_id, organization\.role, value\.revision/);
   assert.doesNotMatch(workspace, /libraryKind === "personal"/);
@@ -1153,4 +1159,17 @@ test("PDF preview is a continuous bounded reader with a fixed complete toolbar",
   assert.match(styles, /\.knowledge-pdf-viewer \{[^}]*height:/);
   assert.match(styles, /\.knowledge-file-page > \.knowledge-pdf-viewer \{[^}]*flex: 0 0/);
   assert.match(styles, /\.knowledge-pdf-pages \{[^}]*flex-direction: column;/);
+});
+
+test("office preview controls stay fixed inside the visible preview bounds", async () => {
+  const toolbar = await readFile(path.join(root, "src", "viewers", "PreviewToolbar.tsx"), "utf8");
+  const styles = await readFile(path.join(root, "src", "styles.css"), "utf8");
+
+  assert.match(styles, /\.knowledge-preview-toolbar \{[^}]*position: fixed;/);
+  assert.match(toolbar, /preview\.getBoundingClientRect\(\)/);
+  assert.match(toolbar, /parent\.getBoundingClientRect\(\)/);
+  assert.match(toolbar, /visibleBottom - toolbarHeight - inset/);
+  assert.match(toolbar, /createPortal\(content, portalTarget\)/);
+  assert.match(toolbar, /window\.addEventListener\("scroll", schedule, true\)/);
+  assert.match(toolbar, /maximumTop >= minimumTop/);
 });
