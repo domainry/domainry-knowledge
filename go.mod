@@ -6,23 +6,23 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.113.4
-	github.com/domainry/domainry-audit v0.1.46
-	github.com/domainry/domainry-connector-sdk v0.1.24
-	github.com/domainry/domainry-connectors v0.1.34
-	github.com/domainry/domainry-identity v0.2.84
-	github.com/domainry/domainry-metadata v0.1.40
+	github.com/domainry/domainry-audit v0.1.47
+	github.com/domainry/domainry-connector-sdk v0.1.25
+	github.com/domainry/domainry-connectors v0.1.35
+	github.com/domainry/domainry-identity v0.2.92
+	github.com/domainry/domainry-metadata v0.1.41
 	github.com/domainry/domainry-orm v0.1.34
-	github.com/domainry/domainry-report-sdk v0.1.30
-	github.com/domainry/domainry-tools-sdk v0.1.29
+	github.com/domainry/domainry-report-sdk v0.1.31
+	github.com/domainry/domainry-tools-sdk v0.1.30
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
 require (
 	github.com/aws/smithy-go v1.28.1
-	github.com/domainry/domainry-audit-sdk v0.1.22
-	github.com/domainry/domainry-foundation v0.2.22
-	github.com/domainry/domainry-identity-sdk v0.1.45
-	github.com/domainry/domainry-knowledge-sdk v0.1.46
+	github.com/domainry/domainry-audit-sdk v0.1.23
+	github.com/domainry/domainry-foundation v0.2.29
+	github.com/domainry/domainry-identity-sdk v0.1.46
+	github.com/domainry/domainry-knowledge-sdk v0.1.47
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/metric v1.45.0
 	golang.org/x/crypto v0.55.0
@@ -52,10 +52,10 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/coreos/go-oidc/v3 v3.20.0 // indirect
 	github.com/crewjam/saml v0.5.1 // indirect
-	github.com/domainry/domainry-data-exchange-sdk v0.3.22 // indirect
-	github.com/domainry/domainry-integration-sdk v0.1.28 // indirect
-	github.com/domainry/domainry-metadata-sdk v0.1.20 // indirect
-	github.com/domainry/domainry-notification-sdk v0.1.26 // indirect
+	github.com/domainry/domainry-data-exchange-sdk v0.3.23 // indirect
+	github.com/domainry/domainry-integration-sdk v0.1.31 // indirect
+	github.com/domainry/domainry-metadata-sdk v0.1.21 // indirect
+	github.com/domainry/domainry-notification-sdk v0.1.27 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-asn1-ber/asn1-ber v1.5.8 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
